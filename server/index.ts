@@ -710,7 +710,7 @@ app.post('/api/backup/import', (req: Request, res: Response) => {
 
 // ----------------- SYSTEM & HEALTH -----------------
 app.get('/api/system/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', version: '1.0.5', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', version: '1.0.6', timestamp: new Date().toISOString() });
 });
 
 // ----------------- GITHUB UPDATER -----------------

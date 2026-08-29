@@ -1,11 +1,11 @@
 {
   "name": "postaci",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "type": "module",
   "description": "Next-Gen Desktop & Web Email Client (Outlook / Mailbird / Thunderbird Hybrid)",
   "author": "eekilinc <ekilinc@mehmetakif.edu.tr>",
   "private": true,
-  "main": "desktop/main.js",
+  "main": "desktop/main.cjs",
   "scripts": {
     "dev": "concurrently -k -n \"SERVER,CLIENT\" -c \"blue,green\" \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "tsx watch server/index.ts",
