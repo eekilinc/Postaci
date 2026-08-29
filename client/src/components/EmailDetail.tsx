@@ -24,7 +24,9 @@ import {
   MailOpen,
   Image as ImageIcon,
   Sun,
-  Moon
+  Moon,
+  ListTodo,
+  CheckSquare
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { useMail } from '../context/MailContext';
@@ -53,6 +55,13 @@ export const EmailDetail: React.FC = () => {
 
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [extractedTasks, setExtractedTasks] = useState<Array<{
+    task: string;
+    type: 'action' | 'meeting' | 'question' | 'deadline';
+    urgency: 'high' | 'normal';
+    date?: string;
+  }>>([]);
+  const [isExtractingTasks, setIsExtractingTasks] = useState(false);
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
   const [securityStatus, setSecurityStatus] = useState<any>(null);
   const [loadRemoteImages, setLoadRemoteImages] = useState(false);
@@ -63,6 +72,7 @@ export const EmailDetail: React.FC = () => {
   useEffect(() => {
     if (!selectedEmail) {
       setAiSummary(null);
+      setExtractedTasks([]);
       setSmartReplies([]);
       setSecurityStatus(null);
       setLoadRemoteImages(false);
@@ -72,6 +82,7 @@ export const EmailDetail: React.FC = () => {
 
     // Set pre-computed AI summary & smart replies if available
     setAiSummary(selectedEmail.aiSummary || null);
+    setExtractedTasks([]);
     if (selectedEmail.aiSmartReplies && selectedEmail.aiSmartReplies.length > 0) {
       setSmartReplies(selectedEmail.aiSmartReplies);
     } else {
@@ -119,6 +130,24 @@ export const EmailDetail: React.FC = () => {
       error('Özet oluşturulurken bir hata oluştu.');
     } finally {
       setIsSummarizing(false);
+    }
+  };
+
+  const handleExtractTasks = async () => {
+    if (!selectedEmail) return;
+    setIsExtractingTasks(true);
+    try {
+      const tasks = await api.extractTasks(selectedEmail);
+      setExtractedTasks(tasks);
+      if (tasks.length === 0) {
+        info('Bu e-postada belirgin bir eylem veya görev maddesi tespit edilmedi.');
+      } else {
+        success(`${tasks.length} adet görev ve eylem maddesi çıkarıldı.`);
+      }
+    } catch {
+      error('Görevler çıkarılamadı.');
+    } finally {
+      setIsExtractingTasks(false);
     }
   };
 
@@ -589,24 +618,47 @@ export const EmailDetail: React.FC = () => {
               </span>
             </div>
 
-            {!aiSummary && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
-                onClick={handleGenerateSummary}
-                disabled={isSummarizing}
+                onClick={handleExtractTasks}
+                disabled={isExtractingTasks}
                 style={{
-                  background: 'var(--accent-primary)',
-                  color: 'white',
-                  border: 'none',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-medium)',
+                  color: 'var(--text-primary)',
                   borderRadius: 'var(--radius-sm)',
                   padding: '4px 10px',
                   fontSize: '12px',
                   fontWeight: 600,
                   cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
                 }}
               >
-                {isSummarizing ? 'Özetleniyor...' : 'Özet Çıkar'}
+                <ListTodo size={13} color="var(--accent-primary)" />
+                {isExtractingTasks ? 'Analiz Ediliyor...' : '🎯 Görev & Tarih Çıkar'}
               </button>
-            )}
+
+              {!aiSummary && (
+                <button
+                  onClick={handleGenerateSummary}
+                  disabled={isSummarizing}
+                  style={{
+                    background: 'var(--accent-primary)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '4px 10px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {isSummarizing ? 'Özetleniyor...' : 'Özet Çıkar'}
+                </button>
+              )}
+            </div>
           </div>
 
           {aiSummary && (
@@ -619,8 +671,73 @@ export const EmailDetail: React.FC = () => {
               padding: '10px 14px',
               borderRadius: 'var(--radius-sm)',
               border: '1px solid var(--border-subtle)',
+              marginBottom: extractedTasks.length > 0 ? '10px' : '0',
             }}>
               {aiSummary}
+            </div>
+          )}
+
+          {/* Extracted Tasks and Action Items */}
+          {extractedTasks.length > 0 && (
+            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <CheckSquare size={13} />
+                Çıkarılan Eylemler ve Görev Maddeleri:
+              </div>
+              {extractedTasks.map((t, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '8px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                    fontSize: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                    <span style={{
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      backgroundColor: t.type === 'meeting' ? 'rgba(59, 130, 246, 0.15)' : t.type === 'question' ? 'rgba(234, 179, 8, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                      color: t.type === 'meeting' ? '#3b82f6' : t.type === 'question' ? '#eab308' : '#10b981',
+                    }}>
+                      {t.type === 'meeting' ? '🗓️ Toplantı' : t.type === 'question' ? '❓ Soru' : t.type === 'deadline' ? '⏰ Süreli Görev' : '✅ Eylem'}
+                    </span>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                      {t.task}
+                    </span>
+                    {t.date && (
+                      <span style={{ fontSize: '11px', color: 'var(--accent-purple)', fontWeight: 600 }}>
+                        ({t.date})
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      openReply(selectedEmail);
+                    }}
+                    style={{
+                      backgroundColor: 'transparent',
+                      border: '1px solid var(--border-medium)',
+                      borderRadius: '4px',
+                      padding: '2px 8px',
+                      fontSize: '11px',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Yanıtla
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 

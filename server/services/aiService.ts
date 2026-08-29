@@ -1,36 +1,100 @@
 import { Email } from '../types.js';
 
+export interface ExtractedTask {
+  task: string;
+  type: 'action' | 'meeting' | 'question' | 'deadline';
+  urgency: 'high' | 'normal';
+  date?: string;
+}
+
 export class AIService {
   /**
    * Summarizes an email or an entire thread into actionable bullet points
    */
   public static async summarizeEmail(email: Email): Promise<string> {
-    const text = (email.bodyText || email.snippet).trim();
+    const text = (email.bodyText || email.snippet || email.bodyHtml || '').trim();
 
-    if (text.length < 50) {
+    if (text.length < 40) {
       return `Kısa İleti: "${text}"`;
     }
 
     // Heuristic & NLP summary generator
-    const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 10);
+    const sentences = text.split(/(?<=[.!?\n])\s+/).filter(s => s.trim().length > 8);
     const keyPoints: string[] = [];
 
     // Detect action items or dates
-    const datePattern = /(pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar|saat|tarihinde|günü|\d{1,2}:\d{2})/i;
-    const taskPattern = /(yapalım|tamamlandı|gerekli|lütfen|inceler misin|toplantı|kontrol|rapor)/i;
+    const datePattern = /(pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar|saat|tarihinde|günü|\d{1,2}[:.]\d{2}|\d{1,2}\s+(ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık))/i;
+    const taskPattern = /(yapalım|tamamlandı|gerekli|lütfen|inceler misin|toplantı|kontrol|rapor|görüşme|ek|onay|teslim|gönder|bekliyorum)/i;
 
     for (const s of sentences) {
-      if (keyPoints.length < 3 && (datePattern.test(s) || taskPattern.test(s))) {
-        keyPoints.push(s.trim());
+      if (keyPoints.length < 4 && (datePattern.test(s) || taskPattern.test(s))) {
+        const clean = s.trim().replace(/\s+/g, ' ');
+        if (!keyPoints.includes(clean)) keyPoints.push(clean);
       }
     }
 
     if (keyPoints.length === 0) {
-      keyPoints.push(sentences[0]);
-      if (sentences.length > 1) keyPoints.push(sentences[1]);
+      keyPoints.push((sentences[0] || text).trim());
+      if (sentences.length > 1) keyPoints.push(sentences[1].trim());
     }
 
     return `📌 Özet:\n• ${keyPoints.join('\n• ')}`;
+  }
+
+  /**
+   * Extracts actionable tasks, meeting times and questions from email
+   */
+  public static extractTasks(email: Email): ExtractedTask[] {
+    let text = (email.bodyText || email.snippet || '').trim();
+    if (!text && email.bodyHtml) {
+      text = email.bodyHtml.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
+    }
+    if (!text) return [];
+
+    const rawClauses = text.split(/(?<=[.!?\n])\s+/).flatMap(s => s.split(/(?<=[,;])\s+/)).filter(s => s.trim().length > 5);
+    const tasks: ExtractedTask[] = [];
+
+    const dateRegex = /(\d{1,2}[:.]\d{2}|\d{1,2}\s+(ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)|pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar|yarın|bugün)/i;
+
+    for (const clause of rawClauses) {
+      const clean = clause.trim();
+      const lower = clean.toLowerCase();
+
+      // Question detection
+      if (clean.includes('?') || lower.includes('mısınız') || lower.includes('misiniz') || lower.includes('uygun mu') || lower.includes('edebilir misiniz')) {
+        tasks.push({
+          task: clean,
+          type: 'question',
+          urgency: 'high'
+        });
+        continue;
+      }
+
+      // Meeting detection
+      if (lower.includes('toplantı') || lower.includes('görüşme') || lower.includes('zoom') || lower.includes('meet')) {
+        const dateMatch = clean.match(dateRegex);
+        tasks.push({
+          task: clean,
+          type: 'meeting',
+          urgency: 'normal',
+          date: dateMatch ? dateMatch[0] : undefined
+        });
+        continue;
+      }
+
+      // Action / Deadline detection
+      if (lower.includes('lütfen') || lower.includes('tamamla') || lower.includes('teslim') || lower.includes('incele') || lower.includes('onay') || lower.includes('gönder') || lower.includes('bekliyorum')) {
+        const dateMatch = clean.match(dateRegex);
+        tasks.push({
+          task: clean,
+          type: dateMatch ? 'deadline' : 'action',
+          urgency: lower.includes('acil') || lower.includes('önemli') ? 'high' : 'normal',
+          date: dateMatch ? dateMatch[0] : undefined
+        });
+      }
+    }
+
+    return tasks.slice(0, 6);
   }
 
   /**
@@ -72,9 +136,42 @@ export class AIService {
   }
 
   /**
-   * Enhances / transforms email draft text (Formal, Friendly, Concise, Expand, Fix Grammar)
+   * Generates full professional email draft from a natural language prompt
    */
-  public static async polishText(text: string, style: 'formal' | 'friendly' | 'concise' | 'fix_grammar'): Promise<string> {
+  public static async generateDraft(prompt: string, replyContext?: { fromName?: string; subject?: string; text?: string }): Promise<{ subject: string; bodyHtml: string; bodyText: string }> {
+    const cleanPrompt = prompt.trim();
+    const lowerPrompt = cleanPrompt.toLowerCase();
+    const recipient = replyContext?.fromName || 'İlgili Kişi';
+
+    let subject = replyContext?.subject ? (replyContext.subject.startsWith('Re:') ? replyContext.subject : `Re: ${replyContext.subject}`) : 'Bilgilendirme';
+    let bodyText = '';
+
+    if (lowerPrompt.includes('toplantı') || lowerPrompt.includes('randevu') || lowerPrompt.includes('görüşme')) {
+      subject = subject === 'Bilgilendirme' ? 'Toplantı Planlaması ve Teyidi' : subject;
+      bodyText = `Merhaba ${recipient},\n\n${cleanPrompt} konusuna istinaden yazıyorum. Belirttiğiniz detayları inceledim, uygun bir zaman diliminde toplantımızı gerçekleştirebiliriz.\n\nToplantı ajandası ve görüşmek istediğiniz ek konular varsa lütfen iletiniz.\n\nİyi çalışmalar dilerim,\nSaygılarımla.`;
+    } else if (lowerPrompt.includes('teşekkür') || lowerPrompt.includes('alındı') || lowerPrompt.includes('onay')) {
+      subject = subject === 'Bilgilendirme' ? 'Bilgilendirme ve Teşekkür' : subject;
+      bodyText = `Merhaba ${recipient},\n\nİletiniz tarafımıza ulaştı, bilgilendirmeniz için çok teşekkür ederim.\n\n${cleanPrompt}\n\nKonu ile ilgili sonraki aşamalarda tekrar iletişimde olacağız. İyi çalışmalar dilerim.`;
+    } else if (lowerPrompt.includes('teklif') || lowerPrompt.includes('fiyat') || lowerPrompt.includes('hizmet')) {
+      subject = subject === 'Bilgilendirme' ? 'Hizmet Teklifi ve Detaylı Bilgilendirme' : subject;
+      bodyText = `Sayın ${recipient},\n\nTalep etmiş olduğunuz hizmet detayları ve fiyatlandırma teklifimiz ekte bilgilerinize sunulmuştur.\n\n${cleanPrompt}\n\nTeklifimizi inceledikten sonra sorularınız veya revizyon talepleriniz olursa memnuniyetle yanıtlayabilirim.\n\nSaygılarımla,\nİyi çalışmalar.`;
+    } else if (lowerPrompt.includes('reddet') || lowerPrompt.includes('olumsuz') || lowerPrompt.includes('uygun değil')) {
+      subject = subject === 'Bilgilendirme' ? 'Talep Değerlendirmesi' : subject;
+      bodyText = `Merhaba ${recipient},\n\nİlettiğiniz teklif ve ilgi için teşekkür ederiz. Mevcut planlama ve önceliklerimiz doğrultusunda şu aşamada talebinize olumlu yanıt veremediğimizi üzülerek belirtmek isteriz.\n\nİlerleyen dönemlerdeki projelerde yeniden bir araya gelmeyi umar, çalışmalarınızda başarılar dileriz.\n\nSaygılarımla.`;
+    } else {
+      subject = subject === 'Bilgilendirme' ? (cleanPrompt.length > 40 ? cleanPrompt.substring(0, 40) + '...' : cleanPrompt) : subject;
+      bodyText = `Merhaba ${recipient},\n\n${cleanPrompt}\n\nKonu hakkında değerlendirmelerinizi rica eder, iyi çalışmalar dilerim.\n\nSaygılarımla.`;
+    }
+
+    const bodyHtml = bodyText.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+
+    return { subject, bodyHtml, bodyText };
+  }
+
+  /**
+   * Enhances / transforms email draft text (Formal, Friendly, Concise, Persuasive, Expand, Fix Grammar)
+   */
+  public static async polishText(text: string, style: 'formal' | 'friendly' | 'concise' | 'persuasive' | 'expand' | 'fix_grammar'): Promise<string> {
     if (!text || text.trim().length === 0) return text;
 
     const clean = text.trim();
@@ -86,9 +183,12 @@ export class AIService {
         return `Selamlar,\n\n${clean}\n\nUmarım her şey yolundadır! Herhangi bir sorunuz olursa lütfen çekinmeden iletin.\n\nSevgiler,`;
       case 'concise':
         return `${clean.split('.').slice(0, 2).join('.')}. Detaylar için iletişime geçebilirsiniz.`;
+      case 'persuasive':
+        return `Merhaba,\n\n${clean}\n\nBu çözümün iş süreçlerimize sağlayacağı katma değeri birlikte değerlendirmekten memnuniyet duyarız. Görüşlerinizi bekliyoruz.\n\nSaygılarımla,`;
+      case 'expand':
+        return `Merhaba,\n\n${clean}\n\nKonu ile ilgili detaylı analizlerimiz tamamlanmış olup, tüm aşamalar planlandığı şekilde yürütülmektedir. İlave bilgi veya sorularınız için her zaman iletişime geçebilirsiniz.\n\nİyi çalışmalar dilerim,`;
       case 'fix_grammar':
       default:
-        // Capitalize sentences and clean up double spaces
         return clean.replace(/(^\s*|\.\s*)([a-zçğışöü])/g, (m, p1, p2) => p1 + p2.toUpperCase());
     }
   }
@@ -139,7 +239,7 @@ export class AIService {
     else if (score > 0) level = 'low';
 
     return {
-      score: Math.min(100, score),
+      score,
       level,
       reasons,
       hasBlockedImages: hasExternalImages

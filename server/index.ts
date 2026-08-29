@@ -37,6 +37,7 @@ import {
   createContact,
   updateContact,
   deleteContact,
+  searchRecipients,
   getCalendarEvents,
   createCalendarEvent,
   updateCalendarEvent,
@@ -563,6 +564,26 @@ app.post('/api/ai/polish', async (req: Request, res: Response) => {
   }
 });
 
+app.post('/api/ai/draft', async (req: Request, res: Response) => {
+  try {
+    const { prompt, replyContext } = req.body;
+    const draft = await AIService.generateDraft(prompt, replyContext);
+    res.json(draft);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ai/extract-tasks', (req: Request, res: Response) => {
+  try {
+    const email: Email = req.body.email || req.body;
+    const tasks = AIService.extractTasks(email);
+    res.json({ tasks });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/ai/security-check', (req: Request, res: Response) => {
   try {
     const email: Email = req.body;
@@ -659,6 +680,16 @@ app.post('/api/calendar/rsvp', (req: Request, res: Response) => {
 });
 
 // ----------------- CONTACTS -----------------
+app.get('/api/contacts/search', (req: Request, res: Response) => {
+  try {
+    const q = (req.query.q as string) || '';
+    const results = searchRecipients(q);
+    res.json(results);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/contacts', (req: Request, res: Response) => {
   try {
     const contacts = getContacts();
@@ -730,7 +761,7 @@ app.post('/api/backup/import', (req: Request, res: Response) => {
 
 // ----------------- SYSTEM & HEALTH -----------------
 app.get('/api/system/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', version: '1.1.3', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', version: '1.1.4', timestamp: new Date().toISOString() });
 });
 
 // ----------------- GITHUB UPDATER -----------------

@@ -36,6 +36,7 @@ import { useTheme, Theme, AccentColor, Density } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { api } from '../services/api';
 import { Account, ViewLayout } from '../types';
+import { PostaciLogo } from './PostaciLogo';
 
 export const PROVIDER_PRESETS: Record<string, {
   name: string;
@@ -296,7 +297,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.1.3) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.1.4) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -746,7 +747,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.1.3
+            Postacı Desktop v1.1.4
           </div>
         </div>
 
@@ -2144,7 +2145,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.3</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.4</strong>
                       </div>
                     </div>
 
@@ -2280,24 +2281,14 @@ export const SettingsModal: React.FC = () => {
             {/* TAB: ABOUT */}
             {activeTab === 'about' && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '32px 0', gap: '14px' }}>
-                <img
-                  src="/favicon.svg"
-                  alt="Postacı"
-                  style={{
-                    width: '64px',
-                    height: '64px',
-                    borderRadius: '16px',
-                    boxShadow: '0 8px 24px rgba(56, 189, 248, 0.4)',
-                    objectFit: 'contain'
-                  }}
-                />
+                <PostaciLogo size={64} />
 
                 <div>
                   <h3 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.1.3 (x64 Windows & Linux Desktop)
+                    Sürüm 1.1.4 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 

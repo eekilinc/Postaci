@@ -327,7 +327,7 @@ export const api = {
     return data.replies || [];
   },
 
-  async polishText(text: string, style: 'formal' | 'friendly' | 'concise' | 'fix_grammar'): Promise<string> {
+  async polishText(text: string, style: 'formal' | 'friendly' | 'concise' | 'persuasive' | 'expand' | 'fix_grammar'): Promise<string> {
     const res = await fetchSafe(`${API_BASE}/ai/polish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -335,6 +335,34 @@ export const api = {
     });
     const data = await res.json();
     return data.text;
+  },
+
+  async generateDraft(prompt: string, replyContext?: { fromName?: string; subject?: string; text?: string }): Promise<{
+    subject: string;
+    bodyHtml: string;
+    bodyText: string;
+  }> {
+    const res = await fetchSafe(`${API_BASE}/ai/draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, replyContext }),
+    });
+    return res.json();
+  },
+
+  async extractTasks(email: Email): Promise<Array<{
+    task: string;
+    type: 'action' | 'meeting' | 'question' | 'deadline';
+    urgency: 'high' | 'normal';
+    date?: string;
+  }>> {
+    const res = await fetchSafe(`${API_BASE}/ai/extract-tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(email),
+    });
+    const data = await res.json();
+    return data.tasks || [];
   },
 
   async checkSecurity(email: Email): Promise<{
@@ -392,6 +420,12 @@ export const api = {
   },
 
   // Contacts
+  async searchRecipients(q: string): Promise<Array<{ name: string; email: string; source: 'contact' | 'history' }>> {
+    const res = await fetchSafe(`${API_BASE}/contacts/search?q=${encodeURIComponent(q)}`);
+    if (!res.ok) return [];
+    return res.json();
+  },
+
   async getContacts(): Promise<Contact[]> {
     const res = await fetchSafe(`${API_BASE}/contacts`);
     if (!res.ok) throw new Error('Kişiler alınamadı.');

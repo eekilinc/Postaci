@@ -1,7 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { Account, Email, Attachment } from '../types.js';
-import { saveEmail, getAccounts, getAccountById, isDeletedLocally, registerServerFolder, pruneMissingServerUids, updateEmailFlags } from './db.js';
+import { saveEmail, saveEmailWithStatus, getAccounts, getAccountById, isDeletedLocally, registerServerFolder, pruneMissingServerUids, updateEmailFlags } from './db.js';
 import { OAuthService } from './oauthService.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -798,7 +798,10 @@ export class ImapService {
                     aiSmartReplies: null
                   };
 
-                  saveEmail(email, true);
+                  const { email: savedEmail, isNew } = saveEmailWithStatus(email, true);
+                  if (isNew && targetFolder === 'INBOX' && !savedEmail.isRead && this.broadcastCb) {
+                    this.broadcastCb('new_email', savedEmail);
+                  }
                   syncedCount++;
                 } catch (itemErr) {
                   console.warn('Failed to process message:', itemErr);
@@ -906,7 +909,10 @@ export class ImapService {
                       aiSmartReplies: null
                     };
 
-                    saveEmail(email, true);
+                    const { email: savedEmail, isNew } = saveEmailWithStatus(email, true);
+                    if (isNew && targetFolder === 'INBOX' && !savedEmail.isRead && this.broadcastCb) {
+                      this.broadcastCb('new_email', savedEmail);
+                    }
                     syncedCount++;
                   } catch (itemErr) {
                     console.warn('Failed to process message:', itemErr);
@@ -1053,7 +1059,10 @@ export class ImapService {
               aiSmartReplies: null
             };
 
-            saveEmail(email, true);
+            const { email: savedEmail, isNew } = saveEmailWithStatus(email, true);
+            if (isNew && targetFolder === 'INBOX' && !savedEmail.isRead && this.broadcastCb) {
+              this.broadcastCb('new_email', savedEmail);
+            }
             syncedCount++;
           } catch (itemErr) {
             console.warn('Failed to process custom folder message:', itemErr);

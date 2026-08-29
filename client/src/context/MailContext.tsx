@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { Account, Email, FolderStat, ViewLayout, MainTab } from '../types';
 import { api, EVENTS_URL } from '../services/api';
 import { useToast } from './ToastContext';
+import { playNotificationChime } from '../utils/sound';
 
 interface MailContextType {
   accounts: Account[];
@@ -243,6 +244,13 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [selectedEmailId]);
 
+  // Request notification permissions on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
   // Server-Sent Events (SSE) for real-time incoming mail and sync
   useEffect(() => {
     let eventSource: EventSource | null = null;
@@ -252,7 +260,31 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       eventSource.addEventListener('new_email', (event: MessageEvent) => {
         try {
           const newMail: Email = JSON.parse(event.data);
-          info(`Yeni E-Posta: ${newMail.fromName} - ${newMail.subject}`, 'Postacı');
+          const sender = newMail.fromName || newMail.fromEmail || 'Bilinmeyen';
+          const title = `Yeni E-Posta: ${sender}`;
+          const body = `${newMail.subject || '(Konusuz)'}\n${(newMail.snippet || '').substring(0, 90)}`;
+
+          // 1. In-app toast notification
+          info(`${sender}: ${newMail.subject || '(Konusuz)'}`, 'Yeni E-Posta');
+
+          // 2. Play gentle notification audio chime
+          const soundPref = localStorage.getItem('postaci_notif_sound') || 'subtle';
+          playNotificationChime(soundPref);
+
+          // 3. Desktop Native Notification (Windows Action Center / Electron / Web)
+          const desktopNotifsEnabled = localStorage.getItem('postaci_desktop_notifs') !== 'false';
+          if (desktopNotifsEnabled) {
+            if ((window as any).electronAPI?.sendNotification) {
+              (window as any).electronAPI.sendNotification(title, body);
+            } else if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification(title, {
+                body,
+                icon: '/favicon.svg',
+                tag: newMail.id
+              });
+            }
+          }
+
           refreshEmails();
           refreshStats();
         } catch (e) {

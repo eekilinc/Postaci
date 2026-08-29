@@ -1053,6 +1053,39 @@ export function pruneMissingServerUids(
   return deletedCount;
 }
 
+export function saveEmailWithStatus(email: Email, isFromImapSync = false): { email: Email; isNew: boolean } {
+  const isBlank = (!email.fromEmail || email.fromEmail === 'unknown@example.com') &&
+    (!email.fromName || email.fromName === 'Bilinmeyen Gönderici') &&
+    (!email.subject || email.subject === '(Konusuz)' || email.subject.trim() === '') &&
+    !email.bodyText?.trim() && !email.bodyHtml?.trim();
+  if (isBlank) {
+    return { email, isNew: false };
+  }
+
+  const existing = getEmailById(email.id) || (email.messageId ? getEmailByMessageId(email.messageId) : undefined);
+  const isNew = !existing;
+
+  if (isFromImapSync) {
+    if (email.folder !== 'TRASH' && !email.isDeleted && isDeletedLocally(email.id, email.messageId, email.accountId, email.imapUid, email.mailboxPath)) {
+      return { email, isNew: false };
+    }
+    if (existing) {
+      if (existing.folder === 'TRASH' || existing.isDeleted) {
+        return { email: existing, isNew: false };
+      } else if (existing.folder === 'ARCHIVE' || existing.isArchived) {
+        email.folder = 'ARCHIVE';
+        email.isArchived = true;
+      } else if (existing.folder === 'SPAM' || existing.isSpam) {
+        email.folder = 'SPAM';
+        email.isSpam = true;
+      }
+    }
+  }
+
+  const saved = saveEmail(email, isFromImapSync);
+  return { email: saved, isNew };
+}
+
 export function saveEmail(email: Email, isFromImapSync = false): Email {
   // Reject completely blank/phantom emails
   const isBlank = (!email.fromEmail || email.fromEmail === 'unknown@example.com') &&
@@ -1512,6 +1545,88 @@ export function deleteContact(id: string): boolean {
   }
   const res = db.prepare('DELETE FROM contacts WHERE id = ?').run(id);
   return res.changes > 0;
+}
+
+export function searchRecipients(query: string): Array<{ name: string; email: string; source: 'contact' | 'history' }> {
+  const q = (query || '').trim().toLowerCase();
+  const results: Map<string, { name: string; email: string; source: 'contact' | 'history' }> = new Map();
+
+  // 1. From saved contacts
+  const contacts = getContacts();
+  for (const c of contacts) {
+    if (!c.email) continue;
+    const matchName = c.name?.toLowerCase().includes(q);
+    const matchEmail = c.email.toLowerCase().includes(q);
+    if (!q || matchName || matchEmail) {
+      results.set(c.email.toLowerCase(), { name: c.name || c.email.split('@')[0], email: c.email, source: 'contact' });
+    }
+  }
+
+  // 2. From past emails (from, to, cc)
+  if (!isNativeSqlite) {
+    for (const e of memStore.emails) {
+      if (e.fromEmail && !e.fromEmail.includes('unknown@')) {
+        const matchName = e.fromName?.toLowerCase().includes(q);
+        const matchEmail = e.fromEmail.toLowerCase().includes(q);
+        if (!q || matchName || matchEmail) {
+          if (!results.has(e.fromEmail.toLowerCase())) {
+            results.set(e.fromEmail.toLowerCase(), { name: e.fromName || e.fromEmail.split('@')[0], email: e.fromEmail, source: 'history' });
+          }
+        }
+      }
+      for (const t of (e.to || [])) {
+        if (t.email) {
+          const matchName = t.name?.toLowerCase().includes(q);
+          const matchEmail = t.email.toLowerCase().includes(q);
+          if (!q || matchName || matchEmail) {
+            if (!results.has(t.email.toLowerCase())) {
+              results.set(t.email.toLowerCase(), { name: t.name || t.email.split('@')[0], email: t.email, source: 'history' });
+            }
+          }
+        }
+      }
+    }
+  } else {
+    try {
+      const param = `%${q}%`;
+      const emailRows = db.prepare(`
+        SELECT DISTINCT fromName AS name, fromEmail AS email 
+        FROM emails 
+        WHERE (fromName LIKE ? OR fromEmail LIKE ?) AND fromEmail IS NOT NULL AND fromEmail != '' AND fromEmail NOT LIKE '%unknown%'
+        LIMIT 40
+      `).all(param, param) as any[];
+
+      for (const r of emailRows) {
+        if (r.email && !results.has(r.email.toLowerCase())) {
+          results.set(r.email.toLowerCase(), { name: r.name || r.email.split('@')[0], email: r.email, source: 'history' });
+        }
+      }
+
+      // Also search past recipients in to_json
+      const toRows = db.prepare(`
+        SELECT to_json FROM emails 
+        WHERE to_json LIKE ? 
+        LIMIT 40
+      `).all(param) as any[];
+
+      for (const row of toRows) {
+        try {
+          const list = JSON.parse(row.to_json || '[]');
+          for (const item of list) {
+            if (item.email && (item.email.toLowerCase().includes(q) || item.name?.toLowerCase().includes(q))) {
+              if (!results.has(item.email.toLowerCase())) {
+                results.set(item.email.toLowerCase(), { name: item.name || item.email.split('@')[0], email: item.email, source: 'history' });
+              }
+            }
+          }
+        } catch {}
+      }
+    } catch (err) {
+      console.warn('Failed to search email history for recipients:', err);
+    }
+  }
+
+  return Array.from(results.values()).slice(0, 15);
 }
 
 // ----------------- CALENDAR EVENTS -----------------

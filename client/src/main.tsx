@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
+import { PostaciLogo } from './components/PostaciLogo';
 import './index.css';
 
 interface Props {
@@ -42,7 +43,7 @@ class ErrorBoundary extends Component<Props, State> {
           padding: '24px',
           textAlign: 'center',
         }}>
-          <img src="/favicon.svg" alt="Postacı" style={{ width: '64px', height: '64px', marginBottom: '16px' }} />
+          <PostaciLogo size={64} style={{ marginBottom: '16px' }} />
           <h2 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '8px' }}>Postacı Yüklenirken Bir Sorun Oluştu</h2>
           <p style={{ fontSize: '13px', color: '#94a3b8', maxWidth: '500px', marginBottom: '16px' }}>
             {this.state.error?.message || 'Bilinmeyen bir hata meydana geldi.'}

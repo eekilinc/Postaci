@@ -16,7 +16,10 @@ import {
   Code,
   FileText,
   Clock,
-  AlertCircle
+  AlertCircle,
+  Wand2,
+  User,
+  History
 } from 'lucide-react';
 import { useMail } from '../context/MailContext';
 import { useToast } from '../context/ToastContext';
@@ -52,6 +55,12 @@ export const Composer: React.FC = () => {
   const [showCc, setShowCc] = useState(false);
   const [showBcc, setShowBcc] = useState(false);
 
+  // Recipient Autocomplete Suggestions
+  const [suggestions, setSuggestions] = useState<Array<{ name: string; email: string; source: 'contact' | 'history' }>>([]);
+  const [activeInputType, setActiveInputType] = useState<'to' | 'cc' | 'bcc' | null>(null);
+  const [selectedSuggestionIdx, setSelectedSuggestionIdx] = useState<number>(0);
+  const searchTimeoutRef = useRef<any>(null);
+
   const [subject, setSubject] = useState('');
   const [priority, setPriority] = useState<'normal' | 'high'>('normal');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -59,6 +68,11 @@ export const Composer: React.FC = () => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+
+  // Postacı AI Draft Generator Dialog
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -128,6 +142,84 @@ export const Composer: React.FC = () => {
   }, [isComposerOpen, composerData, accounts, activeAccountId]);
 
   if (!isComposerOpen) return null;
+
+  // Search recipients on typing
+  const handleInputChange = (type: 'to' | 'cc' | 'bcc', val: string) => {
+    if (type === 'to') setToInput(val);
+    else if (type === 'cc') setCcInput(val);
+    else if (type === 'bcc') setBccInput(val);
+
+    setActiveInputType(type);
+    setSelectedSuggestionIdx(0);
+
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (!val.trim()) {
+      setSuggestions([]);
+      return;
+    }
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const results = await api.searchRecipients(val);
+        setSuggestions(results);
+      } catch {
+        setSuggestions([]);
+      }
+    }, 100);
+  };
+
+  const handleSelectSuggestion = (type: 'to' | 'cc' | 'bcc', item: { name: string; email: string }) => {
+    const newAddr: EmailAddress = { name: item.name || item.email.split('@')[0], email: item.email };
+    if (type === 'to') {
+      setToRecipients(prev => prev.some(r => r.email.toLowerCase() === newAddr.email.toLowerCase()) ? prev : [...prev, newAddr]);
+      setToInput('');
+    } else if (type === 'cc') {
+      setCcRecipients(prev => prev.some(r => r.email.toLowerCase() === newAddr.email.toLowerCase()) ? prev : [...prev, newAddr]);
+      setCcInput('');
+    } else if (type === 'bcc') {
+      setBccRecipients(prev => prev.some(r => r.email.toLowerCase() === newAddr.email.toLowerCase()) ? prev : [...prev, newAddr]);
+      setBccInput('');
+    }
+    setSuggestions([]);
+    setActiveInputType(null);
+  };
+
+  const handleInputKeyDown = (type: 'to' | 'cc' | 'bcc', e: React.KeyboardEvent<HTMLInputElement>, currentVal: string) => {
+    if (suggestions.length > 0 && activeInputType === type) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedSuggestionIdx(prev => (prev + 1) % suggestions.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedSuggestionIdx(prev => (prev - 1 + suggestions.length) % suggestions.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        if (suggestions[selectedSuggestionIdx]) {
+          e.preventDefault();
+          handleSelectSuggestion(type, suggestions[selectedSuggestionIdx]);
+          return;
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSuggestions([]);
+        setActiveInputType(null);
+        return;
+      }
+    }
+
+    if (e.key === 'Enter' || e.key === ',' || e.key === ';' || e.key === 'Tab') {
+      e.preventDefault();
+      if (currentVal.trim()) {
+        handleAddRecipient(type, currentVal);
+        setSuggestions([]);
+        setActiveInputType(null);
+      }
+    }
+  };
 
   const handleAddRecipient = (type: 'to' | 'cc' | 'bcc', rawValue: string) => {
     if (!rawValue) return;
@@ -200,10 +292,10 @@ export const Composer: React.FC = () => {
     }
   };
 
-  const handleAiPolish = async (style: 'formal' | 'friendly' | 'concise' | 'fix_grammar') => {
+  const handleAiPolish = async (style: 'formal' | 'friendly' | 'concise' | 'persuasive' | 'expand' | 'fix_grammar') => {
     const currentText = editorRef.current?.innerText || '';
     if (!currentText.trim()) {
-      info('Lütfen önce biraz metin yazın.');
+      info('Lütfen önce biraz metin yazın veya "AI ile Taslak Yaz" butonunu kullanın.');
       return;
     }
 
@@ -218,6 +310,37 @@ export const Composer: React.FC = () => {
       error('AI işlemi başarısız oldu.');
     } finally {
       setIsAiLoading(false);
+    }
+  };
+
+  const handleGenerateAiDraft = async () => {
+    if (!aiPrompt.trim()) {
+      info('Lütfen e-posta konusu veya ne anlatmak istediğinizi yazın.');
+      return;
+    }
+
+    setIsAiGenerating(true);
+    try {
+      const recipientName = toRecipients[0]?.name || undefined;
+      const res = await api.generateDraft(aiPrompt, {
+        fromName: recipientName,
+        subject: subject || undefined,
+      });
+
+      if (res.subject && !subject) {
+        setSubject(res.subject);
+      }
+      if (editorRef.current) {
+        editorRef.current.innerHTML = res.bodyHtml;
+      }
+
+      setShowAiModal(false);
+      setAiPrompt('');
+      success('Yapay zeka taslağı hazırlandı!');
+    } catch (err) {
+      error('Taslak oluşturulamadı.');
+    } finally {
+      setIsAiGenerating(false);
     }
   };
 
@@ -259,63 +382,61 @@ export const Composer: React.FC = () => {
     }
 
     if (finalTo.length === 0) {
-      error('Lütfen en az bir alıcı (Kime) girin.');
+      error('Lütfen en az bir alıcı (Kime) adresi belirtin.');
       return;
     }
 
-    const currentHtml = editorRef.current?.innerHTML || '';
-    const currentText = editorRef.current?.innerText || '';
+    const bodyHtml = editorRef.current?.innerHTML || '';
+    const bodyText = editorRef.current?.innerText || '';
 
     setIsSending(true);
-
     try {
+      info('E-posta gönderiliyor...');
       await api.sendMail({
-        accountId: selectedAccountId || accounts[0]?.id,
-        threadId: composerData?.threadId,
-        inReplyTo: composerData?.inReplyTo,
+        accountId: selectedAccountId,
         to: finalTo,
-        cc: finalCc,
-        bcc: finalBcc,
-        subject: subject || '(Konusuz)',
-        bodyText: currentText,
-        bodyHtml: currentHtml,
+        cc: finalCc.length > 0 ? finalCc : undefined,
+        bcc: finalBcc.length > 0 ? finalBcc : undefined,
+        subject: subject.trim() || '(Konusuz)',
+        bodyText,
+        bodyHtml,
+        attachments: attachments.length > 0 ? attachments : undefined,
         priority,
-        attachments,
+        inReplyTo: composerData?.inReplyTo,
+        references: composerData?.references,
+        threadId: composerData?.threadId,
       });
 
+      success('E-posta başarıyla gönderildi!');
       closeComposer();
       refreshEmails();
       refreshStats();
-      success('E-posta başarıyla gönderildi!');
     } catch (err: any) {
-      error(err.message || 'E-posta gönderilemedi.');
+      error(err.message || 'E-posta gönderilirken bir hata oluştu.');
     } finally {
       setIsSending(false);
     }
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: isMinimized ? 0 : '20px',
-        right: '24px',
-        width: isMaximized ? 'calc(100vw - 48px)' : '680px',
-        height: isMinimized ? '44px' : (isMaximized ? 'calc(100vh - 40px)' : '620px'),
-        zIndex: 1000,
-        borderRadius: isMinimized ? 'var(--radius-md) var(--radius-md) 0 0' : 'var(--radius-lg)',
-        display: 'flex',
-        flexDirection: 'column',
-        boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
-        transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-        backgroundColor: 'var(--bg-secondary)',
-        overflow: 'hidden',
-        border: '1px solid var(--border-medium)',
-      }}
-      onDragOver={e => { e.preventDefault(); setIsDraggingOver(true); }}
-      onDragLeave={() => setIsDraggingOver(false)}
-      onDrop={handleDropFiles}
-    >
+    <div style={{
+      position: 'fixed',
+      bottom: isMinimized ? '0' : '20px',
+      right: isMinimized ? '20px' : (isMaximized ? '0' : '20px'),
+      top: isMaximized ? '0' : 'auto',
+      left: isMaximized ? '0' : 'auto',
+      width: isMaximized ? '100vw' : (isMinimized ? '320px' : '680px'),
+      height: isMaximized ? '100vh' : (isMinimized ? '44px' : '640px'),
+      maxHeight: isMaximized ? '100vh' : '90vh',
+      backgroundColor: 'var(--bg-secondary)',
+      borderRadius: isMaximized ? '0' : 'var(--radius-lg)',
+      boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-medium)',
+      zIndex: 1000,
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+    }}>
       {/* Header Bar */}
       <div style={{
         padding: '10px 16px',
@@ -324,12 +445,11 @@ export const Composer: React.FC = () => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        userSelect: 'none',
+        cursor: 'pointer',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Sparkles size={16} color="var(--accent-primary)" />
           <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-            {subject ? subject : (composerData?.inReplyTo ? 'İletiyi Yanıtla' : 'Yeni İleti Oluştur')}
+            {subject.trim() || 'Yeni İleti Oluştur'}
           </span>
         </div>
 
@@ -383,9 +503,9 @@ export const Composer: React.FC = () => {
               </select>
             </div>
 
-            {/* To Field */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
-              <span style={{ width: '50px', color: 'var(--text-muted)', fontWeight: 500 }}>Kime:</span>
+            {/* To Field with Autocomplete */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '13px', position: 'relative' }}>
+              <span style={{ width: '50px', color: 'var(--text-muted)', fontWeight: 500, marginTop: '7px' }}>Kime:</span>
               <div style={{
                 flex: 1,
                 display: 'flex',
@@ -396,6 +516,7 @@ export const Composer: React.FC = () => {
                 backgroundColor: 'var(--bg-tertiary)',
                 borderRadius: 'var(--radius-sm)',
                 border: '1px solid var(--border-subtle)',
+                position: 'relative',
               }}>
                 {toRecipients.map((rec, idx) => (
                   <span
@@ -418,23 +539,11 @@ export const Composer: React.FC = () => {
                 ))}
                 <input
                   type="text"
-                  placeholder={toRecipients.length === 0 ? 'Alıcı e-posta adresi yazın (Enter ile onaylayın)...' : ''}
+                  placeholder={toRecipients.length === 0 ? 'Alıcı e-posta veya isim yazın...' : ''}
                   value={toInput}
-                  onChange={e => setToInput(e.target.value)}
-                  onBlur={() => { if (toInput.trim()) handleAddRecipient('to', toInput); }}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ',' || e.key === ';' || e.key === 'Tab') {
-                      e.preventDefault();
-                      handleAddRecipient('to', toInput);
-                    }
-                  }}
-                  onPaste={e => {
-                    const pasted = e.clipboardData.getData('text');
-                    if (pasted && (pasted.includes(',') || pasted.includes(';') || pasted.includes('\n') || pasted.includes('@'))) {
-                      e.preventDefault();
-                      handleAddRecipient('to', pasted);
-                    }
-                  }}
+                  onChange={e => handleInputChange('to', e.target.value)}
+                  onFocus={() => { if (toInput.trim()) handleInputChange('to', toInput); }}
+                  onKeyDown={e => handleInputKeyDown('to', e, toInput)}
                   style={{
                     flex: 1,
                     minWidth: '140px',
@@ -443,11 +552,72 @@ export const Composer: React.FC = () => {
                     color: 'var(--text-primary)',
                     fontSize: '13px',
                     outline: 'none',
+                    padding: '4px 0',
                   }}
                 />
+
+                {/* Autocomplete Suggestions Dropdown for TO */}
+                {activeInputType === 'to' && suggestions.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-medium)',
+                    borderRadius: 'var(--radius-md)',
+                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+                    zIndex: 1100,
+                    maxHeight: '220px',
+                    overflowY: 'auto',
+                    marginTop: '4px',
+                  }}>
+                    {suggestions.map((item, i) => (
+                      <div
+                        key={i}
+                        onMouseDown={() => handleSelectSuggestion('to', item)}
+                        style={{
+                          padding: '8px 12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          cursor: 'pointer',
+                          backgroundColor: selectedSuggestionIdx === i ? 'var(--bg-active)' : 'transparent',
+                          borderBottom: '1px solid var(--border-subtle)',
+                        }}
+                      >
+                        <div style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '50%',
+                          backgroundColor: item.source === 'contact' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(148, 163, 184, 0.2)',
+                          color: item.source === 'contact' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                        }}>
+                          {item.source === 'contact' ? <User size={13} /> : <History size={13} />}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {item.name}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {item.email}
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', backgroundColor: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: '4px' }}>
+                          {item.source === 'contact' ? 'Kişi' : 'Geçmiş'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
                 {!showCc && (
                   <button
                     onClick={() => setShowCc(true)}
@@ -467,10 +637,10 @@ export const Composer: React.FC = () => {
               </div>
             </div>
 
-            {/* CC Field */}
+            {/* CC Field with Autocomplete */}
             {showCc && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
-                <span style={{ width: '50px', color: 'var(--text-muted)', fontWeight: 500 }}>Cc:</span>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '13px', position: 'relative' }}>
+                <span style={{ width: '50px', color: 'var(--text-muted)', fontWeight: 500, marginTop: '7px' }}>Cc:</span>
                 <div style={{
                   flex: 1,
                   display: 'flex',
@@ -481,6 +651,7 @@ export const Composer: React.FC = () => {
                   backgroundColor: 'var(--bg-tertiary)',
                   borderRadius: 'var(--radius-sm)',
                   border: '1px solid var(--border-subtle)',
+                  position: 'relative',
                 }}>
                   {ccRecipients.map((rec, idx) => (
                     <span
@@ -505,23 +676,9 @@ export const Composer: React.FC = () => {
                     type="text"
                     placeholder="Bilgi alıcıları..."
                     value={ccInput}
-                    onChange={e => setCcInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ',' || e.key === ';' || e.key === 'Tab') {
-                        e.preventDefault();
-                        handleAddRecipient('cc', ccInput);
-                      }
-                    }}
-                    onBlur={() => {
-                      if (ccInput.trim()) handleAddRecipient('cc', ccInput);
-                    }}
-                    onPaste={e => {
-                      const pasted = e.clipboardData.getData('text');
-                      if (pasted && (pasted.includes(',') || pasted.includes(';') || pasted.includes('\n') || pasted.includes('@'))) {
-                        e.preventDefault();
-                        handleAddRecipient('cc', pasted);
-                      }
-                    }}
+                    onChange={e => handleInputChange('cc', e.target.value)}
+                    onFocus={() => { if (ccInput.trim()) handleInputChange('cc', ccInput); }}
+                    onKeyDown={e => handleInputKeyDown('cc', e, ccInput)}
                     style={{
                       flex: 1,
                       minWidth: '120px',
@@ -530,16 +687,56 @@ export const Composer: React.FC = () => {
                       color: 'var(--text-primary)',
                       fontSize: '13px',
                       outline: 'none',
+                      padding: '4px 0',
                     }}
                   />
+
+                  {/* Suggestions for CC */}
+                  {activeInputType === 'cc' && suggestions.length > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-medium)',
+                      borderRadius: 'var(--radius-md)',
+                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+                      zIndex: 1100,
+                      maxHeight: '200px',
+                      overflowY: 'auto',
+                      marginTop: '4px',
+                    }}>
+                      {suggestions.map((item, i) => (
+                        <div
+                          key={i}
+                          onMouseDown={() => handleSelectSuggestion('cc', item)}
+                          style={{
+                            padding: '8px 12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            cursor: 'pointer',
+                            backgroundColor: selectedSuggestionIdx === i ? 'var(--bg-active)' : 'transparent',
+                            borderBottom: '1px solid var(--border-subtle)',
+                          }}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>{item.name}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.email}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* BCC Field */}
+            {/* BCC Field with Autocomplete */}
             {showBcc && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
-                <span style={{ width: '50px', color: 'var(--text-muted)', fontWeight: 500 }}>Bcc:</span>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '13px', position: 'relative' }}>
+                <span style={{ width: '50px', color: 'var(--text-muted)', fontWeight: 500, marginTop: '7px' }}>Bcc:</span>
                 <div style={{
                   flex: 1,
                   display: 'flex',
@@ -550,6 +747,7 @@ export const Composer: React.FC = () => {
                   backgroundColor: 'var(--bg-tertiary)',
                   borderRadius: 'var(--radius-sm)',
                   border: '1px solid var(--border-subtle)',
+                  position: 'relative',
                 }}>
                   {bccRecipients.map((rec, idx) => (
                     <span
@@ -574,23 +772,9 @@ export const Composer: React.FC = () => {
                     type="text"
                     placeholder="Gizli alıcılar..."
                     value={bccInput}
-                    onChange={e => setBccInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ',' || e.key === ';' || e.key === 'Tab') {
-                        e.preventDefault();
-                        handleAddRecipient('bcc', bccInput);
-                      }
-                    }}
-                    onBlur={() => {
-                      if (bccInput.trim()) handleAddRecipient('bcc', bccInput);
-                    }}
-                    onPaste={e => {
-                      const pasted = e.clipboardData.getData('text');
-                      if (pasted && (pasted.includes(',') || pasted.includes(';') || pasted.includes('\n') || pasted.includes('@'))) {
-                        e.preventDefault();
-                        handleAddRecipient('bcc', pasted);
-                      }
-                    }}
+                    onChange={e => handleInputChange('bcc', e.target.value)}
+                    onFocus={() => { if (bccInput.trim()) handleInputChange('bcc', bccInput); }}
+                    onKeyDown={e => handleInputKeyDown('bcc', e, bccInput)}
                     style={{
                       flex: 1,
                       minWidth: '120px',
@@ -599,8 +783,48 @@ export const Composer: React.FC = () => {
                       color: 'var(--text-primary)',
                       fontSize: '13px',
                       outline: 'none',
+                      padding: '4px 0',
                     }}
                   />
+
+                  {/* Suggestions for BCC */}
+                  {activeInputType === 'bcc' && suggestions.length > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-medium)',
+                      borderRadius: 'var(--radius-md)',
+                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+                      zIndex: 1100,
+                      maxHeight: '200px',
+                      overflowY: 'auto',
+                      marginTop: '4px',
+                    }}>
+                      {suggestions.map((item, i) => (
+                        <div
+                          key={i}
+                          onMouseDown={() => handleSelectSuggestion('bcc', item)}
+                          style={{
+                            padding: '8px 12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            cursor: 'pointer',
+                            backgroundColor: selectedSuggestionIdx === i ? 'var(--bg-active)' : 'transparent',
+                            borderBottom: '1px solid var(--border-subtle)',
+                          }}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>{item.name}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.email}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -653,15 +877,36 @@ export const Composer: React.FC = () => {
             gap: '8px',
             overflowX: 'auto',
           }}>
-            <span style={{ fontSize: '11px', color: 'var(--accent-purple)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button
+              onClick={() => setShowAiModal(true)}
+              style={{
+                background: 'linear-gradient(135deg, #8b5cf6, #ec4899)',
+                color: 'white',
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                padding: '4px 10px',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                boxShadow: '0 2px 8px rgba(139, 92, 246, 0.3)',
+                whiteSpace: 'nowrap',
+              }}
+            >
               <Sparkles size={13} />
-              AI Copilot:
-            </span>
+              ✨ AI ile Taslak Yazdır
+            </button>
+
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Üslup:</span>
+
             {[
-              { key: 'formal', label: '👔 Profesyonelleştir' },
-              { key: 'friendly', label: '🤝 Samimi Yap' },
-              { key: 'concise', label: '⚡ Sadeleştir' },
-              { key: 'fix_grammar', label: '📝 İmla & Dilbilgisi' },
+              { key: 'formal', label: '👔 Kurumsal' },
+              { key: 'friendly', label: '😊 Samimi' },
+              { key: 'concise', label: '⚡ Kısa & Öz' },
+              { key: 'persuasive', label: '🎯 İkna Edici' },
+              { key: 'fix_grammar', label: '✍️ İmla Düzelt' },
             ].map(tool => (
               <button
                 key={tool.key}
@@ -683,7 +928,63 @@ export const Composer: React.FC = () => {
             ))}
           </div>
 
-          {/* WYSIWYG Formatting Toolbar with onMouseDown preventDefault to retain editor focus */}
+          {/* AI Draft Generator Prompt Modal */}
+          {showAiModal && (
+            <div style={{
+              padding: '14px 18px',
+              backgroundColor: 'var(--bg-tertiary)',
+              borderBottom: '2px solid var(--accent-primary)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Wand2 size={14} />
+                  Postacı AI Akıllı E-Posta Yazarı
+                </span>
+                <X size={14} style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowAiModal(false)} />
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  placeholder="Örn: 'Toplantıyı Çarşamba 14:00 için teyit et ve ekteki raporu incelemesini rica et...'"
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleGenerateAiDraft(); }}
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-medium)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                    outline: 'none',
+                  }}
+                />
+                <button
+                  onClick={handleGenerateAiDraft}
+                  disabled={isAiGenerating}
+                  style={{
+                    background: 'var(--accent-primary)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '8px 16px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {isAiGenerating ? 'Oluşturuluyor...' : 'Taslak Üret'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* WYSIWYG Formatting Toolbar with onMouseDown preventDefault */}
           <div style={{
             padding: '6px 18px',
             borderBottom: '1px solid var(--border-subtle)',
@@ -731,50 +1032,50 @@ export const Composer: React.FC = () => {
               <ListOrdered size={15} />
             </button>
             <button
-              onMouseDown={e => { e.preventDefault(); handleFormat('formatBlock', 'blockquote'); }}
+              onMouseDown={e => { e.preventDefault(); handleFormat('formatBlock', '<blockquote>'); }}
               title="Alıntı"
               style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', padding: '5px', cursor: 'pointer' }}
             >
               <Quote size={15} />
             </button>
             <button
-              onMouseDown={e => { e.preventDefault(); handleFormat('formatBlock', 'pre'); }}
+              onMouseDown={e => { e.preventDefault(); handleFormat('formatBlock', '<pre>'); }}
               title="Kod Bloğu"
               style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', padding: '5px', cursor: 'pointer' }}
             >
               <Code size={15} />
             </button>
 
-            <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-subtle)', margin: '0 4px' }} />
+            <div style={{ flex: 1 }} />
 
-            {/* Canned Templates Popover Trigger */}
+            {/* Canned Templates Dropdown */}
             <div style={{ position: 'relative' }}>
               <button
                 onClick={() => setShowTemplates(!showTemplates)}
-                title="Hazır E-Posta Şablonları"
+                title="Hazır Yanıt Şablonları"
                 style={{
-                  background: showTemplates ? 'var(--bg-active)' : 'transparent',
-                  border: 'none',
-                  color: showTemplates ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                  padding: '4px 8px',
+                  background: 'transparent',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text-secondary)',
+                  padding: '3px 8px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '4px',
                   fontSize: '11px',
-                  fontWeight: 600,
-                  borderRadius: '4px',
                 }}
               >
-                <FileText size={14} />
+                <FileText size={13} />
                 <span>Şablonlar</span>
               </button>
 
               {showTemplates && (
                 <div style={{
                   position: 'absolute',
-                  top: '28px',
-                  left: 0,
+                  bottom: '100%',
+                  right: 0,
+                  marginBottom: '6px',
                   width: '260px',
                   backgroundColor: 'var(--bg-secondary)',
                   border: '1px solid var(--border-medium)',

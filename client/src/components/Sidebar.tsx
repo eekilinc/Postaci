@@ -25,6 +25,8 @@ import {
 import { useMail } from '../context/MailContext';
 import { useTheme } from '../context/ThemeContext';
 
+import { PostaciLogo } from './PostaciLogo';
+
 export const Sidebar: React.FC = () => {
   const {
     accounts,
@@ -96,17 +98,7 @@ export const Sidebar: React.FC = () => {
         borderBottom: '1px solid var(--border-subtle)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <img
-            src="/favicon.svg"
-            alt="Postacı"
-            style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '8px',
-              boxShadow: '0 4px 14px rgba(56, 189, 248, 0.4)',
-              objectFit: 'contain'
-            }}
-          />
+          <PostaciLogo size={34} />
           <div>
             <h1 style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.2, color: 'var(--text-primary)' }}>
               Postacı
