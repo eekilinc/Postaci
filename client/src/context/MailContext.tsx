@@ -724,8 +724,9 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Global Superhuman & Gmail Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isInput = Boolean(
+      const target = e.target as HTMLElement | null;
+      // If user is focused on ANY input, textarea, select or contentEditable element, never intercept!
+      if (
         target && (
           target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
@@ -733,7 +734,9 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
           target.isContentEditable ||
           target.closest('input, textarea, select, [contenteditable="true"]') !== null
         )
-      );
+      ) {
+        return;
+      }
 
       // Global Command Palette (Ctrl+K or Cmd+K)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -751,8 +754,8 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // If user is inside any modal, composer, or typing in any input/editor, disable all single-key shortcuts!
-      if (isInput || isSettingsOpen || isShortcutsOpen || isCommandPaletteOpen || isComposerOpen) {
+      // If any modal or composer is open, disable all single-key navigation/action shortcuts
+      if (isSettingsOpen || isShortcutsOpen || isCommandPaletteOpen || isComposerOpen) {
         return;
       }
 
@@ -877,7 +880,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedEmailId, emails, isComposerOpen, nextEmail, prevEmail]);
+  }, [selectedEmailId, emails, isComposerOpen, isSettingsOpen, isShortcutsOpen, isCommandPaletteOpen, nextEmail, prevEmail]);
 
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
 

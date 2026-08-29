@@ -150,7 +150,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.0.1) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.0.2) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -460,7 +460,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.0.1
+            Postacı Desktop v1.0.2
           </div>
         </div>
 
@@ -655,8 +655,8 @@ export const SettingsModal: React.FC = () => {
                       <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Port</label>
                       <input
                         type="number"
-                        value={accImapPort}
-                        onChange={e => setAccImapPort(Number(e.target.value))}
+                        value={accImapPort || ''}
+                        onChange={e => setAccImapPort(e.target.value ? Number(e.target.value) : ('' as any))}
                         style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
                       />
                     </div>
@@ -716,8 +716,8 @@ export const SettingsModal: React.FC = () => {
                       <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Port</label>
                       <input
                         type="number"
-                        value={accSmtpPort}
-                        onChange={e => setAccSmtpPort(Number(e.target.value))}
+                        value={accSmtpPort || ''}
+                        onChange={e => setAccSmtpPort(e.target.value ? Number(e.target.value) : ('' as any))}
                         style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
                       />
                     </div>
@@ -1407,7 +1407,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.0.1</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.0.2</strong>
                       </div>
                     </div>
 
@@ -1562,7 +1562,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.0.1 (x64 Windows & Linux Desktop)
+                    Sürüm 1.0.2 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 

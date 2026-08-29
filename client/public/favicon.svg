@@ -1,80 +1,83 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <!-- Background Gradient -->
+    <!-- Crisp Luminous Light Background Gradient -->
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0b1329"/>
-      <stop offset="50%" stop-color="#070c18"/>
-      <stop offset="100%" stop-color="#03060c"/>
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#f0f9ff"/>
+      <stop offset="100%" stop-color="#e0f2fe"/>
     </linearGradient>
 
-    <!-- Border Glow Gradient -->
+    <!-- Sleek Subtle Border Gradient -->
     <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="50%" stop-color="#6366f1"/>
-      <stop offset="100%" stop-color="#a855f7"/>
+      <stop offset="50%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
     </linearGradient>
 
-    <!-- Flap Gradient -->
+    <!-- Vibrant Top Flap Gradient -->
     <linearGradient id="flapGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="100%" stop-color="#3b82f6"/>
+      <stop offset="50%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
     </linearGradient>
 
-    <!-- Body Gradient -->
+    <!-- Dynamic Envelope Body Gradient -->
     <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e293b"/>
-      <stop offset="100%" stop-color="#0f172a"/>
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1e40af"/>
     </linearGradient>
 
-    <!-- Wing/Speed Trail Gradient -->
+    <!-- Vibrant Speed Wing Gradient -->
     <linearGradient id="wingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#06b6d4"/>
       <stop offset="50%" stop-color="#3b82f6"/>
       <stop offset="100%" stop-color="#8b5cf6"/>
     </linearGradient>
 
-    <!-- Drop Shadow Filter -->
-    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
-      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000000" flood-opacity="0.6"/>
-      <feDropShadow dx="0" dy="4" stdDeviation="12" flood-color="#3b82f6" flood-opacity="0.3"/>
+    <!-- Gold Accent Seal Gradient -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde047"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <!-- Soft Drop Shadow Filter for Depth -->
+    <filter id="cardShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0f172a" flood-opacity="0.16"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#2563eb" flood-opacity="0.12"/>
     </filter>
 
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="8" result="blur"/>
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    <filter id="iconShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1e3a8a" flood-opacity="0.3"/>
     </filter>
   </defs>
 
-  <!-- Squircle Background -->
-  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#bgGrad)" stroke="url(#borderGrad)" stroke-width="8" filter="url(#shadow)"/>
+  <!-- Luminous White / Sky Squircle Background -->
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#bgGrad)" stroke="url(#borderGrad)" stroke-width="6" filter="url(#cardShadow)"/>
 
-  <!-- Subtle Inner Grid / Accents -->
-  <circle cx="256" cy="256" r="180" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="8 8" opacity="0.15"/>
-  <circle cx="256" cy="256" r="220" fill="none" stroke="#8b5cf6" stroke-width="1" stroke-dasharray="12 12" opacity="0.1"/>
+  <!-- Dynamic Glowing Speed Wings (Paper Airplane / Postal Bird Curves) -->
+  <path d="M 100 290 C 120 180, 200 130, 400 130 C 310 180, 250 240, 230 340 Z" fill="url(#wingGrad)" opacity="0.85"/>
+  <path d="M 70 330 C 100 240, 180 180, 370 160 C 270 220, 210 290, 180 370 Z" fill="url(#wingGrad)" opacity="0.35"/>
 
-  <!-- Dynamic Post Wings / Speed Lines -->
-  <path d="M 110 280 C 130 190, 200 140, 390 140 C 310 190, 260 250, 240 330 Z" fill="url(#wingGrad)" opacity="0.85" filter="url(#glow)"/>
-  <path d="M 80 320 C 110 240, 180 190, 360 170 C 270 230, 220 290, 190 360 Z" fill="url(#wingGrad)" opacity="0.4"/>
-
-  <!-- Modern Geometric Origami Envelope -->
-  <g filter="url(#shadow)">
+  <!-- Origami 3D Mail Envelope -->
+  <g filter="url(#iconShadow)">
     <!-- Envelope Main Base -->
-    <rect x="116" y="176" width="280" height="200" rx="28" fill="url(#bodyGrad)" stroke="rgba(255, 255, 255, 0.12)" stroke-width="3"/>
+    <rect x="112" y="170" width="288" height="204" rx="28" fill="url(#bodyGrad)" stroke="rgba(255, 255, 255, 0.4)" stroke-width="3"/>
 
-    <!-- Bottom Left/Right Folds -->
-    <path d="M 116 348 L 226 270 L 116 192 Z" fill="#141f32" opacity="0.9"/>
-    <path d="M 396 348 L 286 270 L 396 192 Z" fill="#141f32" opacity="0.9"/>
-    <path d="M 116 376 L 256 264 L 396 376 Z" fill="#0f172a" stroke="rgba(255, 255, 255, 0.08)" stroke-width="2"/>
+    <!-- Left / Right Side Folds -->
+    <path d="M 112 344 L 228 266 L 112 186 Z" fill="#1e3a8a" opacity="0.85"/>
+    <path d="M 400 344 L 284 266 L 400 186 Z" fill="#1e3a8a" opacity="0.85"/>
 
-    <!-- Top Flap (Glowing Active Fold) -->
-    <path d="M 116 186 C 116 186, 230 296, 256 296 C 282 296, 396 186, 396 186 L 396 180 C 396 166, 384 156, 370 156 L 142 156 C 128 156, 116 166, 116 180 Z" 
+    <!-- Bottom Center Fold -->
+    <path d="M 112 374 L 256 260 L 400 374 Z" fill="#172554" stroke="rgba(255, 255, 255, 0.2)" stroke-width="2"/>
+
+    <!-- Top Flap (Luminous Gradient Active Fold) -->
+    <path d="M 112 180 C 112 180, 228 296, 256 296 C 284 296, 400 180, 400 180 L 400 172 C 400 156, 386 146, 370 146 L 142 146 C 126 146, 112 156, 112 172 Z" 
           fill="url(#flapGrad)" 
-          stroke="rgba(255, 255, 255, 0.25)" 
-          stroke-width="2.5"
-          filter="url(#glow)"/>
+          stroke="rgba(255, 255, 255, 0.6)" 
+          stroke-width="3"/>
 
-    <!-- Central Emblem / Postacı Seal -->
-    <circle cx="256" cy="296" r="22" fill="#0b1329" stroke="url(#borderGrad)" stroke-width="3" filter="url(#shadow)"/>
-    <path d="M 256 284 L 264 296 L 256 308 L 248 296 Z" fill="#38bdf8"/>
+    <!-- Golden Postacı Seal / Lightning Emblem -->
+    <circle cx="256" cy="296" r="24" fill="url(#goldGrad)" stroke="#ffffff" stroke-width="3" filter="url(#cardShadow)"/>
+    <path d="M 256 280 L 266 294 L 256 308 L 246 294 Z" fill="#ffffff"/>
   </g>
 </svg>
