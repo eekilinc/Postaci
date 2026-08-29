@@ -65,8 +65,12 @@ function startBackend() {
   }
 }
 
-// Generate modern Tray Icon (SVG to NativeImage)
+// Generate modern Tray Icon
 function createTrayIcon() {
+  const iconPath = path.join(__dirname, 'tray-icon.png');
+  if (fs.existsSync(iconPath)) {
+    return nativeImage.createFromPath(iconPath);
+  }
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
     <rect width="20" height="16" x="2" y="4" rx="3" fill="#0f172a"/>
     <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
@@ -156,6 +160,7 @@ function setupTray() {
 }
 
 function createWindow() {
+  const iconPath = path.join(__dirname, 'icon.png');
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -163,6 +168,7 @@ function createWindow() {
     minHeight: 600,
     title: 'Postacı — Yeni Nesil E-Posta İstemcisi',
     backgroundColor: '#090d16',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {

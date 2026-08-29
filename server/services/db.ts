@@ -38,19 +38,19 @@ function loadJsonStore() {
     try {
       const content = fs.readFileSync(jsonDbPath, 'utf-8');
       const parsed = JSON.parse(content);
-      if (parsed && Array.isArray(parsed.accounts) && parsed.accounts.length > 0) {
+      if (parsed && typeof parsed === 'object') {
         memStore = {
-          accounts: parsed.accounts || [],
-          emails: parsed.emails || [],
-          contacts: parsed.contacts || [],
-          calendar_events: parsed.calendar_events || [],
-          deletedRecords: parsed.deletedRecords || []
+          accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
+          emails: Array.isArray(parsed.emails) ? parsed.emails : [],
+          contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
+          calendar_events: Array.isArray(parsed.calendar_events) ? parsed.calendar_events : [],
+          deletedRecords: Array.isArray(parsed.deletedRecords) ? parsed.deletedRecords : []
         };
         return;
       }
     } catch {}
   }
-  // Initialize with seed data if file doesn't exist or accounts is empty
+  // Initialize with seed data if file doesn't exist
   memStore = {
     accounts: [...initialAccounts],
     emails: [...initialEmails],
@@ -1002,6 +1002,15 @@ export function pruneMissingServerUids(
 }
 
 export function saveEmail(email: Email, isFromImapSync = false): Email {
+  // Reject completely blank/phantom emails
+  const isBlank = (!email.fromEmail || email.fromEmail === 'unknown@example.com') &&
+    (!email.fromName || email.fromName === 'Bilinmeyen Gönderici') &&
+    (!email.subject || email.subject === '(Konusuz)' || email.subject.trim() === '') &&
+    !email.bodyText?.trim() && !email.bodyHtml?.trim();
+  if (isBlank) {
+    return email;
+  }
+
   // If coming from IMAP synchronization, respect local user actions (deletions, trash, archive, spam)
   if (isFromImapSync) {
     if (email.folder !== 'TRASH' && !email.isDeleted && isDeletedLocally(email.id, email.messageId, email.accountId, email.imapUid, email.mailboxPath)) {

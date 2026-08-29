@@ -104,6 +104,9 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const data = await api.getAccounts();
       setAccounts(data);
+      if (data.length === 0) {
+        setIsSettingsOpen(true);
+      }
       // Automatically sync real accounts in background on startup
       const realAccounts = data.filter(a => a.provider !== 'demo');
       for (const acc of realAccounts) {
