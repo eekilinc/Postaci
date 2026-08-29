@@ -2,6 +2,7 @@
   "name": "postaci",
   "version": "1.0.0",
   "description": "Next-Gen Desktop & Web Email Client (Outlook / Mailbird / Thunderbird Hybrid)",
+  "author": "eekilinc <ekilinc@mehmetakif.edu.tr>",
   "private": true,
   "main": "desktop/main.js",
   "scripts": {
@@ -35,6 +36,7 @@
         "AppImage",
         "deb"
       ],
+      "maintainer": "ekilinc@mehmetakif.edu.tr",
       "category": "Network;Email;"
     },
     "win": {
