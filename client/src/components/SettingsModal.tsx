@@ -150,7 +150,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.0.2) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.0.3) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -179,6 +179,14 @@ export const SettingsModal: React.FC = () => {
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleOpenExternal = (url: string) => {
+    if ((window as any).desktop?.openExternal) {
+      (window as any).desktop.openExternal(url);
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   };
 
   // Debounced Autodiscovery when email changes (only when creating new account)
@@ -460,7 +468,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.0.2
+            Postacı Desktop v1.0.3
           </div>
         </div>
 
@@ -630,7 +638,139 @@ export const SettingsModal: React.FC = () => {
                   </div>
                 )}
 
-                {discoveredInfo && (
+                {/* Provider-Specific Connection & App Password Guide */}
+                {accEmail && (accEmail.toLowerCase().includes('gmail') || accEmail.toLowerCase().includes('googlemail')) && (
+                  <div style={{
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                    border: '1px solid rgba(59, 130, 246, 0.25)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
+                        <span>🔴</span>
+                        <span>Google (Gmail) İle Bağlantı Kurma Rehberi</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenExternal('https://myaccount.google.com/apppasswords')}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: 'var(--accent-primary)',
+                          color: 'white',
+                          border: 'none',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <span>🔑 Şifre Oluştur</span>
+                        <ExternalLink size={12} />
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      Google, e-posta istemcileri için hesap şifreniz yerine 16 haneli <strong>"Uygulama Şifresi"</strong> kullanılmasını zorunlu kılar:
+                      <ol style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                        <li>Google hesabınızda <strong>2 Adımlı Doğrulama</strong>'nın açık olduğundan emin olun.</li>
+                        <li>Yukarıdaki <em>"Şifre Oluştur"</em> butonuna tıklayın, uygulama adına <strong>Postacı</strong> yazıp oluşturun.</li>
+                        <li>Verilen 16 haneli şifreyi aşağıdaki <strong>Parola</strong> kutusuna yapıştırın.</li>
+                      </ol>
+                    </div>
+                  </div>
+                )}
+
+                {accEmail && (accEmail.toLowerCase().includes('yandex') || accEmail.toLowerCase().includes('ya.ru')) && (
+                  <div style={{
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
+                        <span>🟡</span>
+                        <span>Yandex Mail İle Bağlantı Kurma Rehberi</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenExternal('https://passport.yandex.com/profile')}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: '#ef4444',
+                          color: 'white',
+                          border: 'none',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <span>🔑 Yandex Güvenlik Sayfası</span>
+                        <ExternalLink size={12} />
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      Yandex profilinizde <strong>Güvenlik → Uygulama şifreleri → Posta</strong> seçeneğinden bir şifre oluşturup aşağıdaki <strong>Parola</strong> alanına giriniz.
+                    </div>
+                  </div>
+                )}
+
+                {accEmail && (accEmail.toLowerCase().includes('icloud') || accEmail.toLowerCase().includes('me.com') || accEmail.toLowerCase().includes('mac.com')) && (
+                  <div style={{
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'rgba(168, 85, 247, 0.08)',
+                    border: '1px solid rgba(168, 85, 247, 0.25)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
+                        <span>🍎</span>
+                        <span>Apple iCloud Bağlantı Rehberi</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenExternal('https://appleid.apple.com/account/manage')}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: '#8b5cf6',
+                          color: 'white',
+                          border: 'none',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <span>🔑 Apple Kimliği Sayfası</span>
+                        <ExternalLink size={12} />
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      Apple ID sayfanızda <strong>Giriş Yapma ve Güvenlik → Uygulamaya Özgü Parolalar</strong> bölümünden "Postacı" için parola oluşturunuz.
+                    </div>
+                  </div>
+                )}
+
+                {discoveredInfo && !accEmail.toLowerCase().includes('gmail') && !accEmail.toLowerCase().includes('yandex') && !accEmail.toLowerCase().includes('icloud') && (
                   <div style={{ padding: '8px 12px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--bg-active)', fontSize: '12px', color: 'var(--accent-primary)' }}>
                     ✨ Sunucu bilgileri <strong>{discoveredInfo.providerName}</strong> için otomatik dolduruldu.
                   </div>
@@ -1407,7 +1547,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.0.2</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.0.3</strong>
                       </div>
                     </div>
 
@@ -1562,7 +1702,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.0.2 (x64 Windows & Linux Desktop)
+                    Sürüm 1.0.3 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 
