@@ -39,9 +39,21 @@
     },
     "win": {
       "target": [
-        "zip",
-        "dir"
+        "nsis",
+        "zip"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Postaci"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "eekilinc",
+      "repo": "Postaci"
     },
     "mac": {
       "target": [
