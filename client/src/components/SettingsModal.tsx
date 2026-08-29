@@ -297,7 +297,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.1.5) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.1.6) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -783,7 +783,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.1.5
+            Postacı Desktop v1.1.6
           </div>
         </div>
 
@@ -2181,7 +2181,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.5</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.6</strong>
                       </div>
                     </div>
 
@@ -2324,7 +2324,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.1.5 (x64 Windows & Linux Desktop)
+                    Sürüm 1.1.6 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 
