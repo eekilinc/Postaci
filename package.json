@@ -1,6 +1,6 @@
 {
   "name": "postaci",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Next-Gen Desktop & Web Email Client (Outlook / Mailbird / Thunderbird Hybrid)",
   "author": "eekilinc <ekilinc@mehmetakif.edu.tr>",
   "private": true,
@@ -38,6 +38,7 @@
         "deb"
       ],
       "icon": "desktop/icon.png",
+      "artifactName": "${productName}-${version}.${ext}",
       "maintainer": "ekilinc@mehmetakif.edu.tr",
       "category": "Network;Email;"
     },
@@ -46,14 +47,16 @@
         "nsis",
         "zip"
       ],
-      "icon": "desktop/icon.ico"
+      "icon": "desktop/icon.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Postaci"
+      "shortcutName": "Postaci",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [

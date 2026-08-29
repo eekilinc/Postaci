@@ -20,8 +20,11 @@ export interface SendMailParams {
 
 export class SmtpService {
   private static createTransporter(account: Partial<Account>, overridePort?: number, overrideSecure?: boolean, overrideUser?: string): nodemailer.Transporter {
-    const port = overridePort || account.smtpPort || (account.smtpSecure ? 465 : 587);
-    const isDirectSsl = overrideSecure !== undefined ? overrideSecure : (port === 465 || account.smtpSecure === true);
+    const port = overridePort !== undefined ? overridePort : (account.smtpPort || (account.smtpSecure ? 465 : 587));
+    // CRITICAL: Direct SSL/TLS is strictly for port 465. Port 587 and 25 must use STARTTLS (secure: false).
+    const isDirectSsl = overrideSecure !== undefined 
+      ? overrideSecure 
+      : (port === 465);
     const username = overrideUser || account.smtpUser || account.imapUser || account.email!;
     const password = account.smtpPassword || account.imapPassword || '';
 
@@ -29,7 +32,7 @@ export class SmtpService {
       host: account.smtpHost,
       port,
       secure: isDirectSsl, // true for 465 (SMTPS), false for 587/25 (STARTTLS)
-      requireTLS: !isDirectSsl && port !== 25, // Enforce STARTTLS on 587
+      requireTLS: !isDirectSsl && port === 587,
       auth: {
         user: username,
         pass: password,
@@ -37,6 +40,7 @@ export class SmtpService {
       tls: {
         rejectUnauthorized: false,
         servername: account.smtpHost,
+        minVersion: 'TLSv1.2'
       },
     });
   }
@@ -64,7 +68,7 @@ export class SmtpService {
     };
 
     const primaryPort = account.smtpPort || (account.smtpSecure ? 465 : 587);
-    const primarySecure = primaryPort === 465 || account.smtpSecure === true;
+    const primarySecure = primaryPort === 465;
 
     const userCandidates = [
       user,
@@ -121,17 +125,12 @@ export class SmtpService {
 
     const host = account.smtpHost || account.imapHost;
     const password = account.smtpPassword || account.imapPassword;
-    const user = account.smtpUser || account.imapUser || account.email;
+    const email = account.email || '';
+    const prefix = email.includes('@') ? email.split('@')[0] : '';
+    const user = account.smtpUser || account.imapUser || email;
 
     // If it's a real SMTP account, send via Nodemailer
     if (account.provider !== 'demo' && host && user && password) {
-      const transporter = this.createTransporter({
-        ...account,
-        smtpHost: host,
-        smtpUser: user,
-        smtpPassword: password,
-      });
-
       const mailOptions: nodemailer.SendMailOptions = {
         from: `"${account.name}" <${account.email}>`,
         to: params.to.map(t => (t.name ? `"${t.name}" <${t.email}>` : t.email)).join(', '),
@@ -150,11 +149,52 @@ export class SmtpService {
         })),
       };
 
-      try {
-        await transporter.sendMail(mailOptions);
-      } catch (err: any) {
-        console.error('SMTP Send error:', err);
-        let msg = err.message || String(err);
+      const accountWithFallback: Partial<Account> = {
+        ...account,
+        smtpHost: host,
+        smtpUser: user,
+        smtpPassword: password,
+      };
+
+      const primaryPort = account.smtpPort || (account.smtpSecure ? 465 : 587);
+      const primarySecure = primaryPort === 465;
+
+      const userCandidates = [
+        user,
+        ...(email && email !== user ? [email] : []),
+        ...(prefix && prefix !== user && prefix !== email ? [prefix] : [])
+      ];
+
+      const portCandidates = [
+        { port: primaryPort, secure: primarySecure },
+        { port: 587, secure: false },
+        { port: 465, secure: true },
+        { port: 25, secure: false },
+      ];
+
+      const uniquePorts = portCandidates.filter((v, i, a) => a.findIndex(t => t.port === v.port && t.secure === v.secure) === i);
+
+      let sendSucceeded = false;
+      let lastSendErr: any = null;
+
+      for (const u of userCandidates) {
+        if (sendSucceeded) break;
+        for (const p of uniquePorts) {
+          try {
+            const transporter = this.createTransporter(accountWithFallback, p.port, p.secure, u);
+            await transporter.sendMail(mailOptions);
+            sendSucceeded = true;
+            break;
+          } catch (err: any) {
+            lastSendErr = err;
+            console.warn(`SMTP send attempt on Port ${p.port} (${p.secure ? 'SSL' : 'STARTTLS'}) with user ${u} failed:`, err.message);
+          }
+        }
+      }
+
+      if (!sendSucceeded && lastSendErr) {
+        console.error('SMTP Send completely failed after all fallbacks:', lastSendErr);
+        let msg = lastSendErr.message || String(lastSendErr);
         if (msg.includes('535') || msg.includes('Invalid login') || msg.includes('BadCredentials')) {
           msg = 'SMTP Gönderim Hatası: Kullanıcı adı veya şifre reddedildi. Lütfen Uygulama Şifresi kullanın.';
         }

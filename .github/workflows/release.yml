@@ -37,9 +37,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
           files: |
-            dist-desktop/*.exe
-            dist-desktop/*.zip
-            dist-desktop/*.blockmap
+            dist-desktop/Postaci-Setup-*.exe
+            dist-desktop/Postaci-*-win.zip
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -73,9 +72,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
           files: |
-            dist-desktop/*.AppImage
+            dist-desktop/Postaci-*.AppImage
             dist-desktop/*.deb
-            dist-desktop/*.blockmap
           draft: false
           prerelease: false
           generate_release_notes: true
