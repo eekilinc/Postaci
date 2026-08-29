@@ -53,7 +53,7 @@ export const PROVIDER_PRESETS: Record<string, {
   google: {
     name: 'Google / Gmail',
     icon: '🔴',
-    badge: '1-Tıkla OAuth & IMAP',
+    badge: '1-Tıkla Şifre',
     color: '#ea4335',
     provider: 'gmail',
     imapHost: 'imap.gmail.com',
@@ -63,8 +63,8 @@ export const PROVIDER_PRESETS: Record<string, {
     smtpPort: 465,
     smtpSecure: true,
     helpUrl: 'https://myaccount.google.com/apppasswords',
-    helpTitle: '🔑 Google Uygulama Şifresi Sayfası',
-    helpText: 'Google hesabınızda 2 Adımlı Doğrulama açıksa doğrudan "Google ile Bağlan" butonunu kullanabilir veya 16 haneli Uygulama Şifresi üretebilirsiniz.'
+    helpTitle: '🔑 Google Uygulama Şifresi Al',
+    helpText: 'Google hesabınızda 2 Adımlı Doğrulama açıkken butona tıklayıp 16 haneli şifrenizi alarak anında bağlanın.'
   },
   microsoft: {
     name: 'Microsoft 365 / Outlook',
@@ -279,7 +279,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.0.7) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.0.8) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -628,7 +628,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.0.7
+            Postacı Desktop v1.0.8
           </div>
         </div>
 
@@ -818,54 +818,69 @@ export const SettingsModal: React.FC = () => {
                   </div>
                 )}
 
-                {/* 2. GOOGLE 1-CLICK OAUTH QUICK ACTION */}
+                {/* 2. GOOGLE DIRECT APP PASSWORD QUICK ACTION & 3-STEP WIZARD */}
                 {!editingAccountId && selectedProviderKey === 'google' && (
                   <div style={{
                     padding: '14px 16px',
                     borderRadius: 'var(--radius-md)',
-                    background: 'linear-gradient(135deg, rgba(234, 67, 53, 0.14) 0%, rgba(66, 133, 244, 0.14) 100%)',
-                    border: '1px solid rgba(234, 67, 53, 0.4)',
+                    background: 'linear-gradient(135deg, rgba(234, 67, 53, 0.12) 0%, rgba(66, 133, 244, 0.12) 100%)',
+                    border: '1px solid rgba(234, 67, 53, 0.35)',
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px',
+                    flexDirection: 'column',
+                    gap: '10px',
                   }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span>🔴</span>
-                        <span>Google (Gmail) 1-Tıkla Tarayıcı Girişi</span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>🔴</span>
+                          <span>Google (Gmail) Bağlantı Rehberi</span>
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                          Google güvenlik protokolü gereği 16 haneli Uygulama Şifresi kullanılır.
+                        </div>
                       </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                        Şifre girmeden varsayılan tarayıcınızda tek tıkla yetkilendirin.
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenExternal('https://myaccount.google.com/apppasswords')}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '8px 14px',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: '#ea4335',
+                          color: 'white',
+                          border: 'none',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          boxShadow: '0 4px 12px rgba(234, 67, 53, 0.3)'
+                        }}
+                      >
+                        <ExternalLink size={13} />
+                        <span>Google Şifresi Oluştur</span>
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleStartGoogleOAuth}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '8px 16px',
-                        borderRadius: 'var(--radius-sm)',
-                        backgroundColor: '#ea4335',
-                        color: 'white',
-                        border: 'none',
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        boxShadow: '0 4px 12px rgba(234, 67, 53, 0.3)'
-                      }}
-                    >
-                      <span>Google ile Bağlan</span>
-                      <ExternalLink size={13} />
-                    </button>
+
+                    <div style={{
+                      fontSize: '12px',
+                      color: 'var(--text-secondary)',
+                      backgroundColor: 'rgba(0,0,0,0.25)',
+                      padding: '10px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      lineHeight: '1.6'
+                    }}>
+                      <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>3 Kolay Adımda Bağlanın:</div>
+                      <div>1. Yukarıdaki <strong>"Google Şifresi Oluştur"</strong> butonuna tıklayın *(2 Adımlı Doğrulama açık olmalı)*.</div>
+                      <div>2. Uygulama Adı kutusuna <strong>Postacı</strong> yazıp <strong>Oluştur</strong>'a tıklayın.</div>
+                      <div>3. Verilen <strong>16 haneli sarı kutudaki şifreyi</strong> kopyalayıp aşağıdaki <strong>Parola</strong> kutusuna yapıştırın ve <strong>Hesabı Kaydet</strong>'e basın.</div>
+                    </div>
                   </div>
                 )}
 
                 {/* 3. CONTEXTUAL PROVIDER GUIDANCE & DIRECT 1-CLICK APP PASSWORD LINKS */}
-                {selectedProviderKey !== 'custom' && PROVIDER_PRESETS[selectedProviderKey]?.helpUrl && (
+                {selectedProviderKey !== 'custom' && selectedProviderKey !== 'google' && PROVIDER_PRESETS[selectedProviderKey]?.helpUrl && (
                   <div style={{
                     padding: '12px 14px',
                     borderRadius: 'var(--radius-md)',
@@ -1758,7 +1773,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.0.7</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.0.8</strong>
                       </div>
                     </div>
 
@@ -1911,7 +1926,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.0.7 (x64 Windows & Linux Desktop)
+                    Sürüm 1.0.8 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 
