@@ -203,13 +203,17 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Window focus, visibilitychange and 20-second active auto-sync
   useEffect(() => {
     const handleFocusSync = () => {
-      const targetAcc = (activeAccountId && activeAccountId !== 'all') ? activeAccountId : accounts[0]?.id;
-      if (targetAcc && navigator.onLine) {
-        api.syncAccount(targetAcc).then(() => {
+      if (!navigator.onLine) return;
+      const targetAccounts = (activeAccountId && activeAccountId !== 'all')
+        ? accounts.filter(a => a.id === activeAccountId && a.provider !== 'demo')
+        : accounts.filter(a => a.provider !== 'demo');
+
+      targetAccounts.forEach(acc => {
+        api.syncAccount(acc.id).then(() => {
           refreshEmails(false);
           refreshStats();
         }).catch(() => {});
-      }
+      });
     };
 
     window.addEventListener('focus', handleFocusSync);
@@ -750,17 +754,22 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let lastError: any = null;
 
     try {
+      const freshAccounts = await api.getAccounts().catch(() => accounts);
       const targets = (activeAccountId && activeAccountId !== 'all')
-        ? accounts.filter(a => a.id === activeAccountId)
-        : accounts;
+        ? freshAccounts.filter(a => a.id === activeAccountId && a.provider !== 'demo')
+        : freshAccounts.filter(a => a.provider !== 'demo');
 
-      for (const acc of targets) {
-        try {
-          await api.syncAccount(acc.id);
+      const results = await Promise.allSettled(
+        targets.map(async acc => {
+          return api.syncAccount(acc.id);
+        })
+      );
+
+      for (const res of results) {
+        if (res.status === 'fulfilled') {
           successCount++;
-        } catch (err: any) {
-          console.warn(`Sync failed for account ${acc.email}:`, err);
-          lastError = err;
+        } else {
+          lastError = res.reason;
         }
       }
 

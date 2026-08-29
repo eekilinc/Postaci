@@ -648,6 +648,10 @@ export const SettingsModal: React.FC = () => {
         success('Yeni hesap başarıyla eklendi.');
         if (created && created.id) {
           setActiveAccountId(created.id);
+          api.syncAccount(created.id).then(() => {
+            refreshEmails();
+            refreshStats();
+          }).catch(() => {});
         }
       }
 

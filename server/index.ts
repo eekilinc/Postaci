@@ -124,6 +124,16 @@ app.post('/api/accounts', (req: Request, res: Response) => {
     };
     const created = createAccount(newAcc);
     broadcastSSE('accounts_updated', created);
+
+    // Trigger instant background sync for newly added account
+    if (created.provider !== 'demo') {
+      ImapService.syncAccount(created.id).then(result => {
+        broadcastSSE('emails_synced', { accountId: created.id, ...result });
+      }).catch(err => {
+        console.warn(`Initial sync for newly added account ${created.email} failed:`, err);
+      });
+    }
+
     res.status(201).json(created);
   } catch (err: any) {
     res.status(400).json({ error: err.message });

@@ -27,8 +27,11 @@ export class ImapService {
         },
         clientInfo: {
           name: 'Postaci Mail Client',
-          version: '1.1.4',
+          version: '1.1.7',
         },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 30000,
         logger: false,
         emitLogs: false,
       });
@@ -36,34 +39,68 @@ export class ImapService {
       return client;
     }
 
-    if (!account.imapHost || (!account.imapUser && !account.email) || !account.imapPassword) {
+    const email = account.email || '';
+    const password = account.imapPassword || (account as any).password || '';
+    if (!account.imapHost || (!account.imapUser && !email) || !password) {
       throw new Error('IMAP yapılandırma bilgileri eksik (Sunucu, Kullanıcı Adı veya Şifre)');
     }
 
-    const email = account.email || '';
-    const prefix = email.includes('@') ? email.split('@')[0] : '';
     const configuredUser = account.imapUser || email;
     const configuredPort = account.imapPort || (account.imapSecure === false ? 143 : 993);
     const configuredSecure = account.imapSecure !== undefined ? account.imapSecure : (configuredPort === 993);
 
-    const userCandidates = [
+    // 1. Direct Attempt: Always try the exact configured settings first with fast timeout
+    try {
+      const directClient = new ImapFlow({
+        host: account.imapHost,
+        port: configuredPort,
+        secure: configuredSecure,
+        auth: {
+          user: configuredUser,
+          pass: password,
+        },
+        tls: {
+          rejectUnauthorized: false,
+          servername: account.imapHost,
+        },
+        clientInfo: {
+          name: 'Postaci',
+          version: '1.1.7',
+          vendor: 'Postaci Mail Client',
+        },
+        connectionTimeout: 8000,
+        greetingTimeout: 8000,
+        socketTimeout: 25000,
+        logger: false,
+        emitLogs: false,
+      });
+
+      await directClient.connect();
+      return directClient;
+    } catch (directErr: any) {
+      console.warn(`Direct IMAP connect failed for ${email} (${configuredUser}@${account.imapHost}:${configuredPort}), trying fallback:`, directErr.message || directErr);
+    }
+
+    // 2. Smart Fast Fallback
+    const userCandidates = Array.from(new Set([
       configuredUser,
-      ...(email && email !== configuredUser ? [email] : []),
-      ...(prefix && prefix !== configuredUser && prefix !== email ? [prefix] : [])
-    ];
+      email,
+      email.includes('@') ? email.split('@')[0] : ''
+    ])).filter(Boolean);
 
     const portCandidates = [
       { port: configuredPort, secure: configuredSecure },
       { port: 993, secure: true },
       { port: 143, secure: false },
-    ];
-
-    const uniquePorts = portCandidates.filter((v, i, a) => a.findIndex(t => t.port === v.port && t.secure === v.secure) === i);
+    ].filter((v, i, a) => a.findIndex(t => t.port === v.port && t.secure === v.secure) === i);
 
     let lastError: any = null;
 
     for (const u of userCandidates) {
-      for (const p of uniquePorts) {
+      for (const p of portCandidates) {
+        if (u === configuredUser && p.port === configuredPort && p.secure === configuredSecure) {
+          continue; // Already tried
+        }
         try {
           const client = new ImapFlow({
             host: account.imapHost,
@@ -71,7 +108,7 @@ export class ImapService {
             secure: p.secure,
             auth: {
               user: u,
-              pass: account.imapPassword,
+              pass: password,
             },
             tls: {
               rejectUnauthorized: false,
@@ -79,9 +116,12 @@ export class ImapService {
             },
             clientInfo: {
               name: 'Postaci',
-              version: '1.1.4',
+              version: '1.1.7',
               vendor: 'Postaci Mail Client',
             },
+            connectionTimeout: 5000,
+            greetingTimeout: 5000,
+            socketTimeout: 20000,
             logger: false,
             emitLogs: false,
           });
@@ -699,6 +739,11 @@ export class ImapService {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo') return { syncedCount: 0 };
 
+    if (this.syncingAccounts.has(accountId)) {
+      return { syncedCount: 0 };
+    }
+    this.syncingAccounts.add(accountId);
+
     let client: ImapFlow | null = null;
     let syncedCount = 0;
 
@@ -971,6 +1016,7 @@ export class ImapService {
       }
       throw new Error(userMsg);
     } finally {
+      this.syncingAccounts.delete(accountId);
       if (client) await client.logout().catch(() => {});
     }
 
@@ -1189,20 +1235,25 @@ export class ImapService {
 
   public static async runBackgroundSyncCycle() {
     try {
-      const accounts = getAccounts().filter(a => a.provider !== 'demo' && a.imapHost && a.imapPassword);
+      const isSyncable = (a: Account) => {
+        if (a.provider === 'demo') return false;
+        if (a.authType === 'oauth2') {
+          return Boolean(a.oauthRefreshToken || a.oauthAccessToken);
+        }
+        return Boolean(a.imapHost && (a.imapPassword || (a as any).password));
+      };
+
+      const accounts = getAccounts().filter(isSyncable);
       for (const acc of accounts) {
         if (this.syncingAccounts.has(acc.id)) continue;
-        this.syncingAccounts.add(acc.id);
         (async () => {
           try {
             const result = await this.syncAccount(acc.id);
             if (this.broadcastCb) {
               this.broadcastCb('emails_synced', { accountId: acc.id, ...result });
             }
-          } catch {
-            // silent background sync
-          } finally {
-            this.syncingAccounts.delete(acc.id);
+          } catch (err) {
+            console.warn(`Background sync error for account ${acc.email}:`, err);
           }
         })();
       }
