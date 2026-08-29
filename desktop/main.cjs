@@ -210,22 +210,34 @@ function createWindow() {
     },
   });
 
+  const indexPath = path.join(__dirname, '../dist/client/index.html');
+
   if (isDev) {
-    mainWindow.loadURL('http://127.0.0.1:5173');
-  } else {
-    waitForServer().then((isReady) => {
-      if (isReady && mainWindow) {
-        mainWindow.loadURL('http://127.0.0.1:3001');
-      } else if (mainWindow) {
-        const indexPath = path.join(__dirname, '../dist/client/index.html');
+    mainWindow.loadURL('http://127.0.0.1:5173').catch(() => {
+      if (fs.existsSync(indexPath)) {
         mainWindow.loadFile(indexPath);
       }
     });
+  } else {
+    // In production desktop: Load the local bundled HTML immediately
+    mainWindow.loadFile(indexPath).catch((err) => {
+      console.warn('Failed to load local HTML, trying HTTP fallback:', err);
+      mainWindow.loadURL('http://127.0.0.1:3001');
+    });
   }
+
+  // Handle any failed loads gracefully
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.warn(`Page load failed: ${validatedURL} (${errorCode}: ${errorDescription}), reloading local bundle...`);
+    if (fs.existsSync(indexPath)) {
+      mainWindow.loadFile(indexPath);
+    }
+  });
 
   mainWindow.once('ready-to-show', () => {
     if (!desktopSettings.startMinimized) {
       mainWindow.show();
+      mainWindow.focus();
     }
   });
 

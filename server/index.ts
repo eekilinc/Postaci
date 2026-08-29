@@ -710,7 +710,7 @@ app.post('/api/backup/import', (req: Request, res: Response) => {
 
 // ----------------- SYSTEM & HEALTH -----------------
 app.get('/api/system/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', version: '1.0.6', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', version: '1.0.7', timestamp: new Date().toISOString() });
 });
 
 // ----------------- GITHUB UPDATER -----------------
@@ -751,4 +751,10 @@ app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`🚀 Postacı API Sunucusu http://127.0.0.1:${PORT} üzerinde çalışıyor.`);
   // Start continuous 15s auto-sync engine
   ImapService.startAutoSyncEngine(broadcastSSE);
+}).on('error', (err: any) => {
+  if (err.code === 'EADDRINUSE') {
+    console.warn(`⚠️ Port ${PORT} zaten kullanımda, mevcut sunucu üzerinden devam ediliyor.`);
+  } else {
+    console.error('Server listen error:', err);
+  }
 });

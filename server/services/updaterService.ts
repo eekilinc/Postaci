@@ -13,7 +13,7 @@ export interface UpdateCheckResult {
 }
 
 export class UpdaterService {
-  public static readonly CURRENT_VERSION = '1.0.6';
+  public static readonly CURRENT_VERSION = '1.0.7';
   public static repoSlug = 'eekilinc/Postaci';
 
   public static async checkForUpdates(repoSlug?: string): Promise<UpdateCheckResult> {

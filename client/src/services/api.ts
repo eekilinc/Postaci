@@ -39,7 +39,7 @@ export const api = {
   },
 
   async createAccount(account: Partial<Account>): Promise<Account> {
-    const res = await fetch(`${API_BASE}/accounts`, {
+    const res = await fetchSafe(`${API_BASE}/accounts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(account),
@@ -59,7 +59,7 @@ export const api = {
     suggestedImapPort?: number;
     suggestedImapSecure?: boolean;
   }> {
-    const res = await fetch(`${API_BASE}/accounts/test`, {
+    const res = await fetchSafe(`${API_BASE}/accounts/test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(account),
@@ -80,7 +80,7 @@ export const api = {
     usernameType: string;
     notes?: string;
   }> {
-    const res = await fetch(`${API_BASE}/accounts/autodiscover`, {
+    const res = await fetchSafe(`${API_BASE}/accounts/autodiscover`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
@@ -89,7 +89,7 @@ export const api = {
   },
 
   async updateAccount(id: string, updates: Partial<Account>): Promise<Account> {
-    const res = await fetch(`${API_BASE}/accounts/${id}`, {
+    const res = await fetchSafe(`${API_BASE}/accounts/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -99,17 +99,17 @@ export const api = {
   },
 
   async deleteAccount(id: string): Promise<boolean> {
-    const res = await fetch(`${API_BASE}/accounts/${id}`, { method: 'DELETE' });
+    const res = await fetchSafe(`${API_BASE}/accounts/${id}`, { method: 'DELETE' });
     return res.ok;
   },
 
   async syncAccount(id: string): Promise<{ success: boolean; syncedCount: number }> {
-    const res = await fetch(`${API_BASE}/accounts/${id}/sync`, { method: 'POST' });
+    const res = await fetchSafe(`${API_BASE}/accounts/${id}/sync`, { method: 'POST' });
     return res.json();
   },
 
   async resyncFullAccount(id: string): Promise<{ success: boolean; syncedCount: number }> {
-    const res = await fetch(`${API_BASE}/accounts/${id}/resync-full`, { method: 'POST' });
+    const res = await fetchSafe(`${API_BASE}/accounts/${id}/resync-full`, { method: 'POST' });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Yeniden senkronizasyon başarısız.');
@@ -118,7 +118,7 @@ export const api = {
   },
 
   async syncFolder(accountId: string, mailboxPath: string): Promise<{ success: boolean; syncedCount: number }> {
-    const res = await fetch(`${API_BASE}/folders/sync`, {
+    const res = await fetchSafe(`${API_BASE}/folders/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accountId, mailboxPath }),
@@ -127,7 +127,7 @@ export const api = {
   },
 
   async resetDatabase(): Promise<{ success: boolean }> {
-    const res = await fetch(`${API_BASE}/settings/reset-database`, { method: 'POST' });
+    const res = await fetchSafe(`${API_BASE}/settings/reset-database`, { method: 'POST' });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Veritabanı sıfırlanamadı.');
@@ -152,19 +152,19 @@ export const api = {
     if (params.label) query.append('label', params.label);
     if (params.search) query.append('search', params.search);
 
-    const res = await fetch(`${API_BASE}/emails?${query.toString()}`);
+    const res = await fetchSafe(`${API_BASE}/emails?${query.toString()}`);
     if (!res.ok) throw new Error('E-postalar alınamadı.');
     return res.json();
   },
 
   async getEmailById(id: string): Promise<Email> {
-    const res = await fetch(`${API_BASE}/emails/${id}`);
+    const res = await fetchSafe(`${API_BASE}/emails/${id}`);
     if (!res.ok) throw new Error('E-posta bulunamadı.');
     return res.json();
   },
 
   async getEmailThread(threadId: string): Promise<Email[]> {
-    const res = await fetch(`${API_BASE}/emails/thread/${threadId}`);
+    const res = await fetchSafe(`${API_BASE}/emails/thread/${threadId}`);
     if (!res.ok) throw new Error('E-posta dizisi alınamadı.');
     return res.json();
   },
@@ -178,7 +178,7 @@ export const api = {
     folder: string;
     labels: string[];
   }>): Promise<Email> {
-    const res = await fetch(`${API_BASE}/emails/${id}/flags`, {
+    const res = await fetchSafe(`${API_BASE}/emails/${id}/flags`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -196,7 +196,7 @@ export const api = {
     folder: string;
     labels: string[];
   }>): Promise<{ success: boolean; updatedCount: number }> {
-    const res = await fetch(`${API_BASE}/emails/bulk-flags`, {
+    const res = await fetchSafe(`${API_BASE}/emails/bulk-flags`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids, updates }),
@@ -206,7 +206,7 @@ export const api = {
   },
 
   async bulkDeleteEmails(ids: string[]): Promise<{ success: boolean; deletedCount: number }> {
-    const res = await fetch(`${API_BASE}/emails/bulk-delete`, {
+    const res = await fetchSafe(`${API_BASE}/emails/bulk-delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids }),
@@ -216,7 +216,7 @@ export const api = {
   },
 
   async emptyTrash(accountId?: string): Promise<{ success: boolean; deletedCount: number }> {
-    const res = await fetch(`${API_BASE}/folders/empty-trash`, {
+    const res = await fetchSafe(`${API_BASE}/folders/empty-trash`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accountId: accountId === 'all' ? undefined : accountId }),
@@ -226,13 +226,13 @@ export const api = {
   },
 
   async deleteEmailPermanent(id: string): Promise<boolean> {
-    const res = await fetch(`${API_BASE}/emails/${id}`, { method: 'DELETE' });
+    const res = await fetchSafe(`${API_BASE}/emails/${id}`, { method: 'DELETE' });
     return res.ok;
   },
 
   async getFolderStats(accountId?: string): Promise<FolderStat[]> {
     const query = accountId ? `?accountId=${accountId}` : '';
-    const res = await fetch(`${API_BASE}/folders/stats${query}`);
+    const res = await fetchSafe(`${API_BASE}/folders/stats${query}`);
     if (!res.ok) throw new Error('Klasör istatistikleri alınamadı.');
     return res.json();
   },
@@ -252,7 +252,7 @@ export const api = {
     references?: string;
     threadId?: string;
   }): Promise<Email> {
-    const res = await fetch(`${API_BASE}/send`, {
+    const res = await fetchSafe(`${API_BASE}/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -265,7 +265,7 @@ export const api = {
   },
 
   async saveDraft(draft: Partial<Email>): Promise<Email> {
-    const res = await fetch(`${API_BASE}/drafts`, {
+    const res = await fetchSafe(`${API_BASE}/drafts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(draft),
@@ -278,7 +278,7 @@ export const api = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const res = await fetch(`${API_BASE}/upload`, {
+    const res = await fetchSafe(`${API_BASE}/upload`, {
       method: 'POST',
       body: formData,
     });
@@ -288,7 +288,7 @@ export const api = {
 
   // AI Copilot
   async summarizeEmail(email: Email): Promise<string> {
-    const res = await fetch(`${API_BASE}/ai/summarize`, {
+    const res = await fetchSafe(`${API_BASE}/ai/summarize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(email),
@@ -298,7 +298,7 @@ export const api = {
   },
 
   async getSmartReplies(email: Email): Promise<string[]> {
-    const res = await fetch(`${API_BASE}/ai/smart-replies`, {
+    const res = await fetchSafe(`${API_BASE}/ai/smart-replies`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(email),
@@ -308,7 +308,7 @@ export const api = {
   },
 
   async polishText(text: string, style: 'formal' | 'friendly' | 'concise' | 'fix_grammar'): Promise<string> {
-    const res = await fetch(`${API_BASE}/ai/polish`, {
+    const res = await fetchSafe(`${API_BASE}/ai/polish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, style }),
@@ -323,7 +323,7 @@ export const api = {
     reasons: string[];
     hasBlockedImages: boolean;
   }> {
-    const res = await fetch(`${API_BASE}/ai/security-check`, {
+    const res = await fetchSafe(`${API_BASE}/ai/security-check`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(email),
@@ -333,13 +333,13 @@ export const api = {
 
   // Calendar
   async getCalendarEvents(): Promise<CalendarEvent[]> {
-    const res = await fetch(`${API_BASE}/calendar/events`);
+    const res = await fetchSafe(`${API_BASE}/calendar/events`);
     if (!res.ok) throw new Error('Etkinlikler alınamadı.');
     return res.json();
   },
 
   async createCalendarEvent(event: Partial<CalendarEvent>): Promise<CalendarEvent> {
-    const res = await fetch(`${API_BASE}/calendar/events`, {
+    const res = await fetchSafe(`${API_BASE}/calendar/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(event),
@@ -349,7 +349,7 @@ export const api = {
   },
 
   async updateCalendarEvent(id: string, updates: Partial<CalendarEvent>): Promise<CalendarEvent> {
-    const res = await fetch(`${API_BASE}/calendar/events/${id}`, {
+    const res = await fetchSafe(`${API_BASE}/calendar/events/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -358,12 +358,12 @@ export const api = {
   },
 
   async deleteCalendarEvent(id: string): Promise<boolean> {
-    const res = await fetch(`${API_BASE}/calendar/events/${id}`, { method: 'DELETE' });
+    const res = await fetchSafe(`${API_BASE}/calendar/events/${id}`, { method: 'DELETE' });
     return res.ok;
   },
 
   async respondToRsvp(emailId: string, status: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE'): Promise<any> {
-    const res = await fetch(`${API_BASE}/calendar/rsvp`, {
+    const res = await fetchSafe(`${API_BASE}/calendar/rsvp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ emailId, status }),
@@ -373,13 +373,13 @@ export const api = {
 
   // Contacts
   async getContacts(): Promise<Contact[]> {
-    const res = await fetch(`${API_BASE}/contacts`);
+    const res = await fetchSafe(`${API_BASE}/contacts`);
     if (!res.ok) throw new Error('Kişiler alınamadı.');
     return res.json();
   },
 
   async createContact(contact: Partial<Contact>): Promise<Contact> {
-    const res = await fetch(`${API_BASE}/contacts`, {
+    const res = await fetchSafe(`${API_BASE}/contacts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(contact),
@@ -388,7 +388,7 @@ export const api = {
   },
 
   async updateContact(id: string, updates: Partial<Contact>): Promise<Contact> {
-    const res = await fetch(`${API_BASE}/contacts/${id}`, {
+    const res = await fetchSafe(`${API_BASE}/contacts/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -397,19 +397,19 @@ export const api = {
   },
 
   async deleteContact(id: string): Promise<boolean> {
-    const res = await fetch(`${API_BASE}/contacts/${id}`, { method: 'DELETE' });
+    const res = await fetchSafe(`${API_BASE}/contacts/${id}`, { method: 'DELETE' });
     return res.ok;
   },
 
   // Backup & Restore
   async exportBackup(): Promise<any> {
-    const res = await fetch(`${API_BASE}/backup/export`);
+    const res = await fetchSafe(`${API_BASE}/backup/export`);
     if (!res.ok) throw new Error('Yedekleme verisi alınamadı.');
     return res.json();
   },
 
   async importBackup(backup: any, mode: 'merge' | 'replace' = 'merge'): Promise<{ success: boolean; restoredAccounts: number; message: string }> {
-    const res = await fetch(`${API_BASE}/backup/import`, {
+    const res = await fetchSafe(`${API_BASE}/backup/import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ backup, mode }),
@@ -434,7 +434,7 @@ export const api = {
     error?: string;
   }> {
     const query = repo ? `?repo=${encodeURIComponent(repo)}` : '';
-    const res = await fetch(`${API_BASE}/system/update-check${query}`);
+    const res = await fetchSafe(`${API_BASE}/system/update-check${query}`);
     if (!res.ok) throw new Error('Güncelleme sorgulanamadı.');
     return res.json();
   }
