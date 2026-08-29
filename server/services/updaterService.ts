@@ -79,7 +79,7 @@ export class UpdaterService {
       const req = https.request(options, (res) => {
         let body = '';
         res.on('data', chunk => body += chunk);
-        res.on('end', () => {
+        res.on('end', async () => {
           if (res.statusCode === 200) {
             try {
               resolve(JSON.parse(body));
@@ -87,8 +87,24 @@ export class UpdaterService {
               reject(e);
             }
           } else if (res.statusCode === 404) {
-            // No release published yet on repo
-            resolve(null);
+            // Fallback to tags if no formal GitHub Release page was created
+            try {
+              const tags = await UpdaterService.fetchGitHubTags(repoSlug);
+              if (tags && tags.length > 0) {
+                const latest = tags[0];
+                resolve({
+                  tag_name: latest.name,
+                  name: `Postacı ${latest.name}`,
+                  body: 'En güncel Postacı sürümü.',
+                  html_url: `https://github.com/${repoSlug}/releases/tag/${latest.name}`,
+                  assets: []
+                });
+              } else {
+                resolve(null);
+              }
+            } catch {
+              resolve(null);
+            }
           } else {
             reject(new Error(`GitHub API yanıt kodu: ${res.statusCode}`));
           }
@@ -99,6 +115,44 @@ export class UpdaterService {
       req.on('timeout', () => {
         req.destroy();
         reject(new Error('GitHub bağlantı zaman aşımı.'));
+      });
+      req.end();
+    });
+  }
+
+  private static fetchGitHubTags(repoSlug: string): Promise<any[]> {
+    return new Promise((resolve) => {
+      const options = {
+        hostname: 'api.github.com',
+        path: `/repos/${repoSlug}/tags`,
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Postaci-Email-Client/1.0.0',
+          'Accept': 'application/vnd.github.v3+json'
+        },
+        timeout: 8000
+      };
+
+      const req = https.request(options, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            try {
+              resolve(JSON.parse(body));
+            } catch {
+              resolve([]);
+            }
+          } else {
+            resolve([]);
+          }
+        });
+      });
+
+      req.on('error', () => resolve([]));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve([]);
       });
       req.end();
     });
