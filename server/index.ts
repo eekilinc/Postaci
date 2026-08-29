@@ -338,10 +338,27 @@ app.get('/api/folders/stats', (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/emails/:id', (req: Request, res: Response) => {
+app.get('/api/emails/:id', async (req: Request, res: Response) => {
   try {
-    const email = getEmailById(req.params.id);
+    let email = getEmailById(req.params.id);
     if (!email) return res.status(404).json({ error: 'E-posta bulunamadı.' });
+
+    // On-demand full email body fetch if body was not preloaded
+    if (!email.hasFullBody && email.imapUid && email.accountId) {
+      const account = getAccountById(email.accountId);
+      if (account && account.provider !== 'demo') {
+        const fullEmail = await ImapService.fetchFullEmailBody(
+          email.accountId,
+          email.mailboxPath || 'INBOX',
+          email.imapUid,
+          email.id
+        );
+        if (fullEmail) {
+          email = fullEmail;
+        }
+      }
+    }
+
     res.json(email);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -769,7 +786,7 @@ app.post('/api/backup/import', (req: Request, res: Response) => {
 
 // ----------------- SYSTEM & HEALTH -----------------
 app.get('/api/system/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', version: '1.1.6', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', version: '1.1.7', timestamp: new Date().toISOString() });
 });
 
 // ----------------- GITHUB UPDATER -----------------

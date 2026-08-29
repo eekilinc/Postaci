@@ -1,6 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import { Account, Email, Contact, CalendarEvent, FolderStat } from '../types.js';
+import { Account, Email, Contact, CalendarEvent, FolderStat, Attachment } from '../types.js';
 import { initialAccounts, initialContacts, initialEmails, initialCalendarEvents } from './demoData.js';
 
 const dataDir = path.resolve(process.cwd(), 'data');
@@ -283,6 +283,20 @@ export function initDatabase() {
     try { db.prepare('ALTER TABLE accounts ADD COLUMN oauthExpiresAt INTEGER').run(); } catch (_) {}
     try { db.prepare('ALTER TABLE accounts ADD COLUMN oauthClientId TEXT').run(); } catch (_) {}
     try { db.prepare('ALTER TABLE accounts ADD COLUMN oauthClientSecret TEXT').run(); } catch (_) {}
+
+    // Dynamic schema migrations for emails table
+    try { db.prepare('ALTER TABLE emails ADD COLUMN imapUid INTEGER').run(); } catch (_) {}
+    try { db.prepare('ALTER TABLE emails ADD COLUMN mailboxPath TEXT').run(); } catch (_) {}
+    try { db.prepare('ALTER TABLE emails ADD COLUMN hasFullBody INTEGER DEFAULT 1').run(); } catch (_) {}
+
+    try {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_emails_acc_box ON emails(accountId, mailboxPath, imapUid);
+        CREATE INDEX IF NOT EXISTS idx_emails_acc_folder ON emails(accountId, folder, isDeleted);
+        CREATE INDEX IF NOT EXISTS idx_emails_unread ON emails(accountId, folder, isRead, isDeleted);
+        CREATE INDEX IF NOT EXISTS idx_emails_uid ON emails(imapUid);
+      `);
+    } catch (_) {}
 
     const accountCount = db.prepare('SELECT COUNT(*) as count FROM accounts').get() as { count: number };
     if (accountCount.count === 0) {
@@ -684,6 +698,9 @@ function parseEmailRow(r: any): Email {
     aiSummary: r.aiSummary,
     aiSmartReplies: r.aiSmartReplies_json ? JSON.parse(r.aiSmartReplies_json) : null,
     aiCategory: r.aiCategory,
+    imapUid: r.imapUid !== null && r.imapUid !== undefined ? Number(r.imapUid) : undefined,
+    mailboxPath: r.mailboxPath || undefined,
+    hasFullBody: r.hasFullBody !== undefined ? Boolean(r.hasFullBody) : true,
     account: account || { name: 'Bilinmeyen', email: '', color: '#94a3b8' }
   };
 }
@@ -1133,14 +1150,14 @@ export function saveEmail(email: Email, isFromImapSync = false): Email {
       subject, bodyText, bodyHtml, snippet, date, isRead, isStarred,
       isArchived, isDeleted, isDraft, isSpam, folder, labels_json,
       priority, attachments_json, meetingInvite_json, aiSummary,
-      aiSmartReplies_json, aiCategory
+      aiSmartReplies_json, aiCategory, imapUid, mailboxPath, hasFullBody
     ) VALUES (
       @id, @accountId, @threadId, @messageId, @inReplyTo, @references_header,
       @fromName, @fromEmail, @to_json, @cc_json, @bcc_json, @replyTo_json,
       @subject, @bodyText, @bodyHtml, @snippet, @date, @isRead, @isStarred,
       @isArchived, @isDeleted, @isDraft, @isSpam, @folder, @labels_json,
       @priority, @attachments_json, @meetingInvite_json, @aiSummary,
-      @aiSmartReplies_json, @aiCategory
+      @aiSmartReplies_json, @aiCategory, @imapUid, @mailboxPath, @hasFullBody
     )
   `);
 
@@ -1175,10 +1192,168 @@ export function saveEmail(email: Email, isFromImapSync = false): Email {
     meetingInvite_json: email.meetingInvite ? JSON.stringify(email.meetingInvite) : null,
     aiSummary: email.aiSummary || null,
     aiSmartReplies_json: email.aiSmartReplies ? JSON.stringify(email.aiSmartReplies) : null,
-    aiCategory: email.aiCategory || null
+    aiCategory: email.aiCategory || null,
+    imapUid: email.imapUid !== undefined ? email.imapUid : null,
+    mailboxPath: email.mailboxPath || null,
+    hasFullBody: email.hasFullBody !== undefined ? (email.hasFullBody ? 1 : 0) : 1
   });
 
   return getEmailById(email.id)!;
+}
+
+export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { savedCount: number; newEmails: Email[] } {
+  if (!emails || emails.length === 0) return { savedCount: 0, newEmails: [] };
+
+  const validEmails = emails.filter(email => {
+    const isBlank = (!email.fromEmail || email.fromEmail === 'unknown@example.com') &&
+      (!email.fromName || email.fromName === 'Bilinmeyen Gönderici') &&
+      (!email.subject || email.subject === '(Konusuz)' || email.subject.trim() === '') &&
+      !email.bodyText?.trim() && !email.bodyHtml?.trim();
+    if (isBlank) return false;
+    if (isFromImapSync && email.folder !== 'TRASH' && !email.isDeleted && isDeletedLocally(email.id, email.messageId, email.accountId, email.imapUid, email.mailboxPath)) {
+      return false;
+    }
+    return true;
+  });
+
+  if (validEmails.length === 0) return { savedCount: 0, newEmails: [] };
+
+  if (!isNativeSqlite) {
+    const newEmails: Email[] = [];
+    for (const email of validEmails) {
+      const idx = memStore.emails.findIndex(e => e.id === email.id || (email.messageId && e.messageId === email.messageId));
+      if (idx !== -1) {
+        memStore.emails[idx] = { ...memStore.emails[idx], ...email };
+      } else {
+        memStore.emails.unshift(email);
+        newEmails.push(email);
+      }
+    }
+    saveJsonStore();
+    return { savedCount: validEmails.length, newEmails };
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO emails (
+      id, accountId, threadId, messageId, inReplyTo, references_header,
+      fromName, fromEmail, to_json, cc_json, bcc_json, replyTo_json,
+      subject, bodyText, bodyHtml, snippet, date, isRead, isStarred,
+      isArchived, isDeleted, isDraft, isSpam, folder, labels_json,
+      priority, attachments_json, meetingInvite_json, aiSummary,
+      aiSmartReplies_json, aiCategory, imapUid, mailboxPath, hasFullBody
+    ) VALUES (
+      @id, @accountId, @threadId, @messageId, @inReplyTo, @references_header,
+      @fromName, @fromEmail, @to_json, @cc_json, @bcc_json, @replyTo_json,
+      @subject, @bodyText, @bodyHtml, @snippet, @date, @isRead, @isStarred,
+      @isArchived, @isDeleted, @isDraft, @isSpam, @folder, @labels_json,
+      @priority, @attachments_json, @meetingInvite_json, @aiSummary,
+      @aiSmartReplies_json, @aiCategory, @imapUid, @mailboxPath, @hasFullBody
+    )
+  `);
+
+  const checkStmt = db.prepare('SELECT id, folder, isDeleted, isArchived, isSpam FROM emails WHERE id = ? OR (messageId IS NOT NULL AND messageId = ?)');
+
+  const newEmails: Email[] = [];
+  const runTx = db.transaction((items: Email[]) => {
+    for (const email of items) {
+      const existing = checkStmt.get(email.id, email.messageId || '') as any;
+      if (isFromImapSync && existing) {
+        if (existing.folder === 'TRASH' || existing.isDeleted) continue;
+        if (existing.folder === 'ARCHIVE' || existing.isArchived) {
+          email.folder = 'ARCHIVE';
+          email.isArchived = true;
+        } else if (existing.folder === 'SPAM' || existing.isSpam) {
+          email.folder = 'SPAM';
+          email.isSpam = true;
+        }
+      } else if (!existing) {
+        newEmails.push(email);
+      }
+
+      stmt.run({
+        id: email.id,
+        accountId: email.accountId,
+        threadId: email.threadId,
+        messageId: email.messageId || null,
+        inReplyTo: email.inReplyTo || null,
+        references_header: email.references || null,
+        fromName: email.fromName,
+        fromEmail: email.fromEmail,
+        to_json: JSON.stringify(email.to || []),
+        cc_json: JSON.stringify(email.cc || []),
+        bcc_json: JSON.stringify(email.bcc || []),
+        replyTo_json: email.replyTo ? JSON.stringify(email.replyTo) : null,
+        subject: email.subject,
+        bodyText: email.bodyText,
+        bodyHtml: email.bodyHtml,
+        snippet: email.snippet,
+        date: email.date,
+        isRead: email.isRead ? 1 : 0,
+        isStarred: email.isStarred ? 1 : 0,
+        isArchived: email.isArchived ? 1 : 0,
+        isDeleted: email.isDeleted ? 1 : 0,
+        isDraft: email.isDraft ? 1 : 0,
+        isSpam: email.isSpam ? 1 : 0,
+        folder: email.folder,
+        labels_json: JSON.stringify(email.labels || []),
+        priority: email.priority || 'normal',
+        attachments_json: JSON.stringify(email.attachments || []),
+        meetingInvite_json: email.meetingInvite ? JSON.stringify(email.meetingInvite) : null,
+        aiSummary: email.aiSummary || null,
+        aiSmartReplies_json: email.aiSmartReplies ? JSON.stringify(email.aiSmartReplies) : null,
+        aiCategory: email.aiCategory || null,
+        imapUid: email.imapUid !== undefined ? email.imapUid : null,
+        mailboxPath: email.mailboxPath || null,
+        hasFullBody: email.hasFullBody !== undefined ? (email.hasFullBody ? 1 : 0) : 1
+      });
+    }
+  });
+
+  runTx(validEmails);
+  return { savedCount: validEmails.length, newEmails };
+}
+
+export function updateEmailBody(id: string, updates: {
+  bodyText: string;
+  bodyHtml: string;
+  snippet?: string;
+  attachments?: Attachment[];
+  hasFullBody?: boolean;
+}): boolean {
+  if (!isNativeSqlite) {
+    const e = memStore.emails.find(m => m.id === id);
+    if (e) {
+      e.bodyText = updates.bodyText;
+      e.bodyHtml = updates.bodyHtml;
+      if (updates.snippet) e.snippet = updates.snippet;
+      if (updates.attachments) e.attachments = updates.attachments;
+      e.hasFullBody = updates.hasFullBody !== undefined ? updates.hasFullBody : true;
+      saveJsonStore();
+      return true;
+    }
+    return false;
+  }
+
+  try {
+    const stmt = db.prepare(`
+      UPDATE emails 
+      SET bodyText = @bodyText, bodyHtml = @bodyHtml, snippet = COALESCE(@snippet, snippet),
+          attachments_json = COALESCE(@attachments_json, attachments_json), hasFullBody = @hasFullBody
+      WHERE id = @id
+    `);
+    const res = stmt.run({
+      id,
+      bodyText: updates.bodyText,
+      bodyHtml: updates.bodyHtml,
+      snippet: updates.snippet || null,
+      attachments_json: updates.attachments ? JSON.stringify(updates.attachments) : null,
+      hasFullBody: updates.hasFullBody !== undefined ? (updates.hasFullBody ? 1 : 0) : 1
+    });
+    return res.changes > 0;
+  } catch (err) {
+    console.warn('Failed to update email body:', err);
+    return false;
+  }
 }
 
 export function updateEmailFlags(id: string, updates: Partial<{

@@ -88,6 +88,7 @@ export interface Email {
   snoozedUntil?: string | null;
   imapUid?: number;
   mailboxPath?: string;
+  hasFullBody?: boolean;
   priority: 'high' | 'normal' | 'low';
   attachments: Attachment[];
   meetingInvite?: MeetingInvite | null;

@@ -234,6 +234,13 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    // Fetch latest email detail from API (triggers on-demand full body fetch if needed)
+    api.getEmailById(selectedEmailId).then((fetched: Email) => {
+      if (fetched) {
+        setEmails(prev => prev.map(e => e.id === fetched.id ? { ...e, ...fetched } : e));
+      }
+    }).catch(() => {});
+
     const currentEmail = emails.find(e => e.id === selectedEmailId);
     if (currentEmail?.threadId) {
       api.getEmailThread(currentEmail.threadId)
