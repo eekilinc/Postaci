@@ -62,7 +62,7 @@ export class SmtpService {
     const domain = email.includes('@') ? email.split('@')[1].toLowerCase() : '';
 
     const rawHost = (account.smtpHost || account.imapHost || '').trim();
-    const password = account.smtpPassword || account.imapPassword;
+    const password = account.smtpPassword || account.imapPassword || '';
     const user = (account.smtpUser || account.imapUser || email).trim();
 
     if (!rawHost || !user || !password) {
@@ -84,80 +84,101 @@ export class SmtpService {
       if (!isNaN(parsedP)) extractedPort = parsedP;
     }
 
-    // Build candidate hosts in priority order
-    const hostCandidates: string[] = [baseHost];
-    if (domain) {
-      const defaults = [
-        `smtp.${domain}`,
-        `mail.${domain}`,
-        `posta.${domain}`,
-        `eposta.${domain}`,
-        `webmail.${domain}`,
-      ];
-      for (const d of defaults) {
-        if (!hostCandidates.includes(d)) {
-          hostCandidates.push(d);
-        }
-      }
-
-      // Check MX records dynamically as candidate fallback
-      try {
-        const mxRecords = await resolveMxAsync(domain);
-        if (mxRecords && mxRecords.length > 0) {
-          for (const mx of mxRecords) {
-            const mxHost = mx.exchange.toLowerCase();
-            if (!hostCandidates.includes(mxHost)) {
-              hostCandidates.push(mxHost);
-            }
-          }
-        }
-      } catch {}
-    }
-
     const requestedPort = extractedPort || account.smtpPort || (account.smtpSecure ? 465 : 587);
     const requestedSecure = requestedPort === 465;
 
-    const userCandidates = [
-      user,
-      ...(email && email !== user ? [email] : []),
-      ...(prefix && prefix !== user && prefix !== email ? [prefix] : [])
-    ];
+    const attemptVerify = async (host: string, port: number, secure: boolean, u: string, timeoutMs = 3500) => {
+      const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: {
+          user: u,
+          pass: password,
+        },
+        tls: {
+          rejectUnauthorized: false,
+          minVersion: 'TLSv1.2'
+        },
+        connectionTimeout: timeoutMs,
+        greetingTimeout: timeoutMs,
+        socketTimeout: timeoutMs + 1000,
+      });
 
-    const portCandidates = [
-      { port: requestedPort, secure: requestedSecure },
-      { port: 587, secure: false },
-      { port: 465, secure: true },
-      { port: 25, secure: false },
-    ];
+      try {
+        await transporter.verify();
+        return { ok: true as const };
+      } catch (err: any) {
+        return { ok: false as const, error: err };
+      }
+    };
 
-    const uniquePorts = portCandidates.filter((v, i, a) => a.findIndex(t => t.port === v.port && t.secure === v.secure) === i);
-
-    let lastErrorMsg = '';
-
-    for (const h of hostCandidates) {
-      const accountWithCandidate: Partial<Account> = {
-        ...account,
-        smtpHost: h,
-        smtpUser: user,
-        smtpPassword: password,
+    // 1. PRIMARY FAST ATTEMPT: User's exact configured host, port and user
+    const primaryRes = await attemptVerify(baseHost, requestedPort, requestedSecure, user, 3500);
+    if (primaryRes.ok) {
+      return {
+        success: true,
+        message: `SMTP (${requestedSecure ? 'SSL' : 'STARTTLS'}, Port ${requestedPort}, Sunucu: ${baseHost}) başarıyla doğrulandı!`,
+        suggestedSmtpHost: baseHost,
+        suggestedSmtpUser: user,
+        suggestedSmtpPort: requestedPort,
+        suggestedSmtpSecure: requestedSecure,
       };
+    }
 
-      for (const u of userCandidates) {
-        for (const p of uniquePorts) {
-          try {
-            const transporter = this.createTransporter(accountWithCandidate, p.port, p.secure, u);
-            await transporter.verify();
-            return {
-              success: true,
-              message: `SMTP (${p.secure ? 'SSL' : 'STARTTLS'}, Port ${p.port}, Sunucu: ${h}, Kullanıcı: ${u}) başarıyla doğrulandı!`,
-              suggestedSmtpHost: h,
-              suggestedSmtpUser: u,
-              suggestedSmtpPort: p.port,
-              suggestedSmtpSecure: p.secure,
-            };
-          } catch (err: any) {
-            lastErrorMsg = err.message || String(err);
-          }
+    let lastErrorMsg = primaryRes.error?.message || String(primaryRes.error);
+
+    // 2. If failure is authentication, try prefix user if different
+    if ((lastErrorMsg.includes('Invalid login') || lastErrorMsg.includes('535') || lastErrorMsg.includes('BadCredentials')) && prefix && prefix !== user) {
+      const userRes = await attemptVerify(baseHost, requestedPort, requestedSecure, prefix, 3000);
+      if (userRes.ok) {
+        return {
+          success: true,
+          message: `SMTP (${requestedSecure ? 'SSL' : 'STARTTLS'}, Port ${requestedPort}, Kullanıcı: ${prefix}) başarıyla doğrulandı!`,
+          suggestedSmtpHost: baseHost,
+          suggestedSmtpUser: prefix,
+          suggestedSmtpPort: requestedPort,
+          suggestedSmtpSecure: requestedSecure,
+        };
+      }
+    }
+
+    // 3. If port/connect failed, try alternative port (587 STARTTLS vs 465 SSL)
+    const altPort = requestedPort === 587 ? 465 : 587;
+    const altSecure = altPort === 465;
+    if (!lastErrorMsg.includes('Invalid login') && !lastErrorMsg.includes('535')) {
+      const portRes = await attemptVerify(baseHost, altPort, altSecure, user, 2500);
+      if (portRes.ok) {
+        return {
+          success: true,
+          message: `SMTP (${altSecure ? 'SSL' : 'STARTTLS'}, Port ${altPort}, Sunucu: ${baseHost}) başarıyla doğrulandı!`,
+          suggestedSmtpHost: baseHost,
+          suggestedSmtpUser: user,
+          suggestedSmtpPort: altPort,
+          suggestedSmtpSecure: altSecure,
+        };
+      }
+    }
+
+    // 4. If DNS failed (ENOTFOUND), try top 2 candidates with 2500ms timeout
+    if (lastErrorMsg.includes('ENOTFOUND') || lastErrorMsg.includes('getaddrinfo')) {
+      const candidateHosts: string[] = [];
+      if (domain) {
+        if (`smtp.${domain}` !== baseHost) candidateHosts.push(`smtp.${domain}`);
+        if (`mail.${domain}` !== baseHost) candidateHosts.push(`mail.${domain}`);
+      }
+
+      for (const candHost of candidateHosts) {
+        const candRes = await attemptVerify(candHost, 587, false, user, 2500);
+        if (candRes.ok) {
+          return {
+            success: true,
+            message: `SMTP (STARTTLS, Port 587, Sunucu: ${candHost}) başarıyla doğrulandı!`,
+            suggestedSmtpHost: candHost,
+            suggestedSmtpUser: user,
+            suggestedSmtpPort: 587,
+            suggestedSmtpSecure: false,
+          };
         }
       }
     }

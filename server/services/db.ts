@@ -1366,6 +1366,44 @@ export function emptyTrash(accountId?: string): number {
   return res.changes;
 }
 
+export function syncFolderReadFlags(accountId: string, folder: string, unseenUids: number[], allUids: number[], minUid: number) {
+  const unseenSet = new Set(unseenUids);
+  if (!isNativeSqlite) {
+    for (const e of memStore.emails) {
+      if (e.accountId === accountId && e.folder === folder && e.imapUid && e.imapUid >= minUid) {
+        if (unseenSet.has(e.imapUid)) {
+          e.isRead = false;
+        } else if (allUids.includes(e.imapUid)) {
+          e.isRead = true;
+        }
+      }
+    }
+    saveJsonStore();
+    return;
+  }
+
+  try {
+    const emailsInFolder = db.prepare(`
+      SELECT id, imapUid, isRead FROM emails 
+      WHERE accountId = ? AND folder = ? AND imapUid >= ? AND imapUid IS NOT NULL
+    `).all(accountId, folder, minUid) as Array<{ id: string; imapUid: number; isRead: number }>;
+
+    const updateReadStmt = db.prepare('UPDATE emails SET isRead = ? WHERE id = ?');
+    const updateTx = db.transaction((rows: typeof emailsInFolder) => {
+      for (const row of rows) {
+        const isServerUnseen = unseenSet.has(row.imapUid);
+        const shouldBeRead = isServerUnseen ? 0 : 1;
+        if (row.isRead !== shouldBeRead) {
+          updateReadStmt.run(shouldBeRead, row.id);
+        }
+      }
+    });
+    updateTx(emailsInFolder);
+  } catch (err) {
+    console.warn('Failed to sync folder read flags:', err);
+  }
+}
+
 export function getFolderStats(accountId?: string): FolderStat[] {
   const baseFolders = [
     { folder: 'INBOX', displayName: 'Gelen Kutusu', icon: 'Inbox' },
@@ -1416,14 +1454,15 @@ export function getFolderStats(accountId?: string): FolderStat[] {
     });
   }
 
-  // Fast single aggregated query in SQLite
+  // Fast single aggregated query in SQLite with accurate isDeleted filtering
   const statsQuery = `
     SELECT 
       folder,
       COUNT(*) as totalCount,
       SUM(CASE WHEN isRead = 0 THEN 1 ELSE 0 END) as unreadCount
     FROM emails
-    ${accountId && accountId !== 'all' ? 'WHERE accountId = ?' : ''}
+    WHERE isDeleted = 0
+    ${accountId && accountId !== 'all' ? 'AND accountId = ?' : ''}
     GROUP BY folder
   `;
   const statsParams = accountId && accountId !== 'all' ? [accountId] : [];
@@ -1433,13 +1472,26 @@ export function getFolderStats(accountId?: string): FolderStat[] {
     statsMap.set(r.folder, { count: Number(r.totalCount) || 0, unreadCount: Number(r.unreadCount) || 0 });
   }
 
-  // Starred stats
+  // TRASH stats (includes both folder = 'TRASH' and isDeleted = 1)
+  const trashQuery = `
+    SELECT 
+      COUNT(*) as totalCount,
+      SUM(CASE WHEN isRead = 0 THEN 1 ELSE 0 END) as unreadCount
+    FROM emails
+    WHERE (folder = 'TRASH' OR isDeleted = 1)
+    ${accountId && accountId !== 'all' ? 'AND accountId = ?' : ''}
+  `;
+  const trashRow = db.prepare(trashQuery).get(...statsParams) as any;
+  statsMap.set('TRASH', { count: Number(trashRow?.totalCount) || 0, unreadCount: Number(trashRow?.unreadCount) || 0 });
+
+  // Starred stats (must not be deleted)
   const starredQuery = `
     SELECT 
       COUNT(*) as totalCount,
       SUM(CASE WHEN isRead = 0 THEN 1 ELSE 0 END) as unreadCount
     FROM emails
-    WHERE isStarred = 1 ${accountId && accountId !== 'all' ? 'AND accountId = ?' : ''}
+    WHERE isStarred = 1 AND isDeleted = 0
+    ${accountId && accountId !== 'all' ? 'AND accountId = ?' : ''}
   `;
   const starredRow = db.prepare(starredQuery).get(...statsParams) as any;
   statsMap.set('STARRED', { count: Number(starredRow?.totalCount) || 0, unreadCount: Number(starredRow?.unreadCount) || 0 });

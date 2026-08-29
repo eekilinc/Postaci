@@ -355,6 +355,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 }
 
 /* Email HTML Content Container in Viewer */
+/* Email HTML Content Container in Viewer */
 .email-rendered-body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   color: var(--text-primary);
@@ -364,55 +365,70 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   overflow-wrap: break-word;
   overflow-x: auto;
   width: 100%;
+  border-radius: var(--radius-md);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Smart Dark Mode Theme Compatibility for Email HTML */
-[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card),
-[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card),
-[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card),
-[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) {
-  color: #e2e8f0;
+[data-theme='dark'] .email-rendered-body.email-smart_dark,
+[data-theme='tokyo'] .email-rendered-body.email-smart_dark,
+[data-theme='dracula'] .email-rendered-body.email-smart_dark,
+[data-theme='amoled'] .email-rendered-body.email-smart_dark {
+  color: #f1f5f9;
 }
 
-[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) p,
-[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) span,
-[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) div,
-[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) td,
-[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) th,
-[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) font,
-[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card) p,
-[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card) span,
-[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card) div,
-[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card) td,
-[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card) th,
-[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card) p,
-[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card) span,
-[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card) div,
-[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card) td,
-[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card) th,
-[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) p,
-[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) span,
-[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) div,
-[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) td,
-[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) th {
-  color: inherit;
+[data-theme='dark'] .email-rendered-body.email-smart_dark p,
+[data-theme='dark'] .email-rendered-body.email-smart_dark span,
+[data-theme='dark'] .email-rendered-body.email-smart_dark div,
+[data-theme='dark'] .email-rendered-body.email-smart_dark td,
+[data-theme='dark'] .email-rendered-body.email-smart_dark th,
+[data-theme='dark'] .email-rendered-body.email-smart_dark font,
+[data-theme='dark'] .email-rendered-body.email-smart_dark li,
+[data-theme='tokyo'] .email-rendered-body.email-smart_dark p,
+[data-theme='tokyo'] .email-rendered-body.email-smart_dark span,
+[data-theme='tokyo'] .email-rendered-body.email-smart_dark div,
+[data-theme='tokyo'] .email-rendered-body.email-smart_dark td,
+[data-theme='tokyo'] .email-rendered-body.email-smart_dark th,
+[data-theme='dracula'] .email-rendered-body.email-smart_dark p,
+[data-theme='dracula'] .email-rendered-body.email-smart_dark span,
+[data-theme='dracula'] .email-rendered-body.email-smart_dark div,
+[data-theme='dracula'] .email-rendered-body.email-smart_dark td,
+[data-theme='dracula'] .email-rendered-body.email-smart_dark th,
+[data-theme='amoled'] .email-rendered-body.email-smart_dark p,
+[data-theme='amoled'] .email-rendered-body.email-smart_dark span,
+[data-theme='amoled'] .email-rendered-body.email-smart_dark div,
+[data-theme='amoled'] .email-rendered-body.email-smart_dark td,
+[data-theme='amoled'] .email-rendered-body.email-smart_dark th {
+  color: #f1f5f9;
 }
 
-/* Light Card Mode (when user toggles light view for newsletters in dark mode) */
-.email-light-mode-card {
+/* Ensure links in dark mode are clearly readable with sufficient contrast */
+[data-theme='dark'] .email-rendered-body.email-smart_dark a,
+[data-theme='tokyo'] .email-rendered-body.email-smart_dark a,
+[data-theme='dracula'] .email-rendered-body.email-smart_dark a,
+[data-theme='amoled'] .email-rendered-body.email-smart_dark a {
+  color: #60a5fa !important;
+  text-decoration: underline;
+}
+
+/* Light Card Mode (renders pristine white card in dark mode) */
+.email-light-mode-card,
+.email-rendered-body.email-light_card {
   background-color: #ffffff !important;
-  color: #1e293b !important;
+  color: #0f172a !important;
   padding: 24px !important;
   border-radius: var(--radius-md) !important;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 
-.email-light-mode-card * {
+.email-light-mode-card *,
+.email-rendered-body.email-light_card * {
   color: initial;
 }
 
-.email-light-mode-card a {
+.email-light-mode-card a,
+.email-rendered-body.email-light_card a {
   color: #2563eb !important;
 }
 

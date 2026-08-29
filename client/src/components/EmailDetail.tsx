@@ -67,7 +67,8 @@ export const EmailDetail: React.FC = () => {
   const [loadRemoteImages, setLoadRemoteImages] = useState(false);
   const [quickReplyText, setQuickReplyText] = useState('');
   const [isSendingQuickReply, setIsSendingQuickReply] = useState(false);
-  const [isLightCardMode, setIsLightCardMode] = useState(false);
+  const [emailViewMode, setEmailViewMode] = useState<'smart_dark' | 'light_card' | 'original'>('smart_dark');
+  const isLightCardMode = emailViewMode === 'light_card';
 
   useEffect(() => {
     if (!selectedEmail) {
@@ -193,7 +194,15 @@ export const EmailDetail: React.FC = () => {
   const sanitizeHtml = (html: string) => {
     if (!html) return '';
 
-    let processed = html;
+    let raw = html;
+
+    // Check if plain text without HTML formatting
+    const hasHtmlTags = /<[a-z][\s\S]*>/i.test(raw);
+    if (!hasHtmlTags) {
+      return `<div style="white-space: pre-wrap; font-family: inherit; font-size: 14px; line-height: 1.6; color: inherit;">${DOMPurify.sanitize(raw)}</div>`;
+    }
+
+    let processed = raw;
 
     // 1. Resolve inline CID images from email attachments (e.g. cid:image001.png)
     if (selectedEmail.attachments && selectedEmail.attachments.length > 0) {
@@ -214,13 +223,14 @@ export const EmailDetail: React.FC = () => {
       }
     }
 
-    // 2. Normalize inline dark-mode styles when viewing in dark mode (and not in light card mode)
+    // 2. Intelligent Dark Mode Normalization
     const isDark = theme !== 'light';
-    if (isDark && !isLightCardMode) {
-      // Invert or normalize explicit dark text color inline styles so text is clear and readable on dark bg
-      processed = processed.replace(/color\s*:\s*(#000000|#000|#111111|#111|#222222|#222|#333333|#333|black|rgb\(0,\s*0,\s*0\))/gi, 'color: inherit');
-      // Normalize explicit white background inline styles that cause harsh blocks
-      processed = processed.replace(/background(-color)?\s*:\s*(#ffffff|#fff|white|rgb\(255,\s*255,\s*255\))/gi, 'background-color: transparent');
+    if (isDark && emailViewMode === 'smart_dark') {
+      // Replace hardcoded dark text colors with inherit/light text
+      processed = processed.replace(/color\s*:\s*(#000000|#000|#111111|#111|#1a1a1a|#222222|#222|#333333|#333|#444444|#444|#555555|#555|black|rgb\(0,\s*0,\s*0\)|rgb\(34,\s*34,\s*34\)|rgb\(51,\s*51,\s*51\))/gi, 'color: inherit');
+      // Normalize harsh white/light background inline styles & attributes
+      processed = processed.replace(/background(-color)?\s*:\s*(#ffffff|#fff|#f8f9fa|#f1f5f9|#fafafa|#f4f4f4|white|rgb\(255,\s*255,\s*255\))/gi, 'background-color: transparent');
+      processed = processed.replace(/bgcolor\s*=\s*["']?(#ffffff|#fff|white|#f8f9fa|#fafafa)["']?/gi, 'bgcolor="transparent"');
     }
 
     // 3. DOMPurify sanitize with email HTML and table attributes allowed
@@ -410,27 +420,80 @@ export const EmailDetail: React.FC = () => {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {theme !== 'light' && (
-            <button
-              onClick={() => setIsLightCardMode(!isLightCardMode)}
-              title={isLightCardMode ? 'Karanlık Görünüme Dön' : 'Aydınlık Kart Görünümüne Geç (Bülten ve Tablolar için)'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '5px 10px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--border-subtle)',
-                backgroundColor: isLightCardMode ? '#ffffff' : 'var(--bg-tertiary)',
-                color: isLightCardMode ? '#1e293b' : 'var(--text-secondary)',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              {isLightCardMode ? <Moon size={14} color="#3b82f6" /> : <Sun size={14} color="#f59e0b" />}
-              <span>{isLightCardMode ? 'Karanlık Görünüm' : 'Aydınlık Kart'}</span>
-            </button>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: 'var(--bg-tertiary)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '2px',
+              border: '1px solid var(--border-subtle)',
+              gap: '2px',
+            }}>
+              <button
+                onClick={() => setEmailViewMode('smart_dark')}
+                title="Akıllı Karanlık Mod (Yazıları netleştirir)"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  border: 'none',
+                  backgroundColor: emailViewMode === 'smart_dark' ? 'var(--accent-primary)' : 'transparent',
+                  color: emailViewMode === 'smart_dark' ? '#ffffff' : 'var(--text-secondary)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Moon size={12} />
+                <span>Karanlık</span>
+              </button>
+
+              <button
+                onClick={() => setEmailViewMode('light_card')}
+                title="Aydınlık Kart Görünümü (Bülten, fatura ve tablolar için beyaz kart)"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  border: 'none',
+                  backgroundColor: emailViewMode === 'light_card' ? '#ffffff' : 'transparent',
+                  color: emailViewMode === 'light_card' ? '#0f172a' : 'var(--text-secondary)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Sun size={12} color={emailViewMode === 'light_card' ? '#f59e0b' : 'currentColor'} />
+                <span>Aydınlık Kart</span>
+              </button>
+
+              <button
+                onClick={() => setEmailViewMode('original')}
+                title="Orijinal Biçimlendirme (Değiştirilmemiş HTML)"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  border: 'none',
+                  backgroundColor: emailViewMode === 'original' ? 'var(--bg-secondary)' : 'transparent',
+                  color: emailViewMode === 'original' ? 'var(--accent-purple)' : 'var(--text-secondary)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>Orijinal</span>
+              </button>
+            </div>
           )}
 
           <button
@@ -873,7 +936,7 @@ export const EmailDetail: React.FC = () => {
 
         {/* Email Body Content */}
         <div
-          className={`email-rendered-body ${isLightCardMode ? 'email-light-mode-card' : ''}`}
+          className={`email-rendered-body email-${emailViewMode} ${isLightCardMode ? 'email-light-mode-card' : ''}`}
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedEmail.bodyHtml || selectedEmail.bodyText) }}
         />
 

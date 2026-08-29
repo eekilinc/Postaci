@@ -1,7 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { Account, Email, Attachment } from '../types.js';
-import { saveEmail, saveEmailWithStatus, getAccounts, getAccountById, isDeletedLocally, registerServerFolder, pruneMissingServerUids, updateEmailFlags } from './db.js';
+import { saveEmail, saveEmailWithStatus, getAccounts, getAccountById, isDeletedLocally, registerServerFolder, pruneMissingServerUids, updateEmailFlags, syncFolderReadFlags } from './db.js';
 import { OAuthService } from './oauthService.js';
 import { v4 as uuidv4 } from 'uuid';
 import dns from 'dns';
@@ -115,7 +115,10 @@ export class ImapService {
     const domain = email.includes('@') ? email.split('@')[1].toLowerCase() : '';
 
     const rawHost = (account.imapHost || '').trim();
-    if (!rawHost || (!account.imapUser && !email) || !account.imapPassword) {
+    const pass = account.imapPassword || '';
+    const configuredUser = (account.imapUser || email).trim();
+
+    if (!rawHost || !configuredUser || !pass) {
       return { success: false, message: 'Lütfen tüm IMAP alanlarını doldurun (Sunucu, Port, Kullanıcı, Şifre).' };
     }
 
@@ -134,102 +137,126 @@ export class ImapService {
       if (!isNaN(parsedP)) extractedPort = parsedP;
     }
 
+    const requestedPort = extractedPort || account.imapPort || 993;
+    const requestedSecure = account.imapSecure !== undefined ? account.imapSecure : (requestedPort === 143 ? false : true);
+
     const isGoogle = domain === 'gmail.com' || domain === 'googlemail.com' || baseHost.includes('gmail.com');
     const isMicrosoft = ['outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'office365.com'].includes(domain) || baseHost.includes('outlook.com') || baseHost.includes('office365.com');
     const isYahoo = domain.includes('yahoo') || domain.includes('ymail');
     const isApple = domain.includes('icloud.com') || domain.includes('me.com') || domain.includes('mac.com');
 
-    // Build candidate hosts in priority order
-    const hostCandidates: string[] = [baseHost];
-    if (domain) {
-      const defaults = [
-        `mail.${domain}`,
-        `imap.${domain}`,
-        `posta.${domain}`,
-        `eposta.${domain}`,
-        `webmail.${domain}`,
-      ];
-      for (const d of defaults) {
-        if (!hostCandidates.includes(d)) {
-          hostCandidates.push(d);
-        }
-      }
+    const attemptConnect = async (host: string, port: number, secure: boolean, user: string, timeoutMs = 3500) => {
+      const client = new ImapFlow({
+        host,
+        port,
+        secure,
+        auth: { user, pass },
+        tls: {
+          rejectUnauthorized: false,
+          servername: host,
+        },
+        logger: false,
+        emitLogs: false,
+      });
 
-      // Check MX records dynamically as candidate fallback
+      let timer: NodeJS.Timeout | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          client.close();
+          reject(new Error(`ETIMEDOUT: ${host}:${port} bağlantısı ${timeoutMs}ms içinde yanıt vermedi.`));
+        }, timeoutMs);
+      });
+
       try {
-        const mxRecords = await resolveMxAsync(domain);
-        if (mxRecords && mxRecords.length > 0) {
-          for (const mx of mxRecords) {
-            const mxHost = mx.exchange.toLowerCase();
-            if (!hostCandidates.includes(mxHost)) {
-              hostCandidates.push(mxHost);
-            }
-          }
-        }
-      } catch {}
+        await Promise.race([client.connect(), timeoutPromise]);
+        if (timer) clearTimeout(timer);
+        const mailboxes = await client.list();
+        const folders = mailboxes.map(mb => mb.path);
+        await client.logout().catch(() => {});
+        return { ok: true as const, folders };
+      } catch (err: any) {
+        if (timer) clearTimeout(timer);
+        await client.logout().catch(() => {});
+        return { ok: false as const, error: err };
+      }
+    };
+
+    // 1. PRIMARY FAST ATTEMPT: Test user's exact configured host, port, user
+    const primaryRes = await attemptConnect(baseHost, requestedPort, requestedSecure, configuredUser, 3500);
+    if (primaryRes.ok) {
+      return {
+        success: true,
+        message: `IMAP (${requestedSecure ? 'SSL/TLS' : 'STARTTLS'}, Port ${requestedPort}, Sunucu: ${baseHost}) başarıyla doğrulandı!`,
+        folders: primaryRes.folders,
+        suggestedImapHost: baseHost,
+        suggestedImapUser: configuredUser,
+        suggestedImapPort: requestedPort,
+        suggestedImapSecure: requestedSecure,
+      };
     }
 
-    const userCandidates = [
-      (account.imapUser || email).trim(),
-      ...(prefix && prefix !== (account.imapUser || email) ? [prefix] : [])
-    ];
+    let lastErrorMsg = primaryRes.error?.message || String(primaryRes.error);
 
-    const requestedPort = extractedPort || account.imapPort || 993;
-    const requestedSecure = account.imapSecure !== undefined ? account.imapSecure : (requestedPort === 143 ? false : true);
+    // 2. If failure is due to username format, try prefix candidate
+    if ((lastErrorMsg.includes('AUTHENTICATION') || lastErrorMsg.includes('Invalid credentials') || lastErrorMsg.includes('535')) && prefix && prefix !== configuredUser) {
+      const userRes = await attemptConnect(baseHost, requestedPort, requestedSecure, prefix, 3000);
+      if (userRes.ok) {
+        return {
+          success: true,
+          message: `IMAP (${requestedSecure ? 'SSL/TLS' : 'STARTTLS'}, Port ${requestedPort}, Kullanıcı: ${prefix}) başarıyla doğrulandı!`,
+          folders: userRes.folders,
+          suggestedImapHost: baseHost,
+          suggestedImapUser: prefix,
+          suggestedImapPort: requestedPort,
+          suggestedImapSecure: requestedSecure,
+        };
+      }
+    }
 
-    const portCandidates = [
-      { port: requestedPort, secure: requestedSecure },
-      { port: 993, secure: true },
-      { port: 143, secure: false },
-    ];
+    // 3. If primary port failed (connection refused/timeout), try alternative standard port (993 SSL vs 143 STARTTLS)
+    const altPort = requestedPort === 993 ? 143 : 993;
+    const altSecure = altPort === 993;
+    if (!lastErrorMsg.includes('AUTHENTICATION') && !lastErrorMsg.includes('Invalid credentials')) {
+      const portRes = await attemptConnect(baseHost, altPort, altSecure, configuredUser, 2500);
+      if (portRes.ok) {
+        return {
+          success: true,
+          message: `IMAP (${altSecure ? 'SSL/TLS' : 'STARTTLS'}, Port ${altPort}, Sunucu: ${baseHost}) başarıyla doğrulandı!`,
+          folders: portRes.folders,
+          suggestedImapHost: baseHost,
+          suggestedImapUser: configuredUser,
+          suggestedImapPort: altPort,
+          suggestedImapSecure: altSecure,
+        };
+      }
+    }
 
-    const uniquePortCombos = portCandidates.filter((v, i, a) => a.findIndex(t => t.port === v.port && t.secure === v.secure) === i);
+    // 4. If DNS failed (ENOTFOUND), try top 2 candidate hosts with fast 2500ms timeout
+    if (lastErrorMsg.includes('ENOTFOUND') || lastErrorMsg.includes('getaddrinfo')) {
+      const candidateHosts: string[] = [];
+      if (domain) {
+        if (`mail.${domain}` !== baseHost) candidateHosts.push(`mail.${domain}`);
+        if (`imap.${domain}` !== baseHost) candidateHosts.push(`imap.${domain}`);
+      }
 
-    let lastErrorMsg = '';
-
-    for (const h of hostCandidates) {
-      for (const u of userCandidates) {
-        for (const p of uniquePortCombos) {
-          try {
-            const client = new ImapFlow({
-              host: h,
-              port: p.port,
-              secure: p.secure,
-              auth: {
-                user: u,
-                pass: account.imapPassword,
-              },
-              tls: {
-                rejectUnauthorized: false,
-                servername: h,
-              },
-              logger: false,
-              emitLogs: false,
-            });
-
-            await client.connect();
-            const mailboxes = await client.list();
-            const folders = mailboxes.map(mb => mb.path);
-            await client.logout();
-
-            return {
-              success: true,
-              message: `IMAP (${p.secure ? 'SSL/TLS' : 'STARTTLS'}, Port ${p.port}, Sunucu: ${h}) başarıyla doğrulandı!`,
-              folders,
-              suggestedImapHost: h,
-              suggestedImapUser: u,
-              suggestedImapPort: p.port,
-              suggestedImapSecure: p.secure,
-            };
-          } catch (err: any) {
-            lastErrorMsg = err.message || String(err);
-          }
+      for (const candHost of candidateHosts) {
+        const candRes = await attemptConnect(candHost, 993, true, configuredUser, 2500);
+        if (candRes.ok) {
+          return {
+            success: true,
+            message: `IMAP (SSL/TLS, Port 993, Sunucu: ${candHost}) başarıyla doğrulandı!`,
+            folders: candRes.folders,
+            suggestedImapHost: candHost,
+            suggestedImapUser: configuredUser,
+            suggestedImapPort: 993,
+            suggestedImapSecure: true,
+          };
         }
       }
     }
 
+    // User-friendly Turkish explanation
     let helpfulMsg = lastErrorMsg;
-
     if (isGoogle) {
       helpfulMsg = 'Google (Gmail) güvenliği nedeniyle standart hesap şifrenizi kabul etmez. Lütfen Google Güvenlik sayfasından 16 haneli "Uygulama Şifresi" (App Password) oluşturup buraya yapıştırın veya Google ile Giriş yapın.';
     } else if (isMicrosoft) {
@@ -741,22 +768,22 @@ export class ImapService {
               console.warn(`UID search on mailbox ${mb.path} failed:`, searchErr);
             }
 
-            let fetchLimit = 250;
+            let fetchLimit = 300;
             if (mb.path.toUpperCase() === 'INBOX' || targetFolder === 'INBOX') {
-              fetchLimit = 500;
+              fetchLimit = 1000;
             } else if (targetFolder === 'SENT') {
-              fetchLimit = 150;
+              fetchLimit = 300;
             } else if (targetFolder === 'TRASH' || targetFolder === 'DRAFTS' || targetFolder === 'SPAM') {
-              fetchLimit = 100;
+              fetchLimit = 150;
             }
 
             // Target UIDs = recent messages + ALL unseen messages everywhere in the mailbox
             const recentUids = allUids.slice(-fetchLimit);
             const targetUidsToFetch = Array.from(new Set([...recentUids, ...unseenUids])).sort((a, b) => a - b);
+            const minUid = targetUidsToFetch.length > 0 ? targetUidsToFetch[0] : (allUids.length > 0 ? allUids[0] : 1);
 
             // Prune messages locally that were deleted or moved away on remote webmail
             if (allUids.length > 0) {
-              const minUid = targetUidsToFetch.length > 0 ? targetUidsToFetch[0] : allUids[0];
               pruneMissingServerUids(account.id, mb.path, allUids, minUid, targetFolder);
             } else {
               const totalExists = client.mailbox && typeof client.mailbox === 'object' && 'exists' in client.mailbox
@@ -871,118 +898,11 @@ export class ImapService {
                   console.warn('Failed to process message:', itemErr);
                 }
               }
-            } else {
-              // Fallback to sequence range if search did not return array
-              const totalExists = client.mailbox && typeof client.mailbox === 'object' && 'exists' in client.mailbox
-                ? (client.mailbox as any).exists
-                : 0;
+            }
 
-              if (totalExists > 0) {
-                const startSeq = Math.max(1, totalExists - fetchLimit);
-                const range = `${startSeq}:${totalExists}`;
-                const messages = client.fetch(range, {
-                  envelope: true,
-                  flags: true,
-                  bodyStructure: true,
-                  source: true,
-                  uid: true,
-                });
-
-                for await (const message of messages) {
-                  try {
-                    const env = message.envelope;
-                    const rawMid = env?.messageId || undefined;
-                    const emailId = rawMid
-                      ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
-                      : `imap-${account.id}-${mb.path}-${message.uid || uuidv4()}`;
-
-                    if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
-                      continue;
-                    }
-
-                    let parsed: ParsedMail | null = null;
-                    if (message.source) {
-                      try {
-                        parsed = await simpleParser(message.source);
-                      } catch (pErr) {
-                        console.warn('Mailparser error on sequence fetch, falling back to envelope:', pErr);
-                      }
-                    }
-
-                    const messageId = parsed?.messageId || rawMid || undefined;
-                    if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, messageId, account.id, message.uid, mb.path)) {
-                      continue;
-                    }
-
-                    const attachments: Attachment[] = (parsed?.attachments || []).map(att => ({
-                      id: uuidv4(),
-                      filename: att.filename || 'ek_dosya',
-                      contentType: att.contentType,
-                      size: att.size,
-                      isInline: att.related,
-                      contentId: att.cid,
-                      contentBase64: att.content ? att.content.toString('base64') : undefined
-                    }));
-
-                    const fromName = parsed?.from?.value[0]?.name || parsed?.from?.text || env?.from?.[0]?.name || 'Bilinmeyen Gönderici';
-                    const fromEmail = parsed?.from?.value[0]?.address || env?.from?.[0]?.address || 'unknown@example.com';
-                    const subject = parsed?.subject || env?.subject || '(Konusuz)';
-                    const bodyText = parsed?.text || '';
-                    const bodyHtml = parsed?.html || `<p>${bodyText || subject || ''}</p>`;
-                    const snippet = (bodyText || subject).substring(0, 150).replace(/\s+/g, ' ');
-                    const date = (parsed?.date || env?.date || new Date()).toISOString();
-
-                    const to = parsed?.to
-                      ? (Array.isArray(parsed.to) ? parsed.to : [parsed.to]).flatMap((t: any) => (t.value || []).map((v: any) => ({ name: v.name || '', email: v.address || '' })))
-                      : (env?.to || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
-
-                    const cc = parsed?.cc
-                      ? (Array.isArray(parsed.cc) ? parsed.cc : [parsed.cc]).flatMap((t: any) => (t.value || []).map((v: any) => ({ name: v.name || '', email: v.address || '' })))
-                      : (env?.cc || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
-
-                    const email: Email = {
-                      id: emailId,
-                      accountId: account.id,
-                      threadId: messageId ? `thread-${messageId}` : `thread-${emailId}`,
-                      messageId,
-                      inReplyTo: parsed?.inReplyTo || env?.inReplyTo || undefined,
-                      references: Array.isArray(parsed?.references) ? parsed.references.join(' ') : (parsed?.references || undefined),
-                      fromName,
-                      fromEmail,
-                      to,
-                      cc,
-                      bcc: [],
-                      subject,
-                      bodyText,
-                      bodyHtml,
-                      snippet,
-                      date,
-                      isRead: message.flags ? message.flags.has('\\Seen') : (targetFolder === 'SENT'),
-                      isStarred: message.flags ? message.flags.has('\\Flagged') : false,
-                      isArchived: targetFolder === 'ARCHIVE',
-                      isDeleted: targetFolder === 'TRASH',
-                      isDraft: targetFolder === 'DRAFTS',
-                      isSpam: targetFolder === 'SPAM',
-                      folder: targetFolder,
-                      labels: isCustom ? [targetFolder] : [targetFolder === 'INBOX' ? 'Gelen Kutusu' : targetFolder],
-                      priority: 'normal',
-                      attachments,
-                      imapUid: message.uid,
-                      mailboxPath: mb.path,
-                      aiSummary: null,
-                      aiSmartReplies: null
-                    };
-
-                    const { email: savedEmail, isNew } = saveEmailWithStatus(email, true);
-                    if (isNew && targetFolder === 'INBOX' && !savedEmail.isRead && this.broadcastCb) {
-                      this.broadcastCb('new_email', savedEmail);
-                    }
-                    syncedCount++;
-                  } catch (itemErr) {
-                    console.warn('Failed to process message:', itemErr);
-                  }
-                }
-              }
+            // Synchronize read/unread flags between local SQLite and remote server
+            if (allUids.length > 0) {
+              syncFolderReadFlags(account.id, targetFolder, unseenUids, allUids, minUid);
             }
           } finally {
             lock.release();
