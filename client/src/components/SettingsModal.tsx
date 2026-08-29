@@ -27,7 +27,9 @@ import {
   UploadCloud,
   ExternalLink,
   Layers,
-  Copy
+  Copy,
+  Save,
+  ArrowLeft
 } from 'lucide-react';
 import { useMail } from '../context/MailContext';
 import { useTheme, Theme, AccentColor, Density } from '../context/ThemeContext';
@@ -153,6 +155,9 @@ export const SettingsModal: React.FC = () => {
     setIsSettingsOpen,
     accounts,
     refreshAccounts,
+    setActiveAccountId,
+    refreshEmails,
+    refreshStats,
     viewLayout,
     setViewLayout,
     triggerSync,
@@ -207,6 +212,7 @@ export const SettingsModal: React.FC = () => {
   const [useSameCredentials, setUseSameCredentials] = useState(true);
 
   const [selectedProviderKey, setSelectedProviderKey] = useState<string>('google');
+  const [isWaitingOAuth, setIsWaitingOAuth] = useState(false);
 
   const handleSelectProviderPreset = (key: string) => {
     setSelectedProviderKey(key);
@@ -280,7 +286,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.1.1) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.1.2) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -338,6 +344,32 @@ export const SettingsModal: React.FC = () => {
     }).catch(() => {});
   }, []);
 
+  // Active polling listener when Google OAuth popup is active in browser
+  useEffect(() => {
+    if (!isWaitingOAuth) return;
+
+    const initialAccountIds = new Set(accounts.map((a: Account) => a.id));
+    const interval = setInterval(async () => {
+      try {
+        const currentAccounts = await api.getAccounts();
+        const newAcc = currentAccounts.find((a: Account) => !initialAccountIds.has(a.id));
+        if (newAcc) {
+          setIsWaitingOAuth(false);
+          await refreshAccounts();
+          setActiveAccountId(newAcc.id);
+          success(`${newAcc.email} hesabı başarıyla bağlandı! 🎉`, 'Giriş Başarılı');
+          refreshEmails();
+          refreshStats();
+          triggerSync();
+          setIsFormOpen(false);
+          setIsSettingsOpen(false);
+        }
+      } catch {}
+    }, 1200);
+
+    return () => clearInterval(interval);
+  }, [isWaitingOAuth, accounts, refreshAccounts, setActiveAccountId, refreshEmails, refreshStats, triggerSync, setIsSettingsOpen, success]);
+
   const handleStartGoogleOAuth = async () => {
     setIsSavingOAuth(true);
     try {
@@ -352,10 +384,12 @@ export const SettingsModal: React.FC = () => {
       const res = await api.getGoogleAuthUrl(googleClientId.trim() || undefined);
       if (res.url) {
         handleOpenExternal(res.url);
-        info('Google yetkilendirme sayfası tarayıcınızda açıldı. Onay verdikten sonra hesabınız otomatik olarak Postacı\'ya eklenecektir.');
+        setIsWaitingOAuth(true);
+        info('Tarayıcınızda Google yetkilendirme sayfası açıldı. Giriş yaptığınızda Postacı otomatik olarak bağlanacaktır.');
       }
     } catch (err: any) {
       error(err.message || 'Google yetkilendirmesi başlatılamadı.');
+      setIsWaitingOAuth(false);
     } finally {
       setIsSavingOAuth(false);
     }
@@ -378,28 +412,37 @@ export const SettingsModal: React.FC = () => {
     }
   };
 
-  // Debounced Autodiscovery & Provider Selection when email changes (only when creating new account)
+  // Instant Provider Detection & Smart Autodiscovery when email changes
   useEffect(() => {
-    if (editingAccountId || !accEmail || !accEmail.includes('@')) {
+    if (editingAccountId || !accEmail.trim()) {
       return;
     }
 
-    const domain = accEmail.split('@')[1]?.toLowerCase() || '';
+    const email = accEmail.trim().toLowerCase();
+    const domain = email.includes('@') ? email.split('@')[1] : '';
 
-    // Fast local provider switch
-    if (domain.includes('gmail') || domain.includes('google')) {
+    // Fast instant local provider detection
+    if (domain === 'gmail.com' || domain === 'googlemail.com' || email.includes('@gmail') || email.includes('@google')) {
       if (selectedProviderKey !== 'google') handleSelectProviderPreset('google');
-    } else if (domain.includes('outlook') || domain.includes('hotmail') || domain.includes('live') || domain.includes('msn') || domain.includes('office365')) {
+    } else if (domain === 'outlook.com' || domain === 'hotmail.com' || domain === 'live.com' || domain === 'msn.com' || domain === 'office365.com' || email.includes('@outlook') || email.includes('@hotmail') || email.includes('@live') || email.includes('@msn')) {
       if (selectedProviderKey !== 'microsoft') handleSelectProviderPreset('microsoft');
-    } else if (domain.includes('yandex') || domain.includes('ya.ru')) {
+    } else if (domain === 'yandex.com' || domain === 'yandex.com.tr' || domain === 'yandex.ru' || domain === 'ya.ru' || email.includes('@yandex') || email.includes('@ya.ru')) {
       if (selectedProviderKey !== 'yandex') handleSelectProviderPreset('yandex');
-    } else if (domain.includes('icloud') || domain.includes('me.com') || domain.includes('mac.com')) {
+    } else if (domain === 'icloud.com' || domain === 'me.com' || domain === 'mac.com' || email.includes('@icloud') || email.includes('@me.com')) {
       if (selectedProviderKey !== 'icloud') handleSelectProviderPreset('icloud');
-    } else if (domain.includes('yahoo')) {
+    } else if (domain === 'yahoo.com' || domain === 'yahoo.com.tr' || domain === 'ymail.com' || email.includes('@yahoo')) {
       if (selectedProviderKey !== 'yahoo') handleSelectProviderPreset('yahoo');
     }
 
-    if (domain.length < 3) {
+    if (!accImapUser) {
+      setAccImapUser(email);
+    }
+    if (!accName && email.includes('@')) {
+      const prefix = email.split('@')[0];
+      setAccName(prefix.charAt(0).toUpperCase() + prefix.slice(1));
+    }
+
+    if (domain.length < 3 || !domain.includes('.')) {
       setDiscoveredInfo(null);
       return;
     }
@@ -407,7 +450,7 @@ export const SettingsModal: React.FC = () => {
     const timer = setTimeout(async () => {
       setIsAutoDiscovering(true);
       try {
-        const disc = await api.autodiscoverAccount(accEmail);
+        const disc = await api.autodiscoverAccount(email);
         if (disc.success) {
           setDiscoveredInfo({
             providerName: disc.providerName,
@@ -421,20 +464,13 @@ export const SettingsModal: React.FC = () => {
           setAccSmtpHost(disc.smtpHost);
           setAccSmtpPort(disc.smtpPort);
           setAccSmtpSecurity(disc.smtpSecure ? 'STARTTLS' : 'SSL');
-
-          if (!accName) {
-            setAccName(accEmail.split('@')[0]);
-          }
-          if (!accImapUser) {
-            setAccImapUser(accEmail);
-          }
         }
       } catch {
         // Fallback silently
       } finally {
         setIsAutoDiscovering(false);
       }
-    }, 600);
+    }, 400);
 
     return () => clearTimeout(timer);
   }, [accEmail, editingAccountId]);
@@ -676,7 +712,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.1.1
+            Postacı Desktop v1.1.2
           </div>
         </div>
 
@@ -815,9 +851,39 @@ export const SettingsModal: React.FC = () => {
             {/* TAB: ACCOUNTS FORM */}
             {activeTab === 'accounts' && isFormOpen && (
               <form onSubmit={handleSaveAccount} style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '640px' }}>
-                {/* 1. PRIMARY EMAIL INPUT (SMART REAL-TIME DETECT) */}
+                {/* 1. HEADER WITH BACK BUTTON */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => { setIsFormOpen(false); setEditingAccountId(null); setIsWaitingOAuth(false); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'var(--bg-tertiary)',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--text-secondary)',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <span>← Hesaplara Dön</span>
+                    </button>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {editingAccountId ? 'Hesap Ayarlarını Düzenle' : 'Yeni E-Posta Hesabı Ekle'}
+                      </h4>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. PRIMARY EMAIL INPUT (SMART REAL-TIME DETECT) */}
                 <div style={{
-                  padding: '14px 16px',
+                  padding: '16px',
                   borderRadius: 'var(--radius-md)',
                   backgroundColor: 'var(--bg-tertiary)',
                   border: '1px solid var(--border-medium)',
@@ -828,15 +894,19 @@ export const SettingsModal: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span>📧 E-Posta Adresiniz *</span>
-                      <span style={{ fontSize: '11px', color: 'var(--accent-primary)', fontWeight: 600 }}>✨ Akıllı Otomatik Tanıma</span>
                     </label>
-                    {isAutoDiscovering && (
-                      <div style={{ fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Sparkles size={12} className="animate-pulse" />
-                        <span>Sunucu ayarları algılanıyor...</span>
-                      </div>
-                    )}
+                    <div style={{ fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {isAutoDiscovering ? (
+                        <>
+                          <Sparkles size={12} className="animate-pulse" />
+                          <span>Sunucu ayarları algılanıyor...</span>
+                        </>
+                      ) : (
+                        <span>✨ Sağlayıcı otomatik algılanır</span>
+                      )}
+                    </div>
                   </div>
+
                   <input
                     type="email"
                     required
@@ -846,30 +916,21 @@ export const SettingsModal: React.FC = () => {
                     autoFocus
                     style={{
                       width: '100%',
-                      padding: '11px 14px',
+                      padding: '12px 14px',
                       borderRadius: 'var(--radius-sm)',
                       background: 'var(--bg-secondary)',
                       border: '1px solid var(--border-medium)',
                       color: 'var(--text-primary)',
                       fontSize: '14px',
-                      fontWeight: 500,
+                      fontWeight: 600,
                       boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.2)'
                     }}
                   />
-                  {discoveredInfo && selectedProviderKey === 'custom' && (
-                    <div style={{ fontSize: '11px', color: 'var(--accent-primary)', marginTop: '2px' }}>
-                      ✨ Sunucu bilgileri <strong>{discoveredInfo.providerName}</strong> için otomatik dolduruldu.
-                    </div>
-                  )}
-                </div>
 
-                {/* 2. SMART PROVIDER SELECTION GRID */}
-                {!editingAccountId && (
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
-                      Algılanan / Seçili E-Posta Sağlayıcısı
-                    </label>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                  {/* Provider Pills Row */}
+                  {!editingAccountId && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginRight: '4px' }}>Seçili Sağlayıcı:</span>
                       {Object.entries(PROVIDER_PRESETS).map(([key, p]) => {
                         const isSelected = selectedProviderKey === key;
                         return (
@@ -878,415 +939,448 @@ export const SettingsModal: React.FC = () => {
                             type="button"
                             onClick={() => handleSelectProviderPreset(key)}
                             style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'flex-start',
-                              padding: '10px 12px',
-                              borderRadius: 'var(--radius-md)',
-                              backgroundColor: isSelected ? 'var(--bg-active)' : 'var(--bg-tertiary)',
-                              border: isSelected ? `2px solid ${p.color}` : '1px solid var(--border-subtle)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              padding: '4px 10px',
+                              borderRadius: '20px',
+                              backgroundColor: isSelected ? p.color : 'var(--bg-secondary)',
+                              border: isSelected ? `1px solid ${p.color}` : '1px solid var(--border-subtle)',
+                              color: isSelected ? '#ffffff' : 'var(--text-secondary)',
+                              fontSize: '11px',
+                              fontWeight: isSelected ? 700 : 500,
                               cursor: 'pointer',
-                              textAlign: 'left',
                               transition: 'all 0.15s ease',
-                              boxShadow: isSelected ? `0 0 14px ${p.color}33` : 'none',
+                              boxShadow: isSelected ? `0 2px 8px ${p.color}44` : 'none'
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: '4px' }}>
-                              <span style={{ fontSize: '18px' }}>{p.icon}</span>
-                              <span style={{
-                                fontSize: '10px',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                backgroundColor: isSelected ? p.color : 'rgba(255,255,255,0.06)',
-                                color: isSelected ? '#fff' : 'var(--text-muted)',
-                                fontWeight: 600,
-                              }}>
-                                {p.badge}
-                              </span>
-                            </div>
-                            <span style={{ fontSize: '12px', fontWeight: 700, color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                              {p.name}
-                            </span>
+                            <span>{p.icon}</span>
+                            <span>{p.name.split(' ')[0]}</span>
                           </button>
                         );
                       })}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
-                {/* 3. GOOGLE DIRECT 1-CLICK OAUTH & APP PASSWORD HUB */}
-                {!editingAccountId && selectedProviderKey === 'google' && (
-                  <div style={{
-                    padding: '16px',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'linear-gradient(135deg, rgba(234, 67, 53, 0.14) 0%, rgba(66, 133, 244, 0.14) 100%)',
-                    border: '1px solid rgba(234, 67, 53, 0.4)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '12px',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span>🔴</span>
-                          <span>Google (Gmail) 1-Tıkla Giriş</span>
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          Thunderbird & Mailbird gibi tarayıcınız üzerinden tek tıkla yetkilendirin.
-                        </div>
+                {/* 3. DYNAMIC AUTHENTICATION FLOW */}
+                {!editingAccountId && selectedProviderKey === 'google' && googleAuthMode === 'oauth' ? (
+                  /* GOOGLE 1-CLICK OAUTH HERO CARD */
+                  isWaitingOAuth ? (
+                    <div style={{
+                      padding: '24px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'linear-gradient(135deg, rgba(234, 67, 53, 0.15) 0%, rgba(66, 133, 244, 0.15) 100%)',
+                      border: '2px solid rgba(234, 67, 53, 0.5)',
+                      textAlign: 'center',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '12px'
+                    }}>
+                      <div style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        background: '#ea4335',
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 0 20px rgba(234, 67, 53, 0.6)',
+                        fontSize: '22px'
+                      }}>
+                        🔴
                       </div>
-                      <button
-                        type="button"
-                        onClick={handleStartGoogleOAuth}
-                        disabled={isSavingOAuth}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          padding: '10px 18px',
-                          borderRadius: 'var(--radius-sm)',
-                          backgroundColor: '#ea4335',
-                          color: 'white',
-                          border: 'none',
-                          fontSize: '13px',
-                          fontWeight: 700,
-                          cursor: isSavingOAuth ? 'not-allowed' : 'pointer',
-                          whiteSpace: 'nowrap',
-                          boxShadow: '0 4px 14px rgba(234, 67, 53, 0.4)'
-                        }}
-                      >
-                        <ExternalLink size={14} />
-                        <span>{isSavingOAuth ? 'Bağlantı Açılıyor...' : '🚀 Google ile Bağlan'}</span>
-                      </button>
-                    </div>
-
-                    {/* Secondary option toggle */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        Alternatif yöntemler:
-                      </span>
-                      <div style={{ display: 'flex', gap: '6px' }}>
+                      <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        Tarayıcınızda Google Girişi Bekleniyor...
+                      </h4>
+                      <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', maxWidth: '440px', lineHeight: 1.5 }}>
+                        Lütfen açılan Google sekmesinde <strong>{accEmail || 'hesabınızı'}</strong> seçip izin verin. Onay verdiğiniz anda bu pencere <strong>otomatik olarak kapanacak</strong> ve gelen kutunuz açılacaktır.
+                      </p>
+                      <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
                         <button
                           type="button"
-                          onClick={() => setGoogleAuthMode(googleAuthMode === 'app_password' ? 'oauth' : 'app_password')}
+                          onClick={handleStartGoogleOAuth}
                           style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: '#38bdf8',
-                            fontSize: '11px',
-                            cursor: 'pointer',
-                            textDecoration: 'underline'
+                            padding: '7px 16px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'rgba(255,255,255,0.1)',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                            color: 'var(--text-primary)',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
                           }}
                         >
-                          {googleAuthMode === 'app_password' ? '✕ Kapat' : '🔑 16 Haneli Uygulama Şifresi ile Giriş'}
+                          🔗 Sekmeyi Tekrar Aç
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsWaitingOAuth(false)}
+                          style={{
+                            padding: '7px 16px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'transparent',
+                            border: '1px solid var(--border-subtle)',
+                            color: 'var(--text-muted)',
+                            fontSize: '12px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          ✕ İptal
                         </button>
                       </div>
                     </div>
-
-                    {googleAuthMode === 'app_password' && (
-                      <div style={{
-                        fontSize: '11px',
-                        color: 'var(--text-secondary)',
-                        backgroundColor: 'rgba(0,0,0,0.3)',
-                        padding: '10px 12px',
-                        borderRadius: 'var(--radius-sm)',
-                        lineHeight: '1.5'
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Uygulama Şifresi Rehberi:</span>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenExternal('https://myaccount.google.com/apppasswords')}
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              color: '#38bdf8',
-                              fontSize: '11px',
-                              cursor: 'pointer',
-                              textDecoration: 'underline',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '3px'
-                            }}
-                          >
-                            <span>Google Şifre Sayfası</span>
-                            <ExternalLink size={10} />
-                          </button>
+                  ) : (
+                    <div style={{
+                      padding: '20px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'linear-gradient(135deg, rgba(234, 67, 53, 0.12) 0%, rgba(66, 133, 244, 0.12) 100%)',
+                      border: '1px solid rgba(234, 67, 53, 0.4)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '14px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                        <div>
+                          <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>🔴</span>
+                            <span>Google (Gmail) ile Hızlı Giriş Yap</span>
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            OAuth 2.0 güvenli bağlantı: Şifre yazmanıza gerek yoktur, tarayıcınızdan tek tıkla yetkilendirin.
+                          </div>
                         </div>
-                        <div>1. Google Güvenlik sayfasından <strong>Postacı</strong> için 16 haneli şifre üretin.</div>
-                        <div>2. E-postanızı ve o şifreyi aşağıdaki <strong>Parola</strong> kutusuna yazıp <strong>Hesabı Kaydet</strong>'e basın.</div>
+                        <button
+                          type="button"
+                          onClick={handleStartGoogleOAuth}
+                          disabled={isSavingOAuth}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '12px 22px',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: '#ea4335',
+                            color: 'white',
+                            border: 'none',
+                            fontSize: '14px',
+                            fontWeight: 700,
+                            cursor: isSavingOAuth ? 'not-allowed' : 'pointer',
+                            whiteSpace: 'nowrap',
+                            boxShadow: '0 4px 16px rgba(234, 67, 53, 0.45)'
+                          }}
+                        >
+                          <ExternalLink size={16} />
+                          <span>{isSavingOAuth ? 'Açılıyor...' : '🚀 Google ile Bağlan'}</span>
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '10px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          Tarayıcı yerine klasik 16 haneli Uygulama Şifresi mi kullanmak istiyorsunuz?
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setGoogleAuthMode('app_password')}
+                          style={{ background: 'none', border: 'none', color: '#38bdf8', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                          🔑 Uygulama Şifresi ile Giriş
+                        </button>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  /* PASSWORD & CUSTOM CREDENTIALS FLOW */
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {/* Guidance / Help Banner for specific providers */}
+                    {selectedProviderKey !== 'custom' && PROVIDER_PRESETS[selectedProviderKey]?.helpUrl && (
+                      <div style={{
+                        padding: '12px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        backgroundColor: 'var(--bg-tertiary)',
+                        border: `1px solid ${PROVIDER_PRESETS[selectedProviderKey]?.color || 'var(--border-subtle)'}44`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px'
+                      }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>{PROVIDER_PRESETS[selectedProviderKey]?.icon}</span>
+                            <span>{PROVIDER_PRESETS[selectedProviderKey]?.name} Parola Bilgisi</span>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                            {PROVIDER_PRESETS[selectedProviderKey]?.helpText}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenExternal(PROVIDER_PRESETS[selectedProviderKey].helpUrl!)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '6px 12px',
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: PROVIDER_PRESETS[selectedProviderKey].color,
+                            color: 'white',
+                            border: 'none',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          <span>{PROVIDER_PRESETS[selectedProviderKey].helpTitle}</span>
+                          <ExternalLink size={12} />
+                        </button>
                       </div>
                     )}
-                  </div>
-                )}
 
-                {/* 4. CONTEXTUAL PROVIDER GUIDANCE & DIRECT 1-CLICK APP PASSWORD LINKS */}
-                {selectedProviderKey !== 'custom' && selectedProviderKey !== 'google' && PROVIDER_PRESETS[selectedProviderKey]?.helpUrl && (
-                  <div style={{
-                    padding: '12px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--bg-tertiary)',
-                    border: `1px solid ${PROVIDER_PRESETS[selectedProviderKey]?.color || 'var(--border-subtle)'}44`,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' }}>
-                        <span>{PROVIDER_PRESETS[selectedProviderKey]?.icon}</span>
-                        <span>{PROVIDER_PRESETS[selectedProviderKey]?.name} Bağlantı Rehberi</span>
+                    {selectedProviderKey === 'google' && googleAuthMode === 'app_password' && (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          onClick={() => setGoogleAuthMode('oauth')}
+                          style={{ background: 'none', border: 'none', color: '#38bdf8', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                          ← Tek Tıkla Google OAuth Moduna Geri Dön
+                        </button>
                       </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                          Parola {selectedProviderKey !== 'custom' ? '(veya Uygulama Şifresi)' : ''} *
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          placeholder="••••••••••••"
+                          value={accImapPass}
+                          onChange={e => {
+                            setAccImapPass(e.target.value);
+                            if (useSameCredentials) setAccSmtpPass(e.target.value);
+                          }}
+                          style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Hesap Görünen Adı</label>
+                        <input
+                          type="text"
+                          placeholder="Kişisel / İş / Okul"
+                          value={accName}
+                          onChange={e => setAccName(e.target.value)}
+                          style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Hesap Rengi:</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="color"
+                          value={accColor}
+                          onChange={e => setAccColor(e.target.value)}
+                          style={{ width: '32px', height: '32px', padding: 0, border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'transparent' }}
+                        />
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{accColor}</span>
+                      </div>
+                    </div>
+
+                    {/* ADVANCED SERVER CONFIG ACCORDION */}
+                    <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
                       <button
                         type="button"
-                        onClick={() => handleOpenExternal(PROVIDER_PRESETS[selectedProviderKey].helpUrl!)}
+                        onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
                         style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '5px',
-                          padding: '4px 10px',
-                          borderRadius: 'var(--radius-sm)',
-                          backgroundColor: PROVIDER_PRESETS[selectedProviderKey].color,
-                          color: 'white',
+                          background: 'none',
                           border: 'none',
-                          fontSize: '11px',
+                          color: 'var(--accent-primary)',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '4px 0',
+                        }}
+                      >
+                        <span>{showAdvancedSettings ? '▲ Sunucu Ayarlarını Gizle' : '⚙️ Gelişmiş Sunucu Ayarları (IMAP / SMTP Host & Portları)'}</span>
+                      </button>
+
+                      {showAdvancedSettings && (
+                        <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {/* IMAP */}
+                          <div style={{ background: 'var(--bg-tertiary)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                            <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Gelen Posta (IMAP)</h5>
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                              <div>
+                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>IMAP Sunucu</label>
+                                <input
+                                  type="text"
+                                  value={accImapHost}
+                                  onChange={e => setAccImapHost(e.target.value)}
+                                  style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Port</label>
+                                <input
+                                  type="number"
+                                  value={accImapPort || ''}
+                                  onChange={e => setAccImapPort(e.target.value ? Number(e.target.value) : ('' as any))}
+                                  style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Güvenlik</label>
+                                <select
+                                  value={accImapSecurity}
+                                  onChange={e => setAccImapSecurity(e.target.value as any)}
+                                  style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
+                                >
+                                  <option value="SSL">SSL / TLS</option>
+                                  <option value="STARTTLS">STARTTLS</option>
+                                  <option value="NONE">Yok</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>IMAP Kullanıcı Adı (Boşsa e-posta kullanılır)</label>
+                              <input
+                                type="text"
+                                placeholder={accEmail || 'kullanıcı@alanadi.com'}
+                                value={accImapUser}
+                                onChange={e => setAccImapUser(e.target.value)}
+                                style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* SMTP */}
+                          <div style={{ background: 'var(--bg-tertiary)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                            <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Giden Posta (SMTP)</h5>
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                              <div>
+                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>SMTP Sunucu</label>
+                                <input
+                                  type="text"
+                                  value={accSmtpHost}
+                                  onChange={e => setAccSmtpHost(e.target.value)}
+                                  style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Port</label>
+                                <input
+                                  type="number"
+                                  value={accSmtpPort || ''}
+                                  onChange={e => setAccSmtpPort(e.target.value ? Number(e.target.value) : ('' as any))}
+                                  style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Güvenlik</label>
+                                <select
+                                  value={accSmtpSecurity}
+                                  onChange={e => setAccSmtpSecurity(e.target.value as any)}
+                                  style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
+                                >
+                                  <option value="STARTTLS">STARTTLS</option>
+                                  <option value="SSL">SSL / TLS</option>
+                                  <option value="NONE">Yok</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Test Result Message */}
+                    {testResult && (
+                      <div style={{
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: testResult.success ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                        border: `1px solid ${testResult.success ? 'var(--accent-success)' : 'var(--accent-danger)'}`,
+                        fontSize: '12px',
+                        color: testResult.success ? 'var(--accent-success)' : 'var(--accent-danger)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                      }}>
+                        {testResult.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                        <span>{testResult.message}</span>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+                      <button
+                        type="button"
+                        onClick={handleTestConnection}
+                        disabled={isTesting}
+                        style={{
+                          padding: '8px 14px',
+                          borderRadius: 'var(--radius-sm)',
+                          background: 'var(--bg-tertiary)',
+                          border: '1px solid var(--border-medium)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px',
                           fontWeight: 600,
                           cursor: 'pointer',
                         }}
                       >
-                        <span>{PROVIDER_PRESETS[selectedProviderKey].helpTitle}</span>
-                        <ExternalLink size={12} />
+                        {isTesting ? 'Test Ediliyor...' : '⚡ Bağlantıyı Sına'}
                       </button>
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                      {PROVIDER_PRESETS[selectedProviderKey]?.helpText}
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={handleResetForm}
+                          style={{
+                            padding: '8px 14px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'transparent',
+                            border: '1px solid var(--border-subtle)',
+                            color: 'var(--text-secondary)',
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          İptal
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSaving}
+                          style={{
+                            padding: '10px 20px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'var(--accent-primary)',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            cursor: isSaving ? 'not-allowed' : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 10px rgba(59, 130, 246, 0.4)'
+                          }}
+                        >
+                          <Save size={15} />
+                          <span>{isSaving ? 'Kaydediliyor...' : editingAccountId ? 'Değişiklikleri Kaydet' : '🚀 Hesabı Kaydet'}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
-
-                {/* 5. USER PASSWORD & DETAILS */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                      Parola {selectedProviderKey !== 'custom' ? '(veya Uygulama Şifresi)' : ''} *
-                    </label>
-                    <input
-                      type="password"
-                      required={selectedProviderKey !== 'google'}
-                      placeholder={selectedProviderKey === 'google' ? 'OAuth ile bağlanıldıysa boş bırakılabilir' : '••••••••••••'}
-                      value={accImapPass}
-                      onChange={e => {
-                        setAccImapPass(e.target.value);
-                        if (useSameCredentials) setAccSmtpPass(e.target.value);
-                      }}
-                      style={{ width: '100%', padding: '9px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Hesap Görünen Adı</label>
-                    <input
-                      type="text"
-                      placeholder="Kişisel / İş / Okul"
-                      value={accName}
-                      onChange={e => setAccName(e.target.value)}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Hesap Vurgu Rengi:</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input
-                      type="color"
-                      value={accColor}
-                      onChange={e => setAccColor(e.target.value)}
-                      style={{ width: '32px', height: '32px', padding: 0, border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'transparent' }}
-                    />
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{accColor}</span>
-                  </div>
-                </div>
-
-                {/* 5. ADVANCED SERVER CONFIG ACCORDION */}
-                <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--accent-primary)',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '4px 0',
-                    }}
-                  >
-                    <span>{showAdvancedSettings ? '▲ Sunucu Ayarlarını Gizle' : '⚙️ Gelişmiş Sunucu Ayarları (IMAP / SMTP Host & Portları)'}</span>
-                  </button>
-
-                  {showAdvancedSettings && (
-                    <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                      {/* IMAP */}
-                      <div style={{ background: 'var(--bg-tertiary)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-                        <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Gelen Posta (IMAP)</h5>
-                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                          <div>
-                            <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>IMAP Sunucu</label>
-                            <input
-                              type="text"
-                              value={accImapHost}
-                              onChange={e => setAccImapHost(e.target.value)}
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
-                            />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Port</label>
-                            <input
-                              type="number"
-                              value={accImapPort || ''}
-                              onChange={e => setAccImapPort(e.target.value ? Number(e.target.value) : ('' as any))}
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
-                            />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Güvenlik</label>
-                            <select
-                              value={accImapSecurity}
-                              onChange={e => setAccImapSecurity(e.target.value as any)}
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
-                            >
-                              <option value="SSL">SSL / TLS</option>
-                              <option value="STARTTLS">STARTTLS</option>
-                              <option value="NONE">Yok</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>IMAP Kullanıcı Adı (Boşsa e-posta kullanılır)</label>
-                          <input
-                            type="text"
-                            placeholder={accEmail || 'kullanıcı@alanadi.com'}
-                            value={accImapUser}
-                            onChange={e => setAccImapUser(e.target.value)}
-                            style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* SMTP */}
-                      <div style={{ background: 'var(--bg-tertiary)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-                        <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Giden Posta (SMTP)</h5>
-                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                          <div>
-                            <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>SMTP Sunucu</label>
-                            <input
-                              type="text"
-                              value={accSmtpHost}
-                              onChange={e => setAccSmtpHost(e.target.value)}
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
-                            />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Port</label>
-                            <input
-                              type="number"
-                              value={accSmtpPort || ''}
-                              onChange={e => setAccSmtpPort(e.target.value ? Number(e.target.value) : ('' as any))}
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
-                            />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Güvenlik</label>
-                            <select
-                              value={accSmtpSecurity}
-                              onChange={e => setAccSmtpSecurity(e.target.value as any)}
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
-                            >
-                              <option value="STARTTLS">STARTTLS</option>
-                              <option value="SSL">SSL / TLS</option>
-                              <option value="NONE">Yok</option>
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Test Result Message */}
-                {testResult && (
-                  <div style={{
-                    padding: '10px 14px',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: testResult.success ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                    border: `1px solid ${testResult.success ? 'var(--accent-success)' : 'var(--accent-danger)'}`,
-                    fontSize: '12px',
-                    color: testResult.success ? 'var(--accent-success)' : 'var(--accent-danger)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}>
-                    {testResult.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-                    <span>{testResult.message}</span>
-                  </div>
-                )}
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
-                  <button
-                    type="button"
-                    onClick={handleTestConnection}
-                    disabled={isTesting}
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'var(--bg-tertiary)',
-                      border: '1px solid var(--border-medium)',
-                      color: 'var(--text-primary)',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {isTesting ? 'Test Ediliyor...' : '⚡ Bağlantıyı Sına'}
-                  </button>
-
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      type="button"
-                      onClick={handleResetForm}
-                      style={{
-                        padding: '8px 14px',
-                        borderRadius: 'var(--radius-sm)',
-                        background: 'transparent',
-                        border: '1px solid var(--border-subtle)',
-                        color: 'var(--text-secondary)',
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      İptal
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isSaving}
-                      style={{
-                        padding: '8px 18px',
-                        borderRadius: 'var(--radius-sm)',
-                        background: 'var(--accent-primary)',
-                        border: 'none',
-                        color: 'white',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {isSaving ? 'Kaydediliyor...' : 'Hesabı Kaydet'}
-                    </button>
-                  </div>
-                </div>
               </form>
             )}
 
@@ -2018,7 +2112,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.1</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.2</strong>
                       </div>
                     </div>
 
@@ -2171,7 +2265,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.1.1 (x64 Windows & Linux Desktop)
+                    Sürüm 1.1.2 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 

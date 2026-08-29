@@ -260,6 +260,19 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
 
+      eventSource.addEventListener('accounts_updated', async (event: MessageEvent) => {
+        try {
+          const acc = JSON.parse(event.data);
+          success(`${acc.email} hesabı başarıyla bağlandı!`, 'Hesap Eklendi');
+          await refreshAccounts();
+          setActiveAccountId(acc.id);
+          refreshEmails();
+          refreshStats();
+        } catch (e) {
+          console.error('Error parsing SSE accounts_updated:', e);
+        }
+      });
+
       eventSource.addEventListener('emails_synced', () => {
         refreshEmails();
         refreshStats();
@@ -281,7 +294,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       if (eventSource) eventSource.close();
     };
-  }, [info, refreshEmails, refreshStats]);
+  }, [info, success, refreshAccounts, setActiveAccountId, refreshEmails, refreshStats]);
 
   const selectEmail = (id: string) => {
     setSelectedEmailId(id);
