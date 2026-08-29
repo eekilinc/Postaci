@@ -655,31 +655,45 @@ export class ImapService {
         try {
           const lock = await client.getMailboxLock(mb.path);
           try {
-            // Find message UIDs in this mailbox
-            let uids: number[] = [];
+            // 1. Search for all UNSEEN (unread) message UIDs in this mailbox
+            let unseenUids: number[] = [];
+            try {
+              const unseenSearchResult = await client.search({ seen: false }, { uid: true });
+              if (Array.isArray(unseenSearchResult)) {
+                unseenUids = unseenSearchResult;
+              }
+            } catch (unseenErr) {
+              console.warn(`Unseen search on mailbox ${mb.path} failed:`, unseenErr);
+            }
+
+            // 2. Search for all message UIDs in this mailbox
+            let allUids: number[] = [];
             try {
               const searchResult = await client.search({ all: true }, { uid: true });
               if (Array.isArray(searchResult)) {
-                uids = searchResult;
+                allUids = searchResult;
               }
             } catch (searchErr) {
               console.warn(`UID search on mailbox ${mb.path} failed:`, searchErr);
             }
 
-            let fetchLimit = 10;
+            let fetchLimit = 250;
             if (mb.path.toUpperCase() === 'INBOX' || targetFolder === 'INBOX') {
-              fetchLimit = 100;
+              fetchLimit = 500;
             } else if (targetFolder === 'SENT') {
-              fetchLimit = 30;
+              fetchLimit = 150;
             } else if (targetFolder === 'TRASH' || targetFolder === 'DRAFTS' || targetFolder === 'SPAM') {
-              fetchLimit = 15;
+              fetchLimit = 100;
             }
 
+            // Target UIDs = recent messages + ALL unseen messages everywhere in the mailbox
+            const recentUids = allUids.slice(-fetchLimit);
+            const targetUidsToFetch = Array.from(new Set([...recentUids, ...unseenUids])).sort((a, b) => a - b);
+
             // Prune messages locally that were deleted or moved away on remote webmail
-            if (uids.length > 0) {
-              const latestUids = uids.slice(-fetchLimit);
-              const minUid = latestUids[0];
-              pruneMissingServerUids(account.id, mb.path, latestUids, minUid, targetFolder);
+            if (allUids.length > 0) {
+              const minUid = targetUidsToFetch.length > 0 ? targetUidsToFetch[0] : allUids[0];
+              pruneMissingServerUids(account.id, mb.path, allUids, minUid, targetFolder);
             } else {
               const totalExists = client.mailbox && typeof client.mailbox === 'object' && 'exists' in client.mailbox
                 ? (client.mailbox as any).exists
@@ -689,119 +703,9 @@ export class ImapService {
               }
             }
 
-            // Fallback to sequence range if search did not return array
-            if (uids.length === 0) {
-              const totalExists = client.mailbox && typeof client.mailbox === 'object' && 'exists' in client.mailbox
-                ? (client.mailbox as any).exists
-                : 0;
-
-              if (totalExists > 0) {
-                const startSeq = Math.max(1, totalExists - fetchLimit);
-                const range = `${startSeq}:${totalExists}`;
-                const messages = client.fetch(range, {
-                  envelope: true,
-                  flags: true,
-                  bodyStructure: true,
-                  source: true,
-                  uid: true,
-                });
-
-                for await (const message of messages) {
-                  try {
-                    const env = message.envelope;
-                    const rawMid = env?.messageId || undefined;
-                    const emailId = rawMid
-                      ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
-                      : `imap-${account.id}-${mb.path}-${message.uid || uuidv4()}`;
-
-                    if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
-                      continue;
-                    }
-
-                    let parsed: ParsedMail | null = null;
-                    if (message.source) {
-                      try {
-                        parsed = await simpleParser(message.source);
-                      } catch (pErr) {
-                        console.warn('Mailparser error, falling back to envelope:', pErr);
-                      }
-                    }
-
-                    const messageId = parsed?.messageId || rawMid || undefined;
-                    if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, messageId, account.id, message.uid, mb.path)) {
-                      continue;
-                    }
-
-                    const attachments: Attachment[] = (parsed?.attachments || []).map(att => ({
-                      id: uuidv4(),
-                      filename: att.filename || 'ek_dosya',
-                      contentType: att.contentType,
-                      size: att.size,
-                      isInline: att.related,
-                      contentId: att.cid,
-                      contentBase64: att.content ? att.content.toString('base64') : undefined
-                    }));
-
-                    const fromName = parsed?.from?.value[0]?.name || parsed?.from?.text || env?.from?.[0]?.name || 'Bilinmeyen Gönderici';
-                    const fromEmail = parsed?.from?.value[0]?.address || env?.from?.[0]?.address || 'unknown@example.com';
-                    const subject = parsed?.subject || env?.subject || '(Konusuz)';
-                    const bodyText = parsed?.text || '';
-                    const bodyHtml = parsed?.html || `<p>${bodyText || subject || ''}</p>`;
-                    const snippet = (bodyText || subject).substring(0, 150).replace(/\s+/g, ' ');
-                    const date = (parsed?.date || env?.date || new Date()).toISOString();
-
-                    const to = parsed?.to
-                      ? (Array.isArray(parsed.to) ? parsed.to : [parsed.to]).flatMap((t: any) => (t.value || []).map((v: any) => ({ name: v.name || '', email: v.address || '' })))
-                      : (env?.to || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
-
-                    const cc = parsed?.cc
-                      ? (Array.isArray(parsed.cc) ? parsed.cc : [parsed.cc]).flatMap((t: any) => (t.value || []).map((v: any) => ({ name: v.name || '', email: v.address || '' })))
-                      : (env?.cc || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
-
-                    const email: Email = {
-                      id: emailId,
-                      accountId: account.id,
-                      threadId: messageId ? `thread-${messageId}` : `thread-${emailId}`,
-                      messageId,
-                      inReplyTo: parsed?.inReplyTo || env?.inReplyTo || undefined,
-                      references: Array.isArray(parsed?.references) ? parsed.references.join(' ') : (parsed?.references || undefined),
-                      fromName,
-                      fromEmail,
-                      to,
-                      cc,
-                      bcc: [],
-                      subject,
-                      bodyText,
-                      bodyHtml,
-                      snippet,
-                      date,
-                      isRead: message.flags ? message.flags.has('\\Seen') : (targetFolder === 'SENT'),
-                      isStarred: message.flags ? message.flags.has('\\Flagged') : false,
-                      isArchived: targetFolder === 'ARCHIVE',
-                      isDeleted: targetFolder === 'TRASH',
-                      isDraft: targetFolder === 'DRAFTS',
-                      isSpam: targetFolder === 'SPAM',
-                      folder: targetFolder,
-                      labels: isCustom ? [targetFolder] : [targetFolder === 'INBOX' ? 'Gelen Kutusu' : targetFolder],
-                      priority: 'normal',
-                      attachments,
-                      imapUid: message.uid,
-                      mailboxPath: mb.path,
-                      aiSummary: null,
-                      aiSmartReplies: null
-                    };
-
-                    saveEmail(email, true);
-                    syncedCount++;
-                  } catch (itemErr) {
-                    console.warn('Failed to process message:', itemErr);
-                  }
-                }
-              }
-            } else {
-              // Fetch latest messages by UID
-              const latestUids = uids.slice(-fetchLimit);
-              const messages = client.fetch(latestUids, {
+            // Fetch messages by UID (including ALL unseen + recent messages)
+            if (targetUidsToFetch.length > 0) {
+              const messages = client.fetch(targetUidsToFetch, {
                 envelope: true,
                 flags: true,
                 bodyStructure: true,
@@ -897,7 +801,116 @@ export class ImapService {
                   saveEmail(email, true);
                   syncedCount++;
                 } catch (itemErr) {
-                  console.warn('Failed to process UID message:', itemErr);
+                  console.warn('Failed to process message:', itemErr);
+                }
+              }
+            } else {
+              // Fallback to sequence range if search did not return array
+              const totalExists = client.mailbox && typeof client.mailbox === 'object' && 'exists' in client.mailbox
+                ? (client.mailbox as any).exists
+                : 0;
+
+              if (totalExists > 0) {
+                const startSeq = Math.max(1, totalExists - fetchLimit);
+                const range = `${startSeq}:${totalExists}`;
+                const messages = client.fetch(range, {
+                  envelope: true,
+                  flags: true,
+                  bodyStructure: true,
+                  source: true,
+                  uid: true,
+                });
+
+                for await (const message of messages) {
+                  try {
+                    const env = message.envelope;
+                    const rawMid = env?.messageId || undefined;
+                    const emailId = rawMid
+                      ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
+                      : `imap-${account.id}-${mb.path}-${message.uid || uuidv4()}`;
+
+                    if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
+                      continue;
+                    }
+
+                    let parsed: ParsedMail | null = null;
+                    if (message.source) {
+                      try {
+                        parsed = await simpleParser(message.source);
+                      } catch (pErr) {
+                        console.warn('Mailparser error on sequence fetch, falling back to envelope:', pErr);
+                      }
+                    }
+
+                    const messageId = parsed?.messageId || rawMid || undefined;
+                    if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, messageId, account.id, message.uid, mb.path)) {
+                      continue;
+                    }
+
+                    const attachments: Attachment[] = (parsed?.attachments || []).map(att => ({
+                      id: uuidv4(),
+                      filename: att.filename || 'ek_dosya',
+                      contentType: att.contentType,
+                      size: att.size,
+                      isInline: att.related,
+                      contentId: att.cid,
+                      contentBase64: att.content ? att.content.toString('base64') : undefined
+                    }));
+
+                    const fromName = parsed?.from?.value[0]?.name || parsed?.from?.text || env?.from?.[0]?.name || 'Bilinmeyen Gönderici';
+                    const fromEmail = parsed?.from?.value[0]?.address || env?.from?.[0]?.address || 'unknown@example.com';
+                    const subject = parsed?.subject || env?.subject || '(Konusuz)';
+                    const bodyText = parsed?.text || '';
+                    const bodyHtml = parsed?.html || `<p>${bodyText || subject || ''}</p>`;
+                    const snippet = (bodyText || subject).substring(0, 150).replace(/\s+/g, ' ');
+                    const date = (parsed?.date || env?.date || new Date()).toISOString();
+
+                    const to = parsed?.to
+                      ? (Array.isArray(parsed.to) ? parsed.to : [parsed.to]).flatMap((t: any) => (t.value || []).map((v: any) => ({ name: v.name || '', email: v.address || '' })))
+                      : (env?.to || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
+
+                    const cc = parsed?.cc
+                      ? (Array.isArray(parsed.cc) ? parsed.cc : [parsed.cc]).flatMap((t: any) => (t.value || []).map((v: any) => ({ name: v.name || '', email: v.address || '' })))
+                      : (env?.cc || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
+
+                    const email: Email = {
+                      id: emailId,
+                      accountId: account.id,
+                      threadId: messageId ? `thread-${messageId}` : `thread-${emailId}`,
+                      messageId,
+                      inReplyTo: parsed?.inReplyTo || env?.inReplyTo || undefined,
+                      references: Array.isArray(parsed?.references) ? parsed.references.join(' ') : (parsed?.references || undefined),
+                      fromName,
+                      fromEmail,
+                      to,
+                      cc,
+                      bcc: [],
+                      subject,
+                      bodyText,
+                      bodyHtml,
+                      snippet,
+                      date,
+                      isRead: message.flags ? message.flags.has('\\Seen') : (targetFolder === 'SENT'),
+                      isStarred: message.flags ? message.flags.has('\\Flagged') : false,
+                      isArchived: targetFolder === 'ARCHIVE',
+                      isDeleted: targetFolder === 'TRASH',
+                      isDraft: targetFolder === 'DRAFTS',
+                      isSpam: targetFolder === 'SPAM',
+                      folder: targetFolder,
+                      labels: isCustom ? [targetFolder] : [targetFolder === 'INBOX' ? 'Gelen Kutusu' : targetFolder],
+                      priority: 'normal',
+                      attachments,
+                      imapUid: message.uid,
+                      mailboxPath: mb.path,
+                      aiSummary: null,
+                      aiSmartReplies: null
+                    };
+
+                    saveEmail(email, true);
+                    syncedCount++;
+                  } catch (itemErr) {
+                    console.warn('Failed to process message:', itemErr);
+                  }
                 }
               }
             }

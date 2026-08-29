@@ -280,7 +280,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.1.0) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.1.1) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -676,7 +676,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.1.0
+            Postacı Desktop v1.1.1
           </div>
         </div>
 
@@ -815,11 +815,59 @@ export const SettingsModal: React.FC = () => {
             {/* TAB: ACCOUNTS FORM */}
             {activeTab === 'accounts' && isFormOpen && (
               <form onSubmit={handleSaveAccount} style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '640px' }}>
-                {/* 1. SMART PROVIDER SELECTION GRID */}
+                {/* 1. PRIMARY EMAIL INPUT (SMART REAL-TIME DETECT) */}
+                <div style={{
+                  padding: '14px 16px',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-medium)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>📧 E-Posta Adresiniz *</span>
+                      <span style={{ fontSize: '11px', color: 'var(--accent-primary)', fontWeight: 600 }}>✨ Akıllı Otomatik Tanıma</span>
+                    </label>
+                    {isAutoDiscovering && (
+                      <div style={{ fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Sparkles size={12} className="animate-pulse" />
+                        <span>Sunucu ayarları algılanıyor...</span>
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    type="email"
+                    required
+                    placeholder="Örn: adiniz@gmail.com, adiniz@outlook.com veya adiniz@sirket.com"
+                    value={accEmail}
+                    onChange={e => setAccEmail(e.target.value)}
+                    autoFocus
+                    style={{
+                      width: '100%',
+                      padding: '11px 14px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-medium)',
+                      color: 'var(--text-primary)',
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.2)'
+                    }}
+                  />
+                  {discoveredInfo && selectedProviderKey === 'custom' && (
+                    <div style={{ fontSize: '11px', color: 'var(--accent-primary)', marginTop: '2px' }}>
+                      ✨ Sunucu bilgileri <strong>{discoveredInfo.providerName}</strong> için otomatik dolduruldu.
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. SMART PROVIDER SELECTION GRID */}
                 {!editingAccountId && (
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
-                      E-Posta Sağlayıcınızı Seçin
+                      Algılanan / Seçili E-Posta Sağlayıcısı
                     </label>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
                       {Object.entries(PROVIDER_PRESETS).map(([key, p]) => {
@@ -866,7 +914,7 @@ export const SettingsModal: React.FC = () => {
                   </div>
                 )}
 
-                {/* 2. GOOGLE DIRECT 1-CLICK OAUTH & APP PASSWORD HUB */}
+                {/* 3. GOOGLE DIRECT 1-CLICK OAUTH & APP PASSWORD HUB */}
                 {!editingAccountId && selectedProviderKey === 'google' && (
                   <div style={{
                     padding: '16px',
@@ -972,7 +1020,7 @@ export const SettingsModal: React.FC = () => {
                   </div>
                 )}
 
-                {/* 3. CONTEXTUAL PROVIDER GUIDANCE & DIRECT 1-CLICK APP PASSWORD LINKS */}
+                {/* 4. CONTEXTUAL PROVIDER GUIDANCE & DIRECT 1-CLICK APP PASSWORD LINKS */}
                 {selectedProviderKey !== 'custom' && selectedProviderKey !== 'google' && PROVIDER_PRESETS[selectedProviderKey]?.helpUrl && (
                   <div style={{
                     padding: '12px 14px',
@@ -1015,41 +1063,16 @@ export const SettingsModal: React.FC = () => {
                   </div>
                 )}
 
-                {/* Autodiscover notification */}
-                {isAutoDiscovering && (
-                  <div style={{ fontSize: '12px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Sparkles size={14} className="animate-pulse" />
-                    <span>Sunucu ayarları otomatik algılanıyor...</span>
-                  </div>
-                )}
-
-                {discoveredInfo && selectedProviderKey === 'custom' && (
-                  <div style={{ padding: '8px 12px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--bg-active)', fontSize: '12px', color: 'var(--accent-primary)' }}>
-                    ✨ Sunucu bilgileri <strong>{discoveredInfo.providerName}</strong> için otomatik dolduruldu.
-                  </div>
-                )}
-
-                {/* 4. PRIMARY USER CREDENTIALS */}
+                {/* 5. USER PASSWORD & DETAILS */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>E-Posta Adresi *</label>
-                    <input
-                      type="email"
-                      required
-                      placeholder={selectedProviderKey === 'google' ? 'adiniz@gmail.com' : selectedProviderKey === 'microsoft' ? 'adiniz@outlook.com' : 'adiniz@sirket.com'}
-                      value={accEmail}
-                      onChange={e => setAccEmail(e.target.value)}
-                      style={{ width: '100%', padding: '9px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
-                    />
-                  </div>
                   <div>
                     <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
                       Parola {selectedProviderKey !== 'custom' ? '(veya Uygulama Şifresi)' : ''} *
                     </label>
                     <input
                       type="password"
-                      required
-                      placeholder="••••••••••••"
+                      required={selectedProviderKey !== 'google'}
+                      placeholder={selectedProviderKey === 'google' ? 'OAuth ile bağlanıldıysa boş bırakılabilir' : '••••••••••••'}
                       value={accImapPass}
                       onChange={e => {
                         setAccImapPass(e.target.value);
@@ -1058,9 +1081,6 @@ export const SettingsModal: React.FC = () => {
                       style={{ width: '100%', padding: '9px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
                     />
                   </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div>
                     <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Hesap Görünen Adı</label>
                     <input
@@ -1071,17 +1091,18 @@ export const SettingsModal: React.FC = () => {
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
                     />
                   </div>
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Hesap Vurgu Rengi</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <input
-                        type="color"
-                        value={accColor}
-                        onChange={e => setAccColor(e.target.value)}
-                        style={{ width: '36px', height: '36px', padding: 0, border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'transparent' }}
-                      />
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{accColor}</span>
-                    </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Hesap Vurgu Rengi:</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="color"
+                      value={accColor}
+                      onChange={e => setAccColor(e.target.value)}
+                      style={{ width: '32px', height: '32px', padding: 0, border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'transparent' }}
+                    />
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{accColor}</span>
                   </div>
                 </div>
 
@@ -1997,7 +2018,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.0</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.1</strong>
                       </div>
                     </div>
 
@@ -2150,7 +2171,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.1.0 (x64 Windows & Linux Desktop)
+                    Sürüm 1.1.1 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 
