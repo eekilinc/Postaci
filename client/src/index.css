@@ -366,6 +366,56 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   width: 100%;
 }
 
+/* Smart Dark Mode Theme Compatibility for Email HTML */
+[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card),
+[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card),
+[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card),
+[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) {
+  color: #e2e8f0;
+}
+
+[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) p,
+[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) span,
+[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) div,
+[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) td,
+[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) th,
+[data-theme='dark'] .email-rendered-body:not(.email-light-mode-card) font,
+[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card) p,
+[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card) span,
+[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card) div,
+[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card) td,
+[data-theme='tokyo'] .email-rendered-body:not(.email-light-mode-card) th,
+[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card) p,
+[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card) span,
+[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card) div,
+[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card) td,
+[data-theme='dracula'] .email-rendered-body:not(.email-light-mode-card) th,
+[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) p,
+[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) span,
+[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) div,
+[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) td,
+[data-theme='amoled'] .email-rendered-body:not(.email-light-mode-card) th {
+  color: inherit;
+}
+
+/* Light Card Mode (when user toggles light view for newsletters in dark mode) */
+.email-light-mode-card {
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+  padding: 24px !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.email-light-mode-card * {
+  color: initial;
+}
+
+.email-light-mode-card a {
+  color: #2563eb !important;
+}
+
 .email-rendered-body table {
   border-collapse: collapse !important;
   max-width: 100% !important;

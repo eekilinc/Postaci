@@ -22,10 +22,13 @@ import {
   Pin,
   Mail,
   MailOpen,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Sun,
+  Moon
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { useMail } from '../context/MailContext';
+import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { api } from '../services/api';
 import { format } from 'date-fns';
@@ -45,6 +48,7 @@ export const EmailDetail: React.FC = () => {
     openForward,
   } = useMail();
 
+  const { theme } = useTheme();
   const { success, info, error } = useToast();
 
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -54,6 +58,7 @@ export const EmailDetail: React.FC = () => {
   const [loadRemoteImages, setLoadRemoteImages] = useState(false);
   const [quickReplyText, setQuickReplyText] = useState('');
   const [isSendingQuickReply, setIsSendingQuickReply] = useState(false);
+  const [isLightCardMode, setIsLightCardMode] = useState(false);
 
   useEffect(() => {
     if (!selectedEmail) {
@@ -180,7 +185,16 @@ export const EmailDetail: React.FC = () => {
       }
     }
 
-    // 2. DOMPurify sanitize with email HTML and table attributes allowed
+    // 2. Normalize inline dark-mode styles when viewing in dark mode (and not in light card mode)
+    const isDark = theme !== 'light';
+    if (isDark && !isLightCardMode) {
+      // Invert or normalize explicit dark text color inline styles so text is clear and readable on dark bg
+      processed = processed.replace(/color\s*:\s*(#000000|#000|#111111|#111|#222222|#222|#333333|#333|black|rgb\(0,\s*0,\s*0\))/gi, 'color: inherit');
+      // Normalize explicit white background inline styles that cause harsh blocks
+      processed = processed.replace(/background(-color)?\s*:\s*(#ffffff|#fff|white|rgb\(255,\s*255,\s*255\))/gi, 'background-color: transparent');
+    }
+
+    // 3. DOMPurify sanitize with email HTML and table attributes allowed
     const clean = DOMPurify.sanitize(processed, {
       ADD_TAGS: ['style', 'center', 'font'],
       ALLOWED_TAGS: [
@@ -366,6 +380,30 @@ export const EmailDetail: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {theme !== 'light' && (
+            <button
+              onClick={() => setIsLightCardMode(!isLightCardMode)}
+              title={isLightCardMode ? 'Karanlık Görünüme Dön' : 'Aydınlık Kart Görünümüne Geç (Bülten ve Tablolar için)'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '5px 10px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-subtle)',
+                backgroundColor: isLightCardMode ? '#ffffff' : 'var(--bg-tertiary)',
+                color: isLightCardMode ? '#1e293b' : 'var(--text-secondary)',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              {isLightCardMode ? <Moon size={14} color="#3b82f6" /> : <Sun size={14} color="#f59e0b" />}
+              <span>{isLightCardMode ? 'Karanlık Görünüm' : 'Aydınlık Kart'}</span>
+            </button>
+          )}
+
           <button
             onClick={() => toggleStarred(selectedEmail.id, selectedEmail.isStarred)}
             title="Yıldızla (s)"
@@ -718,7 +756,7 @@ export const EmailDetail: React.FC = () => {
 
         {/* Email Body Content */}
         <div
-          className="email-rendered-body"
+          className={`email-rendered-body ${isLightCardMode ? 'email-light-mode-card' : ''}`}
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedEmail.bodyHtml || selectedEmail.bodyText) }}
         />
 

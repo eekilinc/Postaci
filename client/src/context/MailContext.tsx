@@ -263,9 +263,13 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       eventSource.addEventListener('accounts_updated', async (event: MessageEvent) => {
         try {
           const acc = JSON.parse(event.data);
-          success(`${acc.email} hesabı başarıyla bağlandı!`, 'Hesap Eklendi');
+          if (!acc.deleted && acc.email) {
+            success(`${acc.email} hesabı başarıyla bağlandı!`, 'Hesap Eklendi');
+          }
           await refreshAccounts();
-          setActiveAccountId(acc.id);
+          if (!acc.deleted && acc.id) {
+            setActiveAccountId(acc.id);
+          }
           refreshEmails();
           refreshStats();
         } catch (e) {

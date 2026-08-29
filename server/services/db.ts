@@ -639,6 +639,7 @@ export function deleteAccount(id: string): boolean {
     saveJsonStore();
     return memStore.accounts.length < prevLen;
   }
+  db.prepare('DELETE FROM emails WHERE accountId = ?').run(id);
   const res = db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
   return res.changes > 0;
 }

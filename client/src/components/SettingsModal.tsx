@@ -262,6 +262,16 @@ export const SettingsModal: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    if (isSettingsOpen) {
+      if (accounts.length === 0) {
+        setIsFormOpen(true);
+      } else if (!editingAccountId) {
+        setIsFormOpen(false);
+      }
+    }
+  }, [isSettingsOpen, accounts.length]);
+
   const handleUpdateDesktopSettings = async (partial: Partial<typeof desktopSettings>) => {
     const updated = { ...desktopSettings, ...partial };
     setDesktopSettings(updated);
@@ -286,7 +296,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.1.2) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.1.3) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -597,12 +607,21 @@ export const SettingsModal: React.FC = () => {
         await api.updateAccount(editingAccountId, accountData);
         success('Hesap ayarları güncellendi.');
       } else {
-        await api.createAccount(accountData);
+        const created = await api.createAccount(accountData);
         success('Yeni hesap başarıyla eklendi.');
+        if (created && created.id) {
+          setActiveAccountId(created.id);
+        }
       }
 
-      refreshAccounts();
+      await refreshAccounts();
       handleResetForm();
+      setIsFormOpen(false);
+      setEditingAccountId(null);
+      setActiveTab('accounts');
+      refreshEmails();
+      refreshStats();
+      triggerSync();
     } catch (err: any) {
       error(err.message || 'Hesap kaydedilirken bir hata oluştu.');
     } finally {
@@ -611,11 +630,26 @@ export const SettingsModal: React.FC = () => {
   };
 
   const handleDeleteAccount = async (id: string, name: string) => {
-    if (window.confirm(`"${name}" hesabını kaldırmak istediğinize emin misiniz?`)) {
+    const isLast = accounts.length <= 1;
+    const confirmMsg = isLast
+      ? `"${name}" mevcut tek hesabınızdır. Bu hesabı silerseniz e-postalarınız kaldırılacak ve yeni hesap ekleme ekranı açılacaktır. Devam etmek istiyor musunuz?`
+      : `"${name}" hesabını kaldırmak istediğinize emin misiniz?`;
+
+    if (window.confirm(confirmMsg)) {
       try {
         await api.deleteAccount(id);
         success('Hesap silindi.');
-        refreshAccounts();
+        await refreshAccounts();
+        const remaining = await api.getAccounts();
+        if (remaining.length > 0) {
+          setActiveAccountId(remaining[0].id);
+        } else {
+          setActiveAccountId('');
+          handleResetForm();
+          setIsFormOpen(true);
+        }
+        refreshEmails();
+        refreshStats();
       } catch (err: any) {
         error(err.message || 'Hesap silinemedi.');
       }
@@ -712,7 +746,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.1.2
+            Postacı Desktop v1.1.3
           </div>
         </div>
 
@@ -832,15 +866,13 @@ export const SettingsModal: React.FC = () => {
                         >
                           <Edit2 size={16} />
                         </button>
-                        {accounts.length > 1 && (
-                          <button
-                            onClick={() => handleDeleteAccount(acc.id, acc.name)}
-                            style={{ padding: '6px', background: 'transparent', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer' }}
-                            title="Hesabı Sil"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => handleDeleteAccount(acc.id, acc.name)}
+                          style={{ padding: '6px', background: 'transparent', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer' }}
+                          title="Hesabı Sil"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -2112,7 +2144,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.2</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.3</strong>
                       </div>
                     </div>
 
@@ -2265,7 +2297,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.1.2 (x64 Windows & Linux Desktop)
+                    Sürüm 1.1.3 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 
