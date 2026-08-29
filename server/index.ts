@@ -145,7 +145,15 @@ app.post('/api/accounts/test', async (req: Request, res: Response) => {
     res.json({
       success: true,
       message: 'IMAP ve SMTP bağlantı testleri başarıyla tamamlandı!',
-      folders: imapRes.folders
+      folders: imapRes.folders,
+      suggestedImapHost: imapRes.suggestedImapHost,
+      suggestedImapUser: imapRes.suggestedImapUser,
+      suggestedImapPort: imapRes.suggestedImapPort,
+      suggestedImapSecure: imapRes.suggestedImapSecure,
+      suggestedSmtpHost: smtpRes.suggestedSmtpHost,
+      suggestedSmtpUser: smtpRes.suggestedSmtpUser,
+      suggestedSmtpPort: smtpRes.suggestedSmtpPort,
+      suggestedSmtpSecure: smtpRes.suggestedSmtpSecure,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -761,7 +769,7 @@ app.post('/api/backup/import', (req: Request, res: Response) => {
 
 // ----------------- SYSTEM & HEALTH -----------------
 app.get('/api/system/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', version: '1.1.4', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', version: '1.1.5', timestamp: new Date().toISOString() });
 });
 
 // ----------------- GITHUB UPDATER -----------------

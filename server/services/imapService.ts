@@ -4,6 +4,10 @@ import { Account, Email, Attachment } from '../types.js';
 import { saveEmail, saveEmailWithStatus, getAccounts, getAccountById, isDeletedLocally, registerServerFolder, pruneMissingServerUids, updateEmailFlags } from './db.js';
 import { OAuthService } from './oauthService.js';
 import { v4 as uuidv4 } from 'uuid';
+import dns from 'dns';
+import { promisify } from 'util';
+
+const resolveMxAsync = promisify(dns.resolveMx);
 
 export class ImapService {
   public static async connectClient(account: Account): Promise<ImapFlow> {
@@ -23,9 +27,10 @@ export class ImapService {
         },
         clientInfo: {
           name: 'Postaci Mail Client',
-          version: '1.0.3',
+          version: '1.1.4',
         },
         logger: false,
+        emitLogs: false,
       });
       await client.connect();
       return client;
@@ -74,7 +79,7 @@ export class ImapService {
             },
             clientInfo: {
               name: 'Postaci',
-              version: '1.0.0',
+              version: '1.1.4',
               vendor: 'Postaci Mail Client',
             },
             logger: false,
@@ -96,6 +101,7 @@ export class ImapService {
     success: boolean;
     message: string;
     folders?: string[];
+    suggestedImapHost?: string;
     suggestedImapUser?: string;
     suggestedImapPort?: number;
     suggestedImapSecure?: boolean;
@@ -104,26 +110,75 @@ export class ImapService {
       return { success: true, message: 'Demo hesabı bağlantısı başarılı!', folders: ['INBOX', 'SENT', 'DRAFTS', 'TRASH', 'ARCHIVE', 'SPAM'] };
     }
 
-    if (!account.imapHost || (!account.imapUser && !account.email) || !account.imapPassword) {
-      return { success: false, message: 'Lütfen tüm IMAP alanlarını doldurun (Sunucu, Port, Kullanıcı, Şifre).' };
-    }
-
-    const email = account.email || '';
+    const email = (account.email || '').trim();
     const prefix = email.includes('@') ? email.split('@')[0] : '';
     const domain = email.includes('@') ? email.split('@')[1].toLowerCase() : '';
 
-    const isGoogle = domain === 'gmail.com' || domain === 'googlemail.com' || account.imapHost.includes('gmail.com');
-    const isMicrosoft = ['outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'office365.com'].includes(domain) || account.imapHost.includes('outlook.com') || account.imapHost.includes('office365.com');
+    const rawHost = (account.imapHost || '').trim();
+    if (!rawHost || (!account.imapUser && !email) || !account.imapPassword) {
+      return { success: false, message: 'Lütfen tüm IMAP alanlarını doldurun (Sunucu, Port, Kullanıcı, Şifre).' };
+    }
+
+    // Clean host string: strip protocols, ports, slashes, whitespace
+    const cleanHost = rawHost
+      .replace(/^(https?:\/\/|imaps?:\/\/|smtps?:\/\/|ssl:\/\/|tls:\/\/)/i, '')
+      .replace(/\/.*$/, '')
+      .trim();
+
+    let extractedPort: number | undefined;
+    let baseHost = cleanHost;
+    if (cleanHost.includes(':')) {
+      const parts = cleanHost.split(':');
+      baseHost = parts[0];
+      const parsedP = parseInt(parts[1], 10);
+      if (!isNaN(parsedP)) extractedPort = parsedP;
+    }
+
+    const isGoogle = domain === 'gmail.com' || domain === 'googlemail.com' || baseHost.includes('gmail.com');
+    const isMicrosoft = ['outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'office365.com'].includes(domain) || baseHost.includes('outlook.com') || baseHost.includes('office365.com');
     const isYahoo = domain.includes('yahoo') || domain.includes('ymail');
     const isApple = domain.includes('icloud.com') || domain.includes('me.com') || domain.includes('mac.com');
 
+    // Build candidate hosts in priority order
+    const hostCandidates: string[] = [baseHost];
+    if (domain) {
+      const defaults = [
+        `mail.${domain}`,
+        `imap.${domain}`,
+        `posta.${domain}`,
+        `eposta.${domain}`,
+        `webmail.${domain}`,
+      ];
+      for (const d of defaults) {
+        if (!hostCandidates.includes(d)) {
+          hostCandidates.push(d);
+        }
+      }
+
+      // Check MX records dynamically as candidate fallback
+      try {
+        const mxRecords = await resolveMxAsync(domain);
+        if (mxRecords && mxRecords.length > 0) {
+          for (const mx of mxRecords) {
+            const mxHost = mx.exchange.toLowerCase();
+            if (!hostCandidates.includes(mxHost)) {
+              hostCandidates.push(mxHost);
+            }
+          }
+        }
+      } catch {}
+    }
+
     const userCandidates = [
-      account.imapUser || email,
+      (account.imapUser || email).trim(),
       ...(prefix && prefix !== (account.imapUser || email) ? [prefix] : [])
     ];
 
+    const requestedPort = extractedPort || account.imapPort || 993;
+    const requestedSecure = account.imapSecure !== undefined ? account.imapSecure : (requestedPort === 143 ? false : true);
+
     const portCandidates = [
-      { port: account.imapPort || 993, secure: account.imapSecure !== undefined ? account.imapSecure : (account.imapPort === 143 ? false : true) },
+      { port: requestedPort, secure: requestedSecure },
       { port: 993, secure: true },
       { port: 143, secure: false },
     ];
@@ -132,40 +187,43 @@ export class ImapService {
 
     let lastErrorMsg = '';
 
-    for (const u of userCandidates) {
-      for (const p of uniquePortCombos) {
-        try {
-          const client = new ImapFlow({
-            host: account.imapHost,
-            port: p.port,
-            secure: p.secure,
-            auth: {
-              user: u,
-              pass: account.imapPassword,
-            },
-            tls: {
-              rejectUnauthorized: false,
-              servername: account.imapHost,
-            },
-            logger: false,
-            emitLogs: false,
-          });
+    for (const h of hostCandidates) {
+      for (const u of userCandidates) {
+        for (const p of uniquePortCombos) {
+          try {
+            const client = new ImapFlow({
+              host: h,
+              port: p.port,
+              secure: p.secure,
+              auth: {
+                user: u,
+                pass: account.imapPassword,
+              },
+              tls: {
+                rejectUnauthorized: false,
+                servername: h,
+              },
+              logger: false,
+              emitLogs: false,
+            });
 
-          await client.connect();
-          const mailboxes = await client.list();
-          const folders = mailboxes.map(mb => mb.path);
-          await client.logout();
+            await client.connect();
+            const mailboxes = await client.list();
+            const folders = mailboxes.map(mb => mb.path);
+            await client.logout();
 
-          return {
-            success: true,
-            message: `IMAP (${p.secure ? 'SSL/TLS' : 'STARTTLS'}, Port ${p.port}, Kullanıcı: ${u}) başarıyla doğrulandı!`,
-            folders,
-            suggestedImapUser: u,
-            suggestedImapPort: p.port,
-            suggestedImapSecure: p.secure,
-          };
-        } catch (err: any) {
-          lastErrorMsg = err.message || String(err);
+            return {
+              success: true,
+              message: `IMAP (${p.secure ? 'SSL/TLS' : 'STARTTLS'}, Port ${p.port}, Sunucu: ${h}) başarıyla doğrulandı!`,
+              folders,
+              suggestedImapHost: h,
+              suggestedImapUser: u,
+              suggestedImapPort: p.port,
+              suggestedImapSecure: p.secure,
+            };
+          } catch (err: any) {
+            lastErrorMsg = err.message || String(err);
+          }
         }
       }
     }
@@ -173,15 +231,21 @@ export class ImapService {
     let helpfulMsg = lastErrorMsg;
 
     if (isGoogle) {
-      helpfulMsg = 'Google (Gmail) güvenliği nedeniyle standart hesap şifrenizi kabul etmez. Lütfen Google Güvenlik sayfasından 16 haneli "Uygulama Şifresi" (App Password) oluşturup buraya yapıştırın.';
+      helpfulMsg = 'Google (Gmail) güvenliği nedeniyle standart hesap şifrenizi kabul etmez. Lütfen Google Güvenlik sayfasından 16 haneli "Uygulama Şifresi" (App Password) oluşturup buraya yapıştırın veya Google ile Giriş yapın.';
     } else if (isMicrosoft) {
-      helpfulMsg = 'Microsoft (Outlook/Hotmail) Eylül 2024 itibariyle standart şifreli IMAP girişlerini kapattı. Lütfen Microsoft Hesap Güvenliğinden "Uygulama Parolası" oluşturup giriniz.';
+      helpfulMsg = 'Microsoft (Outlook/Hotmail) standart şifreli IMAP girişlerini kapattı. Lütfen Microsoft Hesap Güvenliğinden "Uygulama Parolası" oluşturup giriniz.';
     } else if (isYahoo) {
       helpfulMsg = 'Yahoo Mail standart şifreleri engellemektedir. Lütfen Yahoo Hesap Güvenliğinden "Uygulama Şifresi" oluşturun.';
     } else if (isApple) {
       helpfulMsg = 'Apple iCloud yalnızca "Uygulamaya Özgü Parola" kabul eder. appleid.apple.com adresinden parola oluşturunuz.';
-    } else if (lastErrorMsg.includes('AUTHENTICATIONFAILED') || lastErrorMsg.includes('Invalid credentials') || lastErrorMsg.includes('Command failed')) {
-      helpfulMsg = 'Kimlik Doğrulama Hatası: Kullanıcı adı veya şifre sunucu tarafından reddedildi. Eğer kurumsal e-posta ise kullanıcı adını tam e-posta (adiniz@alanadi.com) veya yalnızca kullanıcı adı olarak deneyin.';
+    } else if (lastErrorMsg.includes('AUTHENTICATIONFAILED') || lastErrorMsg.includes('Invalid credentials') || lastErrorMsg.includes('Command failed') || lastErrorMsg.includes('535')) {
+      helpfulMsg = 'Kimlik Doğrulama Hatası: Kullanıcı adı veya şifre sunucu tarafından reddedildi. Kurumsal e-posta ise kullanıcı adını tam e-posta (adiniz@alanadi.com) olarak girmeyi deneyin.';
+    } else if (lastErrorMsg.includes('ENOTFOUND') || lastErrorMsg.includes('getaddrinfo')) {
+      helpfulMsg = `Sunucu Adresi Bulunamadı (DNS / ENOTFOUND): "${baseHost}" adresi internet üzerinde çözümlenemedi. Lütfen e-posta sağlayıcınızın verdiği IMAP sunucu adresini (Örn: mail.alanadiniz.com veya imap.alanadiniz.com) kontrol ediniz.`;
+    } else if (lastErrorMsg.includes('ETIMEDOUT')) {
+      helpfulMsg = `Bağlantı Zaman Aşımına Uğradı (ETIMEDOUT): "${baseHost}" sunucusuna belirtilen porttan ulaşılamadı. Port (993/143) veya güvenlik duvarı ayarlarını kontrol ediniz.`;
+    } else if (lastErrorMsg.includes('ECONNREFUSED')) {
+      helpfulMsg = `Bağlantı Reddedildi (ECONNREFUSED): "${baseHost}" sunucusu port üzerinden bağlantıyı reddetti. Lütfen port ve SSL ayarlarını kontrol ediniz.`;
     }
 
     return { success: false, message: helpfulMsg };

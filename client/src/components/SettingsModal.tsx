@@ -297,7 +297,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.1.4) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.1.5) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -535,7 +535,13 @@ export const SettingsModal: React.FC = () => {
   };
 
   const handleTestConnection = async () => {
-    if (!accImapHost || !accImapUser || !accImapPass) {
+    const cleanImapHost = accImapHost.trim().replace(/^(https?:\/\/|imaps?:\/\/|smtps?:\/\/|ssl:\/\/|tls:\/\/)/i, '').replace(/\/.*$/, '');
+    const cleanSmtpHost = (accSmtpHost || accImapHost).trim().replace(/^(https?:\/\/|imaps?:\/\/|smtps?:\/\/|ssl:\/\/|tls:\/\/)/i, '').replace(/\/.*$/, '');
+    const cleanImapUser = accImapUser.trim();
+    const cleanSmtpUser = (useSameCredentials ? accImapUser : accSmtpUser).trim();
+    const cleanEmail = accEmail.trim();
+
+    if (!cleanImapHost || !cleanImapUser || !accImapPass) {
       error('Lütfen IMAP sunucu, kullanıcı adı ve parola alanlarını doldurun.');
       return;
     }
@@ -545,21 +551,45 @@ export const SettingsModal: React.FC = () => {
 
     try {
       const payload = {
-        email: accEmail,
-        imapHost: accImapHost,
-        imapPort: Number(accImapPort),
-        imapUser: accImapUser,
+        email: cleanEmail,
+        imapHost: cleanImapHost,
+        imapPort: Number(accImapPort) || 993,
+        imapUser: cleanImapUser,
         imapPassword: accImapPass,
         imapSecure: accImapSecurity === 'SSL',
-        smtpHost: accSmtpHost,
-        smtpPort: Number(accSmtpPort),
-        smtpUser: useSameCredentials ? accImapUser : accSmtpUser,
+        smtpHost: cleanSmtpHost,
+        smtpPort: Number(accSmtpPort) || 587,
+        smtpUser: cleanSmtpUser,
         smtpPassword: useSameCredentials ? accImapPass : accSmtpPass,
         smtpSecure: accSmtpSecurity === 'SSL',
       };
 
-      const result = await api.testAccountConnection(payload);
+      const result: any = await api.testAccountConnection(payload);
       setTestResult(result);
+
+      // Auto-apply suggested verified parameters if returned from server
+      if (result.suggestedImapHost && result.suggestedImapHost !== accImapHost) {
+        setAccImapHost(result.suggestedImapHost);
+      }
+      if (result.suggestedImapPort) {
+        setAccImapPort(result.suggestedImapPort);
+      }
+      if (result.suggestedImapSecure !== undefined) {
+        setAccImapSecurity(result.suggestedImapSecure ? 'SSL' : 'STARTTLS');
+      }
+      if (result.suggestedSmtpHost && result.suggestedSmtpHost !== accSmtpHost) {
+        setAccSmtpHost(result.suggestedSmtpHost);
+      }
+      if (result.suggestedSmtpPort) {
+        setAccSmtpPort(result.suggestedSmtpPort);
+      }
+      if (result.suggestedSmtpSecure !== undefined) {
+        setAccSmtpSecurity(result.suggestedSmtpSecure ? 'SSL' : 'STARTTLS');
+      }
+      if (result.suggestedImapUser && result.suggestedImapUser !== accImapUser) {
+        setAccImapUser(result.suggestedImapUser);
+      }
+
       if (result.success) {
         success(result.message || 'Bağlantı testi başarılı!');
       } else {
@@ -578,7 +608,13 @@ export const SettingsModal: React.FC = () => {
 
   const handleSaveAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accEmail || !accImapHost || !accImapUser || !accImapPass) {
+    const cleanImapHost = accImapHost.trim().replace(/^(https?:\/\/|imaps?:\/\/|smtps?:\/\/|ssl:\/\/|tls:\/\/)/i, '').replace(/\/.*$/, '');
+    const cleanSmtpHost = (accSmtpHost || accImapHost).trim().replace(/^(https?:\/\/|imaps?:\/\/|smtps?:\/\/|ssl:\/\/|tls:\/\/)/i, '').replace(/\/.*$/, '');
+    const cleanImapUser = accImapUser.trim();
+    const cleanSmtpUser = (useSameCredentials ? accImapUser : accSmtpUser).trim();
+    const cleanEmail = accEmail.trim();
+
+    if (!cleanEmail || !cleanImapHost || !cleanImapUser || !accImapPass) {
       error('Lütfen zorunlu alanları doldurun.');
       return;
     }
@@ -586,17 +622,17 @@ export const SettingsModal: React.FC = () => {
     setIsSaving(true);
     try {
       const accountData: Partial<Account> = {
-        name: accName || accEmail.split('@')[0],
-        email: accEmail,
+        name: (accName || cleanEmail.split('@')[0]).trim(),
+        email: cleanEmail,
         provider: accProvider,
-        imapHost: accImapHost,
-        imapPort: Number(accImapPort),
-        imapUser: accImapUser,
+        imapHost: cleanImapHost,
+        imapPort: Number(accImapPort) || 993,
+        imapUser: cleanImapUser,
         imapPassword: accImapPass,
         imapSecure: accImapSecurity === 'SSL',
-        smtpHost: accSmtpHost || accImapHost,
+        smtpHost: cleanSmtpHost,
         smtpPort: Number(accSmtpPort) || 587,
-        smtpUser: useSameCredentials ? accImapUser : accSmtpUser,
+        smtpUser: cleanSmtpUser,
         smtpPassword: useSameCredentials ? accImapPass : accSmtpPass,
         smtpSecure: accSmtpSecurity === 'SSL',
         color: accColor,
@@ -747,7 +783,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.1.4
+            Postacı Desktop v1.1.5
           </div>
         </div>
 
@@ -2145,7 +2181,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.4</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.5</strong>
                       </div>
                     </div>
 
@@ -2288,7 +2324,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.1.4 (x64 Windows & Linux Desktop)
+                    Sürüm 1.1.5 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 
