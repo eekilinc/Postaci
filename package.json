@@ -1,0 +1,89 @@
+{
+  "name": "postaci",
+  "version": "1.0.0",
+  "description": "Next-Gen Desktop & Web Email Client (Outlook / Mailbird / Thunderbird Hybrid)",
+  "private": true,
+  "main": "desktop/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n \"SERVER,CLIENT\" -c \"blue,green\" \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "vite client --port 5173 --host",
+    "desktop": "concurrently -k -n \"SERVER,CLIENT,DESKTOP\" -c \"blue,green,magenta\" \"npm run dev:server\" \"npm run dev:client\" \"electron .\"",
+    "build:client": "tsc -b && vite build client",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --target=node18 --outfile=dist/server/index.cjs --external:better-sqlite3",
+    "build": "npm run build:client && npm run build:server",
+    "build:desktop": "npm run build && electron-builder --dir",
+    "pack:linux": "npm run build && electron-builder --linux AppImage deb",
+    "pack:win": "npm run build && electron-builder --win zip --win dir",
+    "start": "tsx server/index.ts"
+  },
+  "build": {
+    "appId": "com.postaci.app",
+    "productName": "Postaci",
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "desktop/**/*",
+      "dist/**/*",
+      "server/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network;Email;"
+    },
+    "win": {
+      "target": [
+        "zip",
+        "dir"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    }
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "clsx": "^2.1.1",
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "dompurify": "^3.2.4",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "imapflow": "^1.0.174",
+    "lucide-react": "^1.16.0",
+    "mailparser": "^3.7.2",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.10.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/cors": "^2.8.17",
+    "@types/dompurify": "^3.0.5",
+    "@types/express": "^4.17.21",
+    "@types/mailparser": "^3.4.5",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.13.1",
+    "@types/nodemailer": "^6.4.17",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}
