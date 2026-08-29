@@ -276,6 +276,14 @@ export function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_emails_date ON emails(date DESC);
     `);
 
+    // Dynamic schema migrations for accounts table
+    try { db.prepare('ALTER TABLE accounts ADD COLUMN authType TEXT').run(); } catch (_) {}
+    try { db.prepare('ALTER TABLE accounts ADD COLUMN oauthAccessToken TEXT').run(); } catch (_) {}
+    try { db.prepare('ALTER TABLE accounts ADD COLUMN oauthRefreshToken TEXT').run(); } catch (_) {}
+    try { db.prepare('ALTER TABLE accounts ADD COLUMN oauthExpiresAt INTEGER').run(); } catch (_) {}
+    try { db.prepare('ALTER TABLE accounts ADD COLUMN oauthClientId TEXT').run(); } catch (_) {}
+    try { db.prepare('ALTER TABLE accounts ADD COLUMN oauthClientSecret TEXT').run(); } catch (_) {}
+
     const accountCount = db.prepare('SELECT COUNT(*) as count FROM accounts').get() as { count: number };
     if (accountCount.count === 0) {
       console.log('🌱 Seeding initial demo accounts, emails, contacts and calendar events...');
@@ -461,6 +469,29 @@ export function getAccountById(id: string): Account | undefined {
   };
 }
 
+export function getAccountByEmail(email: string): Account | undefined {
+  if (!isNativeSqlite) {
+    return memStore.accounts.find(a => a.email.toLowerCase() === email.toLowerCase());
+  }
+  const r = db.prepare('SELECT * FROM accounts WHERE LOWER(email) = LOWER(?)').get(email) as any;
+  if (!r) return undefined;
+  return {
+    ...r,
+    isDefault: Boolean(r.isDefault),
+    imapSecure: Boolean(r.imapSecure),
+    smtpSecure: Boolean(r.smtpSecure)
+  };
+}
+
+export function saveAccount(acc: Account): Account {
+  const existing = getAccountById(acc.id) || getAccountByEmail(acc.email);
+  if (existing) {
+    return updateAccount(existing.id, acc) || acc;
+  } else {
+    return createAccount(acc);
+  }
+}
+
 export function createAccount(acc: Account): Account {
   if (!isNativeSqlite) {
     if (acc.isDefault) {
@@ -476,11 +507,13 @@ export function createAccount(acc: Account): Account {
   }
   const stmt = db.prepare(`
     INSERT INTO accounts (
-      id, name, email, provider, imapHost, imapPort, imapUser, imapPassword, imapSecure,
+      id, name, email, provider, authType, oauthAccessToken, oauthRefreshToken, oauthExpiresAt, oauthClientId, oauthClientSecret,
+      imapHost, imapPort, imapUser, imapPassword, imapSecure,
       smtpHost, smtpPort, smtpUser, smtpPassword, smtpSecure, color, avatar, isDefault,
       signature, syncInterval, lastSyncedAt
     ) VALUES (
-      @id, @name, @email, @provider, @imapHost, @imapPort, @imapUser, @imapPassword, @imapSecure,
+      @id, @name, @email, @provider, @authType, @oauthAccessToken, @oauthRefreshToken, @oauthExpiresAt, @oauthClientId, @oauthClientSecret,
+      @imapHost, @imapPort, @imapUser, @imapPassword, @imapSecure,
       @smtpHost, @smtpPort, @smtpUser, @smtpPassword, @smtpSecure, @color, @avatar, @isDefault,
       @signature, @syncInterval, @lastSyncedAt
     )
@@ -490,6 +523,12 @@ export function createAccount(acc: Account): Account {
     name: acc.name,
     email: acc.email,
     provider: acc.provider,
+    authType: acc.authType || 'password',
+    oauthAccessToken: acc.oauthAccessToken || null,
+    oauthRefreshToken: acc.oauthRefreshToken || null,
+    oauthExpiresAt: acc.oauthExpiresAt || null,
+    oauthClientId: acc.oauthClientId || null,
+    oauthClientSecret: acc.oauthClientSecret || null,
     imapHost: acc.imapHost || null,
     imapPort: acc.imapPort || null,
     imapUser: acc.imapUser || null,
@@ -535,6 +574,12 @@ export function updateAccount(id: string, acc: Partial<Account>): Account | unde
       name = @name,
       email = @email,
       provider = @provider,
+      authType = @authType,
+      oauthAccessToken = @oauthAccessToken,
+      oauthRefreshToken = @oauthRefreshToken,
+      oauthExpiresAt = @oauthExpiresAt,
+      oauthClientId = @oauthClientId,
+      oauthClientSecret = @oauthClientSecret,
       imapHost = @imapHost,
       imapPort = @imapPort,
       imapUser = @imapUser,
@@ -559,6 +604,12 @@ export function updateAccount(id: string, acc: Partial<Account>): Account | unde
     name: updated.name,
     email: updated.email,
     provider: updated.provider,
+    authType: updated.authType || 'password',
+    oauthAccessToken: updated.oauthAccessToken || null,
+    oauthRefreshToken: updated.oauthRefreshToken || null,
+    oauthExpiresAt: updated.oauthExpiresAt || null,
+    oauthClientId: updated.oauthClientId || null,
+    oauthClientSecret: updated.oauthClientSecret || null,
     imapHost: updated.imapHost || null,
     imapPort: updated.imapPort || null,
     imapUser: updated.imapUser || null,

@@ -33,6 +33,12 @@ export interface Account {
   name: string;
   email: string;
   provider: 'demo' | 'custom' | 'gmail' | 'outlook' | 'yahoo' | 'icloud';
+  authType?: 'password' | 'oauth2';
+  oauthAccessToken?: string;
+  oauthRefreshToken?: string;
+  oauthExpiresAt?: number;
+  oauthClientId?: string;
+  oauthClientSecret?: string;
   imapHost?: string;
   imapPort?: number;
   imapUser?: string;

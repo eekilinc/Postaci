@@ -150,7 +150,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.0.3) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.0.4) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -186,6 +186,18 @@ export const SettingsModal: React.FC = () => {
       (window as any).desktop.openExternal(url);
     } else {
       window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const handleStartGoogleOAuth = async () => {
+    try {
+      const res = await api.getGoogleAuthUrl();
+      if (res.url) {
+        handleOpenExternal(res.url);
+        info('Tarayıcınızda açılan Google penceresinden izin veriniz.', 'Google Girişi');
+      }
+    } catch (err: any) {
+      error(err.message || 'Google yetkilendirme başlatılamadı.');
     }
   };
 
@@ -468,7 +480,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.0.3
+            Postacı Desktop v1.0.4
           </div>
         </div>
 
@@ -607,6 +619,52 @@ export const SettingsModal: React.FC = () => {
             {/* TAB: ACCOUNTS FORM */}
             {activeTab === 'accounts' && isFormOpen && (
               <form onSubmit={handleSaveAccount} style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '640px' }}>
+                {/* 1-Click Google OAuth Banner */}
+                {!editingAccountId && (
+                  <div style={{
+                    padding: '14px 16px',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'linear-gradient(135deg, rgba(234, 67, 53, 0.12) 0%, rgba(66, 133, 244, 0.12) 100%)',
+                    border: '1px solid rgba(234, 67, 53, 0.35)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>🔴</span>
+                        <span>Google (Gmail) ile 1-Tıkla Otomatik Giriş</span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        Şifre girmeden doğrudan varsayılan tarayıcınızda Google yetkilendirmesini tamamlayın.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleStartGoogleOAuth}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '8px 16px',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: '#ea4335',
+                        color: 'white',
+                        border: 'none',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 4px 12px rgba(234, 67, 53, 0.3)'
+                      }}
+                    >
+                      <span>Google ile Bağlan</span>
+                      <ExternalLink size={13} />
+                    </button>
+                  </div>
+                )}
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div>
                     <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Hesap Adı</label>
@@ -1547,7 +1605,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.0.3</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.0.4</strong>
                       </div>
                     </div>
 
@@ -1702,7 +1760,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.0.3 (x64 Windows & Linux Desktop)
+                    Sürüm 1.0.4 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 

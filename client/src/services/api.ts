@@ -16,6 +16,12 @@ export const api = {
     return res.json();
   },
 
+  async getGoogleAuthUrl(): Promise<{ url: string }> {
+    const res = await fetch(`${API_BASE}/auth/google/url`);
+    if (!res.ok) throw new Error('Google yetkilendirme bağlantısı alınamadı.');
+    return res.json();
+  },
+
   async createAccount(account: Partial<Account>): Promise<Account> {
     const res = await fetch(`${API_BASE}/accounts`, {
       method: 'POST',

@@ -25,6 +25,28 @@ export class SmtpService {
     const isDirectSsl = overrideSecure !== undefined 
       ? overrideSecure 
       : (port === 465);
+
+    if (account.authType === 'oauth2') {
+      return nodemailer.createTransport({
+        host: account.smtpHost || 'smtp.gmail.com',
+        port,
+        secure: isDirectSsl,
+        auth: {
+          type: 'OAuth2',
+          user: account.email,
+          clientId: account.oauthClientId,
+          clientSecret: account.oauthClientSecret,
+          refreshToken: account.oauthRefreshToken,
+          accessToken: account.oauthAccessToken,
+        },
+        tls: {
+          rejectUnauthorized: false,
+          servername: account.smtpHost || 'smtp.gmail.com',
+          minVersion: 'TLSv1.2'
+        },
+      });
+    }
+
     const username = overrideUser || account.smtpUser || account.imapUser || account.email!;
     const password = account.smtpPassword || account.imapPassword || '';
 

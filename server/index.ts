@@ -41,6 +41,7 @@ import { AIService } from './services/aiService.js';
 import { BackupService } from './services/backupService.js';
 import { UpdaterService } from './services/updaterService.js';
 import { AutodiscoverService } from './services/autodiscoverService.js';
+import { OAuthService } from './services/oauthService.js';
 import { Account, Email, CalendarEvent, Attachment } from './types.js';
 
 const app = express();
@@ -147,6 +148,69 @@ app.post('/api/accounts/autodiscover', async (req: Request, res: Response) => {
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// OAuth 2.0 Google Endpoints
+app.get('/api/auth/google/url', (req: Request, res: Response) => {
+  try {
+    const url = OAuthService.getGoogleAuthUrl();
+    res.json({ url });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
+  try {
+    const code = req.query.code as string;
+    if (!code) {
+      return res.status(400).send('Yetkilendirme kodu (Authorization code) bulunamadı.');
+    }
+
+    const account = await OAuthService.handleGoogleCallback(code);
+    broadcastSSE('accounts_updated', account);
+    
+    // Auto-sync the new Google account in background
+    ImapService.syncAccount(account.id).catch(() => {});
+
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="tr">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Google Girişi Başarılı — Postacı</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            .card { background: #131e3a; border: 1px solid #3b82f6; border-radius: 16px; padding: 40px; text-align: center; max-width: 440px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+            h2 { color: #38bdf8; margin-top: 0; }
+            p { color: #94a3b8; line-height: 1.6; font-size: 14px; }
+            .badge { display: inline-block; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 6px 16px; border-radius: 20px; font-weight: 600; margin-bottom: 16px; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="badge">✓ Yetkilendirme Başarılı</div>
+            <h2>Postacı'ya Bağlandı!</h2>
+            <p><strong>${account.email}</strong> Google hesabınız başarıyla eklendi ve senkronizasyon başlatıldı.</p>
+            <p style="font-size: 12px; color: #64748b;">Bu sekme otomatik kapanacaktır. Postacı masaüstü uygulamasına dönebilirsiniz.</p>
+            <script>setTimeout(() => window.close(), 2500);</script>
+          </div>
+        </body>
+      </html>
+    `);
+  } catch (err: any) {
+    console.error('Google OAuth callback error:', err);
+    res.status(500).send(`
+      <!DOCTYPE html>
+      <html>
+        <body style="font-family: system-ui; background: #0f172a; color: white; text-align: center; padding: 40px;">
+          <h2 style="color: #ef4444;">Google Giriş Hatası</h2>
+          <p>${err.message}</p>
+        </body>
+      </html>
+    `);
   }
 });
 

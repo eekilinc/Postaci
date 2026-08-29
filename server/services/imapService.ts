@@ -2,10 +2,35 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { Account, Email, Attachment } from '../types.js';
 import { saveEmail, getAccounts, getAccountById, isDeletedLocally, registerServerFolder, pruneMissingServerUids, updateEmailFlags } from './db.js';
+import { OAuthService } from './oauthService.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export class ImapService {
   public static async connectClient(account: Account): Promise<ImapFlow> {
+    if (account.authType === 'oauth2') {
+      const accessToken = await OAuthService.refreshGoogleToken(account);
+      const client = new ImapFlow({
+        host: account.imapHost || 'imap.gmail.com',
+        port: account.imapPort || 993,
+        secure: account.imapSecure !== false,
+        auth: {
+          user: account.email,
+          accessToken,
+        },
+        tls: {
+          rejectUnauthorized: false,
+          servername: account.imapHost || 'imap.gmail.com',
+        },
+        clientInfo: {
+          name: 'Postaci Mail Client',
+          version: '1.0.3',
+        },
+        logger: false,
+      });
+      await client.connect();
+      return client;
+    }
+
     if (!account.imapHost || (!account.imapUser && !account.email) || !account.imapPassword) {
       throw new Error('IMAP yapılandırma bilgileri eksik (Sunucu, Kullanıcı Adı veya Şifre)');
     }
