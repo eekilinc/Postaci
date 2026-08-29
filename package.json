@@ -52,11 +52,6 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Postaci"
     },
-    "publish": {
-      "provider": "github",
-      "owner": "eekilinc",
-      "repo": "Postaci"
-    },
     "mac": {
       "target": [
         "dmg"

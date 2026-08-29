@@ -30,7 +30,7 @@ jobs:
         run: npm run build
 
       - name: Build Windows Executable & Installer
-        run: npx electron-builder --win nsis zip
+        run: npx electron-builder --win nsis zip --publish never
 
       - name: Publish Windows Assets to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -66,7 +66,7 @@ jobs:
         run: npm run build
 
       - name: Build Linux Packages
-        run: npx electron-builder --linux AppImage deb
+        run: npx electron-builder --linux AppImage deb --publish never
 
       - name: Publish Linux Assets to GitHub Release
         uses: softprops/action-gh-release@v2
