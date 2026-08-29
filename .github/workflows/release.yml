@@ -29,10 +29,22 @@ jobs:
       - name: Build Web Client & Backend
         run: npm run build
 
-      - name: Build & Publish Windows Release (.exe & .zip)
+      - name: Build Windows Executable & Installer
+        run: npx electron-builder --win nsis zip
+
+      - name: Publish Windows Assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          files: |
+            dist-desktop/*.exe
+            dist-desktop/*.zip
+            dist-desktop/*.blockmap
+          draft: false
+          prerelease: false
+          generate_release_notes: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win nsis zip --publish always
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-linux:
     name: Build & Publish Linux AppImage & Deb
@@ -53,7 +65,19 @@ jobs:
       - name: Build Web Client & Backend
         run: npm run build
 
-      - name: Build & Publish Linux Release (.AppImage & .deb)
+      - name: Build Linux Packages
+        run: npx electron-builder --linux AppImage deb
+
+      - name: Publish Linux Assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          files: |
+            dist-desktop/*.AppImage
+            dist-desktop/*.deb
+            dist-desktop/*.blockmap
+          draft: false
+          prerelease: false
+          generate_release_notes: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --linux AppImage deb --publish always
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
