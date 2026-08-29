@@ -96,19 +96,17 @@ export const Sidebar: React.FC = () => {
         borderBottom: '1px solid var(--border-subtle)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{
-            width: '32px',
-            height: '32px',
-            borderRadius: 'var(--radius-md)',
-            background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)',
-          }}>
-            <Mail size={18} />
-          </div>
+          <img
+            src="/favicon.svg"
+            alt="Postacı"
+            style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              boxShadow: '0 4px 14px rgba(56, 189, 248, 0.4)',
+              objectFit: 'contain'
+            }}
+          />
           <div>
             <h1 style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.2, color: 'var(--text-primary)' }}>
               Postacı

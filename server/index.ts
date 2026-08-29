@@ -5,6 +5,16 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 
+const getDirname = () => {
+  if (typeof __dirname !== 'undefined') return __dirname;
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return process.cwd();
+  }
+};
+const appDir = getDirname();
+
 import {
   initDatabase,
   getAccounts,
@@ -698,6 +708,11 @@ app.post('/api/backup/import', (req: Request, res: Response) => {
   }
 });
 
+// ----------------- SYSTEM & HEALTH -----------------
+app.get('/api/system/health', (req: Request, res: Response) => {
+  res.json({ status: 'ok', version: '1.0.5', timestamp: new Date().toISOString() });
+});
+
 // ----------------- GITHUB UPDATER -----------------
 app.get('/api/system/update-check', async (req: Request, res: Response) => {
   try {
@@ -712,8 +727,8 @@ app.get('/api/system/update-check', async (req: Request, res: Response) => {
 // Serve production frontend assets if built
 import fs from 'fs';
 const staticDirCandidates = [
-  path.join(__dirname, '../client'),
-  path.join(__dirname, 'client'),
+  path.join(appDir, '../client'),
+  path.join(appDir, 'client'),
   path.resolve(process.cwd(), 'dist/client'),
   path.resolve(process.cwd(), 'client')
 ];

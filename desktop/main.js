@@ -65,6 +65,34 @@ function startBackend() {
   }
 }
 
+const http = require('http');
+
+function waitForServer(url = 'http://127.0.0.1:3001/api/system/health', timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      const req = http.get(url, (res) => {
+        if (res.statusCode === 200) {
+          resolve(true);
+        } else if (Date.now() - start < timeoutMs) {
+          setTimeout(check, 150);
+        } else {
+          resolve(false);
+        }
+      });
+      req.on('error', () => {
+        if (Date.now() - start < timeoutMs) {
+          setTimeout(check, 150);
+        } else {
+          resolve(false);
+        }
+      });
+      req.setTimeout(500, () => req.destroy());
+    };
+    check();
+  });
+}
+
 // Generate modern Tray Icon
 function createTrayIcon() {
   const iconPath = path.join(__dirname, 'tray-icon.png');
@@ -183,8 +211,14 @@ function createWindow() {
   if (isDev) {
     mainWindow.loadURL('http://127.0.0.1:5173');
   } else {
-    const indexPath = path.join(__dirname, '../dist/client/index.html');
-    mainWindow.loadFile(indexPath);
+    waitForServer().then((isReady) => {
+      if (isReady && mainWindow) {
+        mainWindow.loadURL('http://127.0.0.1:3001');
+      } else if (mainWindow) {
+        const indexPath = path.join(__dirname, '../dist/client/index.html');
+        mainWindow.loadFile(indexPath);
+      }
+    });
   }
 
   mainWindow.once('ready-to-show', () => {

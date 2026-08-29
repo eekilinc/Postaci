@@ -8,16 +8,32 @@ export const EVENTS_URL = (typeof window !== 'undefined' && (window.location.pro
   ? (window.location.port === '5173' ? '/events' : 'http://127.0.0.1:3001/events')
   : '/events';
 
+async function fetchSafe(url: string, options?: RequestInit, retries = 3, delay = 300): Promise<Response> {
+  let lastError: any = null;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (i < retries - 1) {
+        await new Promise(r => setTimeout(r, delay * (i + 1)));
+      }
+    }
+  }
+  throw lastError || new Error('Sunucuya bağlanılamadı.');
+}
+
 export const api = {
   // Accounts
   async getAccounts(): Promise<Account[]> {
-    const res = await fetch(`${API_BASE}/accounts`);
+    const res = await fetchSafe(`${API_BASE}/accounts`);
     if (!res.ok) throw new Error('Hesaplar alınamadı.');
     return res.json();
   },
 
   async getGoogleAuthUrl(): Promise<{ url: string }> {
-    const res = await fetch(`${API_BASE}/auth/google/url`);
+    const res = await fetchSafe(`${API_BASE}/auth/google/url`);
     if (!res.ok) throw new Error('Google yetkilendirme bağlantısı alınamadı.');
     return res.json();
   },
