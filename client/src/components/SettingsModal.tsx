@@ -26,7 +26,8 @@ import {
   Sparkles,
   UploadCloud,
   ExternalLink,
-  Layers
+  Layers,
+  Copy
 } from 'lucide-react';
 import { useMail } from '../context/MailContext';
 import { useTheme, Theme, AccentColor, Density } from '../context/ThemeContext';
@@ -279,7 +280,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.0.8) kullanıyorsunuz.');
+        success('En güncel sürümü (v1.0.9) kullanıyorsunuz.');
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -318,15 +319,64 @@ export const SettingsModal: React.FC = () => {
     }
   };
 
+  // OAuth credentials state
+  const [googleAuthMode, setGoogleAuthMode] = useState<'oauth' | 'app_password'>('oauth');
+  const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('postaci_google_client_id') || '');
+  const [googleClientSecret, setGoogleClientSecret] = useState(() => localStorage.getItem('postaci_google_client_secret') || '');
+  const [isSavingOAuth, setIsSavingOAuth] = useState(false);
+
+  useEffect(() => {
+    api.getOAuthConfig().then((cfg) => {
+      if (cfg.googleClientId) {
+        setGoogleClientId(cfg.googleClientId);
+        localStorage.setItem('postaci_google_client_id', cfg.googleClientId);
+      }
+      if (cfg.googleClientSecret) {
+        setGoogleClientSecret(cfg.googleClientSecret);
+        localStorage.setItem('postaci_google_client_secret', cfg.googleClientSecret);
+      }
+    }).catch(() => {});
+  }, []);
+
   const handleStartGoogleOAuth = async () => {
+    if (!googleClientId.trim()) {
+      error('Lütfen önce Google Cloud Console\'dan aldığınız İstemci Kimliğini (Client ID) giriniz.');
+      return;
+    }
+    setIsSavingOAuth(true);
     try {
-      const res = await api.getGoogleAuthUrl();
+      localStorage.setItem('postaci_google_client_id', googleClientId.trim());
+      localStorage.setItem('postaci_google_client_secret', googleClientSecret.trim());
+      await api.saveOAuthConfig({
+        googleClientId: googleClientId.trim(),
+        googleClientSecret: googleClientSecret.trim()
+      });
+      const res = await api.getGoogleAuthUrl(googleClientId.trim());
       if (res.url) {
         handleOpenExternal(res.url);
-        info('Tarayıcınızda açılan Google penceresinden izin veriniz.', 'Google Girişi');
+        info('Google giriş sayfası tarayıcınızda açıldı. Onay verdikten sonra hesabınız otomatik olarak Postacı\'ya eklenecektir.');
       }
     } catch (err: any) {
-      error(err.message || 'Google yetkilendirme başlatılamadı.');
+      error(err.message || 'Google yetkilendirmesi başlatılamadı.');
+    } finally {
+      setIsSavingOAuth(false);
+    }
+  };
+
+  const handleSaveOAuthCredentials = async () => {
+    setIsSavingOAuth(true);
+    try {
+      localStorage.setItem('postaci_google_client_id', googleClientId.trim());
+      localStorage.setItem('postaci_google_client_secret', googleClientSecret.trim());
+      await api.saveOAuthConfig({
+        googleClientId: googleClientId.trim(),
+        googleClientSecret: googleClientSecret.trim()
+      });
+      success('Google OAuth İstemci Kimliği ve Gizli Anahtarı kaydedildi!');
+    } catch (err: any) {
+      error(err.message || 'OAuth ayarları kaydedilemedi.');
+    } finally {
+      setIsSavingOAuth(false);
     }
   };
 
@@ -628,7 +678,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.0.8
+            Postacı Desktop v1.0.9
           </div>
         </div>
 
@@ -818,64 +868,238 @@ export const SettingsModal: React.FC = () => {
                   </div>
                 )}
 
-                {/* 2. GOOGLE DIRECT APP PASSWORD QUICK ACTION & 3-STEP WIZARD */}
+                {/* 2. GOOGLE OAUTH (CLIENT ID) & APP PASSWORD HUB */}
                 {!editingAccountId && selectedProviderKey === 'google' && (
                   <div style={{
-                    padding: '14px 16px',
+                    padding: '16px',
                     borderRadius: 'var(--radius-md)',
                     background: 'linear-gradient(135deg, rgba(234, 67, 53, 0.12) 0%, rgba(66, 133, 244, 0.12) 100%)',
                     border: '1px solid rgba(234, 67, 53, 0.35)',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '10px',
+                    gap: '14px',
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span>🔴</span>
-                          <span>Google (Gmail) Bağlantı Rehberi</span>
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          Google güvenlik protokolü gereği 16 haneli Uygulama Şifresi kullanılır.
-                        </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                      <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>🔴</span>
+                        <span>Google (Gmail) Giriş Yöntemi Seçin</span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenExternal('https://myaccount.google.com/apppasswords')}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '8px 14px',
-                          borderRadius: 'var(--radius-sm)',
-                          backgroundColor: '#ea4335',
-                          color: 'white',
-                          border: 'none',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          boxShadow: '0 4px 12px rgba(234, 67, 53, 0.3)'
-                        }}
-                      >
-                        <ExternalLink size={13} />
-                        <span>Google Şifresi Oluştur</span>
-                      </button>
+                      <div style={{ display: 'flex', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', padding: '2px', border: '1px solid var(--border-subtle)' }}>
+                        <button
+                          type="button"
+                          onClick={() => setGoogleAuthMode('oauth')}
+                          style={{
+                            padding: '5px 12px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            backgroundColor: googleAuthMode === 'oauth' ? '#ea4335' : 'transparent',
+                            color: googleAuthMode === 'oauth' ? 'white' : 'var(--text-secondary)',
+                          }}
+                        >
+                          🌐 Google OAuth 2.0 (Client ID)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGoogleAuthMode('app_password')}
+                          style={{
+                            padding: '5px 12px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            backgroundColor: googleAuthMode === 'app_password' ? '#ea4335' : 'transparent',
+                            color: googleAuthMode === 'app_password' ? 'white' : 'var(--text-secondary)',
+                          }}
+                        >
+                          🔑 Uygulama Şifresi (16 Hane)
+                        </button>
+                      </div>
                     </div>
 
-                    <div style={{
-                      fontSize: '12px',
-                      color: 'var(--text-secondary)',
-                      backgroundColor: 'rgba(0,0,0,0.25)',
-                      padding: '10px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      lineHeight: '1.6'
-                    }}>
-                      <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>3 Kolay Adımda Bağlanın:</div>
-                      <div>1. Yukarıdaki <strong>"Google Şifresi Oluştur"</strong> butonuna tıklayın *(2 Adımlı Doğrulama açık olmalı)*.</div>
-                      <div>2. Uygulama Adı kutusuna <strong>Postacı</strong> yazıp <strong>Oluştur</strong>'a tıklayın.</div>
-                      <div>3. Verilen <strong>16 haneli sarı kutudaki şifreyi</strong> kopyalayıp aşağıdaki <strong>Parola</strong> kutusuna yapıştırın ve <strong>Hesabı Kaydet</strong>'e basın.</div>
-                    </div>
+                    {googleAuthMode === 'oauth' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                          Google Cloud Console üzerinde oluşturduğunuz <strong>OAuth 2.0 İstemci Kimliği (Client ID)</strong> ve <strong>İstemci Gizli Anahtarı (Client Secret)</strong> bilgilerini giriniz:
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '3px' }}>
+                            Google İstemci Kimliği (Client ID) *
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Örn: 1234567890-abcdef.apps.googleusercontent.com"
+                            value={googleClientId}
+                            onChange={e => setGoogleClientId(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-medium)',
+                              color: 'var(--text-primary)',
+                              fontSize: '12px',
+                              fontFamily: 'var(--font-mono)'
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '3px' }}>
+                            Google İstemci Gizli Anahtarı (Client Secret) (İsteğe Bağlı)
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Örn: GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxx"
+                            value={googleClientSecret}
+                            onChange={e => setGoogleClientSecret(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-medium)',
+                              color: 'var(--text-primary)',
+                              fontSize: '12px',
+                              fontFamily: 'var(--font-mono)'
+                            }}
+                          />
+                        </div>
+
+                        {/* Cloud console guide note */}
+                        <div style={{
+                          fontSize: '11px',
+                          color: 'var(--text-muted)',
+                          backgroundColor: 'rgba(0,0,0,0.3)',
+                          padding: '10px 12px',
+                          borderRadius: 'var(--radius-sm)',
+                          lineHeight: '1.5'
+                        }}>
+                          <div style={{ fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span>Google Cloud Console Kurulumu:</span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenExternal('https://console.cloud.google.com/apis/credentials')}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#38bdf8',
+                                fontSize: '11px',
+                                cursor: 'pointer',
+                                textDecoration: 'underline'
+                              }}
+                            >
+                              <span>Console'a Git</span>
+                              <ExternalLink size={11} />
+                            </button>
+                          </div>
+                          <div>1. Google Cloud Console → <strong>APIs & Services → Credentials</strong> sayfasına gidin.</div>
+                          <div>2. <strong>Create Credentials → OAuth client ID → Web application</strong> seçin.</div>
+                          <div>3. <strong>Authorized redirect URIs (Yetkili Yönlendirme URI)</strong> alanına şunu ekleyin:</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                            <code style={{ background: '#090d16', padding: '3px 8px', borderRadius: '4px', color: '#38bdf8', fontSize: '11px', border: '1px solid var(--border-subtle)' }}>
+                              http://127.0.0.1:3001/api/auth/google/callback
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText('http://127.0.0.1:3001/api/auth/google/callback');
+                                success('Yönlendirme URI kopyalandı!');
+                              }}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                background: 'var(--bg-tertiary)',
+                                border: '1px solid var(--border-medium)',
+                                color: 'var(--text-primary)',
+                                borderRadius: '4px',
+                                padding: '3px 8px',
+                                cursor: 'pointer',
+                                fontSize: '11px'
+                              }}
+                            >
+                              <Copy size={11} />
+                              <span>Kopyala</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleStartGoogleOAuth}
+                          disabled={isSavingOAuth || !googleClientId.trim()}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            padding: '10px 16px',
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: '#ea4335',
+                            color: 'white',
+                            border: 'none',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            cursor: (!googleClientId.trim() || isSavingOAuth) ? 'not-allowed' : 'pointer',
+                            opacity: (!googleClientId.trim() || isSavingOAuth) ? 0.6 : 1,
+                            boxShadow: '0 4px 14px rgba(234, 67, 53, 0.35)',
+                            marginTop: '4px'
+                          }}
+                        >
+                          <ExternalLink size={14} />
+                          <span>{isSavingOAuth ? 'Bağlantı Hazırlanıyor...' : '🚀 Google ile Oturum Aç (OAuth 2.0)'}</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            Google hesabınızdan 16 haneli şifre alarak anında bağlanabilirsiniz:
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenExternal('https://myaccount.google.com/apppasswords')}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '7px 12px',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: '#ea4335',
+                              color: 'white',
+                              border: 'none',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            <ExternalLink size={12} />
+                            <span>1-Tıkla Şifre Sayfasını Aç</span>
+                          </button>
+                        </div>
+                        <div style={{
+                          fontSize: '11px',
+                          color: 'var(--text-muted)',
+                          backgroundColor: 'rgba(0,0,0,0.25)',
+                          padding: '10px 12px',
+                          borderRadius: 'var(--radius-sm)',
+                          lineHeight: '1.6'
+                        }}>
+                          <div>1. <strong>"1-Tıkla Şifre Sayfasını Aç"</strong> butonuna tıklayın *(2 Adımlı Doğrulama açık olmalı)*.</div>
+                          <div>2. Uygulama Adı olarak <strong>Postacı</strong> yazıp <strong>Oluştur</strong>'a tıklayın.</div>
+                          <div>3. Google'ın verdiği 16 haneli sarı kutudaki şifreyi aşağıdaki <strong>Parola</strong> kutusuna yapıştırıp <strong>Hesabı Kaydet</strong>'e basın.</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1572,6 +1796,137 @@ export const SettingsModal: React.FC = () => {
                     style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                   />
                 </div>
+                {/* GOOGLE CLOUD OAUTH 2.0 CREDENTIALS CONFIG */}
+                <div style={{
+                  backgroundColor: 'var(--bg-tertiary)',
+                  padding: '16px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid rgba(234, 67, 53, 0.3)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🔴</span>
+                      <span>Google Cloud OAuth 2.0 İstemci Kimliği (Client ID)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenExternal('https://console.cloud.google.com/apis/credentials')}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '4px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: '#ea4335',
+                        color: 'white',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <span>Google Cloud Console</span>
+                      <ExternalLink size={12} />
+                    </button>
+                  </div>
+
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.5' }}>
+                    Google OAuth 2.0 tarayıcı girişlerini etkinleştirmek için Google Cloud Console'dan aldığınız İstemci Kimliğini (Client ID) buraya kaydedin:
+                  </p>
+
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '3px' }}>
+                      Google İstemci Kimliği (Client ID)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Örn: 1234567890-abcdef.apps.googleusercontent.com"
+                      value={googleClientId}
+                      onChange={e => setGoogleClientId(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-medium)',
+                        color: 'var(--text-primary)',
+                        fontSize: '12px',
+                        fontFamily: 'var(--font-mono)'
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '3px' }}>
+                      Google İstemci Gizli Anahtarı (Client Secret)
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Örn: GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxx"
+                      value={googleClientSecret}
+                      onChange={e => setGoogleClientSecret(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-medium)',
+                        color: 'var(--text-primary)',
+                        fontSize: '12px',
+                        fontFamily: 'var(--font-mono)'
+                      }}
+                    />
+                  </div>
+
+                  <div style={{
+                    fontSize: '11px',
+                    color: 'var(--text-muted)',
+                    backgroundColor: 'rgba(0,0,0,0.3)',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    lineHeight: '1.5'
+                  }}>
+                    <div>Google Cloud Console'da Yetkili Yönlendirme URI (Authorized redirect URI) alanına şunu ekleyin:</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+                      <code style={{ background: '#090d16', padding: '2px 6px', borderRadius: '4px', color: '#38bdf8', fontSize: '11px' }}>
+                        http://127.0.0.1:3001/api/auth/google/callback
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText('http://127.0.0.1:3001/api/auth/google/callback');
+                          success('Yönlendirme URI kopyalandı!');
+                        }}
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}
+                      >
+                        📋 Kopyala
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveOAuthCredentials}
+                    disabled={isSavingOAuth}
+                    style={{
+                      alignSelf: 'flex-start',
+                      padding: '8px 16px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: '#ea4335',
+                      color: 'white',
+                      border: 'none',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: isSavingOAuth ? 'not-allowed' : 'pointer',
+                      marginTop: '4px'
+                    }}
+                  >
+                    {isSavingOAuth ? 'Kaydediliyor...' : 'OAuth Bilgilerini Kaydet'}
+                  </button>
+                </div>
 
                 <button
                   onClick={handleSavePreferences}
@@ -1773,7 +2128,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.0.8</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.0.9</strong>
                       </div>
                     </div>
 
@@ -1926,7 +2281,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.0.8 (x64 Windows & Linux Desktop)
+                    Sürüm 1.0.9 (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 

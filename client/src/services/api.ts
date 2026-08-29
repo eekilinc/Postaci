@@ -32,9 +32,29 @@ export const api = {
     return res.json();
   },
 
-  async getGoogleAuthUrl(): Promise<{ url: string }> {
-    const res = await fetchSafe(`${API_BASE}/auth/google/url`);
-    if (!res.ok) throw new Error('Google yetkilendirme bağlantısı alınamadı.');
+  async getOAuthConfig(): Promise<{ googleClientId?: string; googleClientSecret?: string; microsoftClientId?: string }> {
+    const res = await fetchSafe(`${API_BASE}/auth/oauth-config`);
+    if (!res.ok) throw new Error('OAuth ayarları alınamadı.');
+    return res.json();
+  },
+
+  async saveOAuthConfig(config: { googleClientId?: string; googleClientSecret?: string; microsoftClientId?: string }): Promise<{ googleClientId?: string; googleClientSecret?: string; microsoftClientId?: string }> {
+    const res = await fetchSafe(`${API_BASE}/auth/oauth-config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!res.ok) throw new Error('OAuth ayarları kaydedilemedi.');
+    return res.json();
+  },
+
+  async getGoogleAuthUrl(clientId?: string): Promise<{ url: string }> {
+    const query = clientId ? `?clientId=${encodeURIComponent(clientId)}` : '';
+    const res = await fetchSafe(`${API_BASE}/auth/google/url${query}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Google yetkilendirme bağlantısı alınamadı.');
+    }
     return res.json();
   },
 

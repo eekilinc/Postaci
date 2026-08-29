@@ -1,6 +1,6 @@
 {
   "name": "postaci",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "type": "module",
   "description": "Next-Gen Desktop & Web Email Client (Outlook / Mailbird / Thunderbird Hybrid)",
   "author": "eekilinc <ekilinc@mehmetakif.edu.tr>",

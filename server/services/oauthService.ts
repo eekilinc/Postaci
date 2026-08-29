@@ -1,16 +1,63 @@
+import fs from 'fs';
+import path from 'path';
 import { Account } from '../types.js';
 import { getAccountByEmail, saveAccount, getAccountById } from './db.js';
 import { v4 as uuidv4 } from 'uuid';
 
-// Default OAuth Client Configuration (Can be overridden via Settings or ENV)
-export const DEFAULT_GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '1085352668541-p10d65b70741m0p8k292i4iirrv52qgl.apps.googleusercontent.com';
-export const DEFAULT_GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const oauthConfigPath = path.resolve(process.cwd(), 'data/oauth_credentials.json');
+
+interface OAuthConfig {
+  googleClientId?: string;
+  googleClientSecret?: string;
+  microsoftClientId?: string;
+}
+
+function loadOAuthConfig(): OAuthConfig {
+  if (fs.existsSync(oauthConfigPath)) {
+    try {
+      return JSON.parse(fs.readFileSync(oauthConfigPath, 'utf-8'));
+    } catch {}
+  }
+  return {};
+}
+
+function saveOAuthConfig(config: OAuthConfig) {
+  try {
+    const dir = path.dirname(oauthConfigPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(oauthConfigPath, JSON.stringify(config, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save oauth config:', err);
+  }
+}
 
 export const DEFAULT_MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID || 'ea5ed4b9-38b6-46b4-9844-386f4a863b9f';
 
 export class OAuthService {
+  public static getCredentials() {
+    const config = loadOAuthConfig();
+    return {
+      googleClientId: config.googleClientId || process.env.GOOGLE_CLIENT_ID || '',
+      googleClientSecret: config.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || '',
+      microsoftClientId: config.microsoftClientId || process.env.MICROSOFT_CLIENT_ID || DEFAULT_MICROSOFT_CLIENT_ID,
+    };
+  }
+
+  public static saveCredentials(credentials: { googleClientId?: string; googleClientSecret?: string; microsoftClientId?: string }) {
+    const current = loadOAuthConfig();
+    const updated = { ...current, ...credentials };
+    saveOAuthConfig(updated);
+    return this.getCredentials();
+  }
+
   public static getGoogleAuthUrl(redirectUri = 'http://127.0.0.1:3001/api/auth/google/callback', clientId?: string): string {
-    const id = clientId || DEFAULT_GOOGLE_CLIENT_ID;
+    const creds = this.getCredentials();
+    const id = (clientId || creds.googleClientId || '').trim();
+
+    if (!id) {
+      throw new Error('Google Client ID (İstemci Kimliği) henüz girilmemiş. Lütfen Google Cloud Console\'dan aldığınız İstemci Kimliğini (Client ID) girin.');
+    }
+
     const scopes = [
       'https://mail.google.com/',
       'https://www.googleapis.com/auth/userinfo.email',
@@ -31,8 +78,13 @@ export class OAuthService {
   }
 
   public static async handleGoogleCallback(code: string, redirectUri = 'http://127.0.0.1:3001/api/auth/google/callback', clientId?: string, clientSecret?: string): Promise<Account> {
-    const id = clientId || DEFAULT_GOOGLE_CLIENT_ID;
-    const secret = clientSecret || DEFAULT_GOOGLE_CLIENT_SECRET;
+    const creds = this.getCredentials();
+    const id = (clientId || creds.googleClientId || '').trim();
+    const secret = (clientSecret || creds.googleClientSecret || '').trim();
+
+    if (!id) {
+      throw new Error('Google Client ID bulunamadı.');
+    }
 
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -108,13 +160,13 @@ export class OAuthService {
       throw new Error('Google OAuth Refresh Token bulunamadı. Lütfen tekrar giriş yapın.');
     }
 
-    // If existing token has more than 2 minutes left, reuse it
     if (account.oauthAccessToken && account.oauthExpiresAt && account.oauthExpiresAt > Date.now() + 120000) {
       return account.oauthAccessToken;
     }
 
-    const id = account.oauthClientId || DEFAULT_GOOGLE_CLIENT_ID;
-    const secret = account.oauthClientSecret || DEFAULT_GOOGLE_CLIENT_SECRET;
+    const creds = this.getCredentials();
+    const id = account.oauthClientId || creds.googleClientId;
+    const secret = account.oauthClientSecret || creds.googleClientSecret;
 
     const res = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',

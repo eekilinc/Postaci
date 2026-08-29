@@ -161,13 +161,33 @@ app.post('/api/accounts/autodiscover', async (req: Request, res: Response) => {
   }
 });
 
+// OAuth 2.0 Configuration Endpoints
+app.get('/api/auth/oauth-config', (req: Request, res: Response) => {
+  try {
+    const creds = OAuthService.getCredentials();
+    res.json(creds);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/oauth-config', (req: Request, res: Response) => {
+  try {
+    const updated = OAuthService.saveCredentials(req.body);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // OAuth 2.0 Google Endpoints
 app.get('/api/auth/google/url', (req: Request, res: Response) => {
   try {
-    const url = OAuthService.getGoogleAuthUrl();
+    const clientId = (req.query.clientId as string) || undefined;
+    const url = OAuthService.getGoogleAuthUrl('http://127.0.0.1:3001/api/auth/google/callback', clientId);
     res.json({ url });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -710,7 +730,7 @@ app.post('/api/backup/import', (req: Request, res: Response) => {
 
 // ----------------- SYSTEM & HEALTH -----------------
 app.get('/api/system/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', version: '1.0.8', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', version: '1.0.9', timestamp: new Date().toISOString() });
 });
 
 // ----------------- GITHUB UPDATER -----------------
