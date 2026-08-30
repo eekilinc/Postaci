@@ -365,35 +365,50 @@ export const SettingsModal: React.FC = () => {
     }).catch(() => {});
   }, []);
 
+  const initialAccountIdsRef = useRef<Set<string>>(new Set());
+
   // Active polling listener when Google OAuth popup is active in browser
   useEffect(() => {
     if (!isWaitingOAuth) return;
 
-    const initialAccountIds = new Set(accounts.map((a: Account) => a.id));
-    const interval = setInterval(async () => {
+    let isDone = false;
+    const checkOAuthAccounts = async () => {
+      if (isDone) return;
       try {
         const currentAccounts = await api.getAccounts();
-        const newAcc = currentAccounts.find((a: Account) => !initialAccountIds.has(a.id));
-        if (newAcc) {
+        const newAcc = currentAccounts.find((a: Account) => !initialAccountIdsRef.current.has(a.id)) ||
+                       (currentAccounts.length > initialAccountIdsRef.current.size ? currentAccounts[currentAccounts.length - 1] : null);
+
+        if (newAcc || currentAccounts.length > initialAccountIdsRef.current.size) {
+          isDone = true;
           setIsWaitingOAuth(false);
           await refreshAccounts();
-          setActiveAccountId(newAcc.id);
-          success(`${newAcc.email} Google hesabı başarıyla bağlandı! 🎉`, 'Giriş Başarılı');
+          if (newAcc?.id) {
+            setActiveAccountId(newAcc.id);
+          }
+          success(`${newAcc?.email || 'Google'} hesabı başarıyla bağlandı! 🎉`, 'Giriş Başarılı');
           refreshEmails();
           refreshStats();
           triggerSync();
           handleResetForm();
           setIsFormOpen(false);
+          setEditingAccountId(null);
+          setSelectedProviderKey(null);
           setActiveTab('accounts');
         }
       } catch {}
-    }, 1200);
+    };
 
-    return () => clearInterval(interval);
-  }, [isWaitingOAuth, accounts, refreshAccounts, setActiveAccountId, refreshEmails, refreshStats, triggerSync, success]);
+    const interval = setInterval(checkOAuthAccounts, 1000);
+    return () => {
+      isDone = true;
+      clearInterval(interval);
+    };
+  }, [isWaitingOAuth, refreshAccounts, setActiveAccountId, refreshEmails, refreshStats, triggerSync, success]);
 
   const handleStartGoogleOAuth = async () => {
     setIsSavingOAuth(true);
+    initialAccountIdsRef.current = new Set(accounts.map((a: Account) => a.id));
     try {
       if (googleClientId.trim()) {
         localStorage.setItem('postaci_google_client_id', googleClientId.trim());

@@ -2,8 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   isDesktop: true,
-  sendNotification: (title, body) => {
-    ipcRenderer.send('notify', { title, body });
+  sendNotification: (title, body, emailId, accountId) => {
+    ipcRenderer.send('notify', { title, body, emailId, accountId });
   },
   setBadgeCount: (count) => {
     ipcRenderer.send('set-badge', count);
@@ -22,5 +22,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onAppUpdate: (callback) => {
     ipcRenderer.on('app-update', (_event, value) => callback(value));
+  },
+  onOpenEmail: (callback) => {
+    ipcRenderer.on('open-email', (_event, data) => callback(data));
   }
 });

@@ -15,6 +15,10 @@ import { ShortcutsModal } from './components/ShortcutsModal';
 const MainLayout: React.FC = () => {
   const {
     mainTab,
+    setMainTab,
+    setActiveFolder,
+    setActiveAccountId,
+    selectEmail,
     viewLayout,
     isShortcutsOpen,
     setIsShortcutsOpen,
@@ -31,7 +35,20 @@ const MainLayout: React.FC = () => {
         else if (action === 'settings') setIsSettingsOpen(true);
       });
     }
-  }, [openComposer, triggerSync, setIsSettingsOpen]);
+
+    if ((window as any).electronAPI?.onOpenEmail) {
+      (window as any).electronAPI.onOpenEmail((data: { emailId: string; accountId?: string }) => {
+        if (data && data.emailId) {
+          setMainTab('mail');
+          setActiveFolder('INBOX');
+          if (data.accountId) {
+            setActiveAccountId(data.accountId);
+          }
+          selectEmail(data.emailId);
+        }
+      });
+    }
+  }, [openComposer, triggerSync, setIsSettingsOpen, setMainTab, setActiveFolder, setActiveAccountId, selectEmail]);
 
   return (
     <div style={{

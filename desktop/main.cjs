@@ -340,13 +340,26 @@ ipcMain.handle('set-desktop-settings', (_event, newSettings) => {
 });
 
 // IPC: Notifications
-ipcMain.on('notify', (_event, { title, body }) => {
+ipcMain.on('notify', (_event, { title, body, emailId, accountId }) => {
   if (Notification.isSupported()) {
-    new Notification({
+    const notif = new Notification({
       title: title || 'Postacı',
       body: body || 'Yeni bir bildirim aldınız.',
       icon: createTrayIcon(),
-    }).show();
+    });
+
+    notif.on('click', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        if (emailId) {
+          mainWindow.webContents.send('open-email', { emailId, accountId });
+        }
+      }
+    });
+
+    notif.show();
   }
 });
 

@@ -430,18 +430,19 @@ export const EmailList: React.FC = () => {
               className={`glass-card ${isSelected ? 'animate-fade-in' : ''}`}
               style={{
                 position: 'relative',
-                padding: '10px 12px',
-                marginBottom: '4px',
-                backgroundColor: isChecked ? 'rgba(59, 130, 246, 0.08)' : isSelected ? 'var(--bg-active)' : 'var(--bg-secondary)',
-                borderColor: isChecked ? 'var(--accent-primary)' : isSelected ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                padding: 'var(--email-row-py, 11px) var(--email-row-px, 14px)',
+                marginBottom: '5px',
+                backgroundColor: isChecked ? 'rgba(59, 130, 246, 0.12)' : isSelected ? 'var(--bg-active)' : !email.isRead ? 'rgba(59, 130, 246, 0.07)' : 'var(--bg-secondary)',
+                borderColor: isChecked ? 'var(--accent-primary)' : isSelected ? 'var(--accent-primary)' : !email.isRead ? 'rgba(59, 130, 246, 0.3)' : 'var(--border-subtle)',
                 borderRadius: 'var(--radius-md)',
                 cursor: 'pointer',
-                borderLeft: isChecked ? '3px solid var(--accent-primary)' : !email.isRead ? '3px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                borderLeft: isChecked ? '4px solid var(--accent-primary)' : !email.isRead ? '4px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                boxShadow: !email.isRead ? '0 2px 10px rgba(59, 130, 246, 0.05)' : 'none',
                 transition: 'all 0.15s ease',
               }}
             >
               {/* Top Row: Sender, Monogram Avatar, Date, Star, Selection, Pin */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
                   {/* Dedicated Selection Checkbox */}
                   <div
@@ -484,14 +485,14 @@ export const EmailList: React.FC = () => {
                   {/* Monogram Avatar */}
                   <div
                     style={{
-                      width: '24px',
-                      height: '24px',
+                      width: 'var(--email-avatar-size, 26px)',
+                      height: 'var(--email-avatar-size, 26px)',
                       borderRadius: '50%',
                       background: getAvatarGradient(email.fromEmail || email.fromName),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '10px',
+                      fontSize: '11px',
                       fontWeight: 700,
                       color: '#ffffff',
                       flexShrink: 0,
@@ -502,15 +503,30 @@ export const EmailList: React.FC = () => {
                     {getInitials(email.fromName || email.fromEmail)}
                   </div>
 
+                  {/* Glowing Unread Indicator Dot */}
+                  {!email.isRead && (
+                    <div
+                      title="Okunmamış İleti"
+                      style={{
+                        width: '7px',
+                        height: '7px',
+                        borderRadius: '50%',
+                        backgroundColor: 'var(--accent-primary)',
+                        boxShadow: '0 0 8px var(--accent-primary)',
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+
                   <span style={{
-                    fontSize: '13px',
-                    fontWeight: !email.isRead ? 700 : 500,
+                    fontSize: 'var(--email-font-size, 13px)',
+                    fontWeight: !email.isRead ? 800 : 500,
                     color: !email.isRead ? 'var(--text-primary)' : 'var(--text-secondary)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                   }}>
-                    {email.fromName}
+                    {email.fromName || email.fromEmail}
                   </span>
 
                   {email.isPinned && (
@@ -519,7 +535,11 @@ export const EmailList: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: !email.isRead ? 700 : 400,
+                    color: !email.isRead ? 'var(--accent-primary)' : 'var(--text-muted)',
+                  }}>
                     {formatEmailDate(email.date)}
                   </span>
 
@@ -545,17 +565,17 @@ export const EmailList: React.FC = () => {
 
               {/* Middle Row: Subject & Priority */}
               <div style={{
-                fontSize: '13px',
-                fontWeight: !email.isRead ? 600 : 500,
-                color: 'var(--text-primary)',
-                marginBottom: '3px',
+                fontSize: 'var(--email-font-size, 13px)',
+                fontWeight: !email.isRead ? 700 : 400,
+                color: !email.isRead ? 'var(--text-primary)' : 'var(--text-secondary)',
+                marginBottom: '4px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 gap: '6px',
               }}>
                 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {email.subject}
+                  {email.subject || '(Konusuz)'}
                 </span>
 
                 {email.priority === 'high' && (

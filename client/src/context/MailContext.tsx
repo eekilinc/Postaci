@@ -346,13 +346,22 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const desktopNotifsEnabled = localStorage.getItem('postaci_desktop_notifs') !== 'false';
           if (desktopNotifsEnabled) {
             if ((window as any).electronAPI?.sendNotification) {
-              (window as any).electronAPI.sendNotification(title, body);
+              (window as any).electronAPI.sendNotification(title, body, newMail.id, newMail.accountId);
             } else if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-              new Notification(title, {
+              const notif = new Notification(title, {
                 body,
                 icon: '/favicon.svg',
                 tag: newMail.id
               });
+              notif.onclick = () => {
+                window.focus();
+                setMainTab('mail');
+                setActiveFolder('INBOX');
+                if (newMail.accountId) {
+                  setActiveAccountIdRef.current(newMail.accountId);
+                }
+                setSelectedEmailId(newMail.id);
+              };
             }
           }
 
