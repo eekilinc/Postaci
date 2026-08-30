@@ -659,12 +659,41 @@ export function deleteAccount(id: string): boolean {
 }
 
 // ----------------- EMAILS -----------------
-function parseEmailRow(r: any): Email {
+function parseEmailRow(r: any, isListView = false): Email {
   const account = r.acc_name !== undefined ? {
     name: r.acc_name || 'Bilinmeyen',
     email: r.acc_email || '',
     color: r.acc_color || '#94a3b8'
   } : undefined;
+
+  let attachments: Attachment[] = [];
+  try {
+    const rawAtts = JSON.parse(r.attachments_json || '[]');
+    if (isListView) {
+      // In list view: strip heavy base64 to prevent memory bloat and renderer crashes
+      attachments = rawAtts.map((a: any) => ({
+        id: a.id,
+        filename: a.filename,
+        contentType: a.contentType,
+        size: a.size,
+        isInline: a.isInline,
+        contentId: a.contentId,
+      }));
+    } else {
+      attachments = rawAtts;
+    }
+  } catch {
+    attachments = [];
+  }
+
+  const rawBodyText = r.bodyText || '';
+  const bodyText = (isListView && rawBodyText.length > 500)
+    ? rawBodyText.substring(0, 500)
+    : rawBodyText;
+
+  const bodyHtml = isListView
+    ? (r.snippet ? `<p>${r.snippet}</p>` : '')
+    : r.bodyHtml;
 
   return {
     id: r.id,
@@ -680,8 +709,8 @@ function parseEmailRow(r: any): Email {
     bcc: JSON.parse(r.bcc_json || '[]'),
     replyTo: r.replyTo_json ? JSON.parse(r.replyTo_json) : undefined,
     subject: r.subject,
-    bodyText: r.bodyText,
-    bodyHtml: r.bodyHtml,
+    bodyText,
+    bodyHtml,
     snippet: r.snippet,
     date: r.date,
     isRead: Boolean(r.isRead),
@@ -693,7 +722,7 @@ function parseEmailRow(r: any): Email {
     folder: r.folder,
     labels: JSON.parse(r.labels_json || '[]'),
     priority: r.priority,
-    attachments: JSON.parse(r.attachments_json || '[]'),
+    attachments,
     meetingInvite: r.meetingInvite_json ? JSON.parse(r.meetingInvite_json) : null,
     aiSummary: r.aiSummary,
     aiSmartReplies: r.aiSmartReplies_json ? JSON.parse(r.aiSmartReplies_json) : null,
@@ -736,10 +765,18 @@ export function getEmails(params: {
         if (!inSub && !inSender && !inText) return false;
       }
       return true;
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(e => {
+    }).slice(0, 300).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(e => {
       const acc = memStore.accounts.find(a => a.id === e.accountId);
       return {
         ...e,
+        attachments: (e.attachments || []).map(a => ({
+          id: a.id,
+          filename: a.filename,
+          contentType: a.contentType,
+          size: a.size,
+          isInline: a.isInline,
+          contentId: a.contentId
+        })),
         account: acc ? { name: acc.name, email: acc.email, color: acc.color } : undefined
       };
     });
@@ -795,10 +832,10 @@ export function getEmails(params: {
     conditions.push(s, s, s, s, s);
   }
 
-  query += ' ORDER BY emails.date DESC LIMIT 1000';
+  query += ' ORDER BY emails.date DESC LIMIT 300';
 
   const rows = db.prepare(query).all(...conditions) as any[];
-  return rows.map(parseEmailRow);
+  return rows.map(r => parseEmailRow(r, true));
 }
 
 export function getEmailById(id: string): Email | undefined {
@@ -903,7 +940,7 @@ export function getEmailThread(threadId: string): Email[] {
     ORDER BY emails.date ASC
   `;
   const rows = db.prepare(query).all(threadId) as any[];
-  return rows.map(parseEmailRow);
+  return rows.map(r => parseEmailRow(r, false));
 }
 
 // Persistent deleted message tracking (both ID and RFC Message-ID)

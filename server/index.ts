@@ -67,18 +67,40 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // SSE Clients for real-time push notifications
-const sseClients: Response[] = [];
+// SSE Clients for real-time push notifications
+let sseClients: Response[] = [];
 
 function broadcastSSE(event: string, data: any) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const client of sseClients) {
+  for (let i = sseClients.length - 1; i >= 0; i--) {
+    const client = sseClients[i];
     try {
-      client.write(payload);
+      if (client.writableEnded || client.destroyed) {
+        sseClients.splice(i, 1);
+      } else {
+        client.write(payload);
+      }
     } catch {
-      // client disconnected
+      sseClients.splice(i, 1);
     }
   }
 }
+
+// Send periodic SSE keep-alive ping every 25s to purge dead connections
+setInterval(() => {
+  for (let i = sseClients.length - 1; i >= 0; i--) {
+    const client = sseClients[i];
+    try {
+      if (client.writableEnded || client.destroyed) {
+        sseClients.splice(i, 1);
+      } else {
+        client.write(': ping\n\n');
+      }
+    } catch {
+      sseClients.splice(i, 1);
+    }
+  }
+}, 25000);
 
 // Middleware
 app.use(cors());
@@ -804,7 +826,7 @@ app.post('/api/backup/import', (req: Request, res: Response) => {
 
 // ----------------- SYSTEM & HEALTH -----------------
 app.get('/api/system/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', version: '1.1.8', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', version: '1.1.9', timestamp: new Date().toISOString() });
 });
 
 // ----------------- GITHUB UPDATER -----------------

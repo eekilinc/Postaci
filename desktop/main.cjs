@@ -234,6 +234,32 @@ function createWindow() {
     }
   });
 
+  // Handle renderer crash / white screen auto-recovery
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Renderer process gone:', details);
+    if (details.reason !== 'clean-exit') {
+      console.log('Auto-recovering window after renderer crash...');
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          if (isDev) {
+            mainWindow.loadURL('http://127.0.0.1:5173');
+          } else if (fs.existsSync(indexPath)) {
+            mainWindow.loadFile(indexPath);
+          } else {
+            mainWindow.loadURL('http://127.0.0.1:3001');
+          }
+        }
+      }, 600);
+    }
+  });
+
+  mainWindow.webContents.on('unresponsive', () => {
+    console.warn('Renderer unresponsive, attempting soft reload...');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.reload();
+    }
+  });
+
   mainWindow.once('ready-to-show', () => {
     if (!desktopSettings.startMinimized) {
       mainWindow.show();

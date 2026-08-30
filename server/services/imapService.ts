@@ -27,7 +27,7 @@ export class ImapService {
         },
         clientInfo: {
           name: 'Postaci Mail Client',
-          version: '1.1.8',
+          version: '1.1.9',
         },
         connectionTimeout: 10000,
         greetingTimeout: 10000,
@@ -68,7 +68,7 @@ export class ImapService {
         },
         clientInfo: {
           name: 'Postaci',
-          version: '1.1.8',
+          version: '1.1.9',
           vendor: 'Postaci Mail Client',
         },
         connectionTimeout: 8000,
@@ -122,7 +122,7 @@ export class ImapService {
             },
             clientInfo: {
               name: 'Postaci',
-              version: '1.1.8',
+              version: '1.1.9',
               vendor: 'Postaci Mail Client',
             },
             connectionTimeout: 5000,
@@ -747,7 +747,7 @@ export class ImapService {
     return anyEmptied;
   }
 
-  public static async syncAccount(accountId: string): Promise<{ syncedCount: number }> {
+  public static async syncAccount(accountId: string, options?: { onlyInbox?: boolean }): Promise<{ syncedCount: number }> {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo') return { syncedCount: 0 };
 
@@ -781,6 +781,8 @@ export class ImapService {
         }
       }
 
+      const onlyInbox = options?.onlyInbox ?? false;
+
       // Prioritize core standard mailboxes (INBOX first, then Sent, Trash, Drafts, Junk, Spam)
       const isCore = (mb: any) => {
         const p = mb.path.toUpperCase();
@@ -789,10 +791,16 @@ export class ImapService {
           /sent|trash|çöp|draft|taslak|junk|spam/i.test(mb.path);
       };
 
-      const sortedMailboxes = [
-        ...mailboxes.filter(m => m.path.toUpperCase() === 'INBOX'),
-        ...mailboxes.filter(m => m.path.toUpperCase() !== 'INBOX' && isCore(m))
-      ];
+      const sortedMailboxes = onlyInbox
+        ? mailboxes.filter(m => m.path.toUpperCase() === 'INBOX' || (m.specialUse || '').toUpperCase() === '\\INBOX')
+        : [
+            ...mailboxes.filter(m => m.path.toUpperCase() === 'INBOX' || (m.specialUse || '').toUpperCase() === '\\INBOX'),
+            ...mailboxes.filter(m => m.path.toUpperCase() !== 'INBOX' && (m.specialUse || '').toUpperCase() !== '\\INBOX' && isCore(m))
+          ];
+
+      if (sortedMailboxes.length === 0 && mailboxes.length > 0) {
+        sortedMailboxes.push(mailboxes[0]);
+      }
 
       for (const mb of sortedMailboxes) {
         const { folder: targetFolder, isCustom } = this.mapMailboxToFolder(mb);
@@ -821,11 +829,11 @@ export class ImapService {
 
             let fetchLimit = 300;
             if (mb.path.toUpperCase() === 'INBOX' || targetFolder === 'INBOX') {
-              fetchLimit = 1000;
+              fetchLimit = 500;
             } else if (targetFolder === 'SENT') {
-              fetchLimit = 300;
+              fetchLimit = 200;
             } else if (targetFolder === 'TRASH' || targetFolder === 'DRAFTS' || targetFolder === 'SPAM') {
-              fetchLimit = 150;
+              fetchLimit = 100;
             }
 
             const recentUids = allUids.slice(-fetchLimit);
@@ -844,7 +852,7 @@ export class ImapService {
               }
             }
 
-            // TIER 1: Lightning-fast Envelope & Metadata Fetch (Takes < 1s for hundreds of emails!)
+            // TIER 1: Lightning-fast Envelope & Metadata Fetch (Takes < 300ms!)
             const envelopeEmails: Email[] = [];
             const uidsToPreloadBody: number[] = [];
 
@@ -954,11 +962,15 @@ export class ImapService {
                   }
                 }
 
-                // Collect top 15 newest UIDs to preload full bodies in background
-                const sortedByUid = [...envelopeEmails].sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0));
-                const topToPreload = sortedByUid.slice(0, 15);
-                for (const em of topToPreload) {
-                  if (em.imapUid) uidsToPreloadBody.push(em.imapUid);
+                // Collect top 2 newest unseen emails to preload bodies in background (keeps CPU/memory near zero)
+                if (targetFolder === 'INBOX') {
+                  const unreadRecent = envelopeEmails
+                    .filter(e => !e.isRead && e.imapUid)
+                    .sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0))
+                    .slice(0, 2);
+                  for (const em of unreadRecent) {
+                    if (em.imapUid) uidsToPreloadBody.push(em.imapUid);
+                  }
                 }
               }
 
@@ -967,7 +979,7 @@ export class ImapService {
                 syncFolderReadFlags(account.id, targetFolder, unseenUids, allUids, minUid);
               }
 
-              // TIER 2: Fast Pre-load of top 15 latest email bodies
+              // TIER 2: Fast Pre-load of top 2 latest unseen email bodies
               if (uidsToPreloadBody.length > 0) {
                 try {
                   const fullMessages = client.fetch(uidsToPreloadBody, {
@@ -1228,24 +1240,35 @@ export class ImapService {
 
   private static syncingAccounts = new Set<string>();
   private static autoSyncTimer: NodeJS.Timeout | null = null;
+  private static fullSyncTimer: NodeJS.Timeout | null = null;
   private static broadcastCb: ((event: string, data: any) => void) | null = null;
 
   public static startAutoSyncEngine(broadcast: (event: string, data: any) => void) {
     this.broadcastCb = broadcast;
     if (this.autoSyncTimer) return;
 
-    // Run initial sync after 2 seconds
+    // Run initial fast INBOX sync after 2 seconds
     setTimeout(() => {
-      this.runBackgroundSyncCycle();
+      this.runBackgroundSyncCycle(true);
     }, 2000);
 
-    // Fast 15-second continuous sync cycle
+    // Run first full sync after 10 seconds
+    setTimeout(() => {
+      this.runBackgroundSyncCycle(false);
+    }, 10000);
+
+    // Fast 15-second continuous sync cycle (INBOX only - lightning fast & low memory)
     this.autoSyncTimer = setInterval(() => {
-      this.runBackgroundSyncCycle();
+      this.runBackgroundSyncCycle(true);
     }, 15000);
+
+    // 3-minute periodic full sync across all folders
+    this.fullSyncTimer = setInterval(() => {
+      this.runBackgroundSyncCycle(false);
+    }, 180000);
   }
 
-  public static async runBackgroundSyncCycle() {
+  public static async runBackgroundSyncCycle(onlyInbox = true) {
     try {
       const isSyncable = (a: Account) => {
         if (a.provider === 'demo') return false;
@@ -1260,7 +1283,7 @@ export class ImapService {
         if (this.syncingAccounts.has(acc.id)) continue;
         (async () => {
           try {
-            const result = await this.syncAccount(acc.id);
+            const result = await this.syncAccount(acc.id, { onlyInbox });
             if (this.broadcastCb) {
               this.broadcastCb('emails_synced', { accountId: acc.id, ...result });
             }

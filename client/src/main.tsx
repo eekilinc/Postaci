@@ -4,6 +4,16 @@ import { App } from './App';
 import { PostaciLogo } from './components/PostaciLogo';
 import './index.css';
 
+// Guard against unhandled exceptions and promise rejections from killing the UI
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (event) => {
+    console.error('[Postaci Client Error Caught]:', event.error || event.message);
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('[Postaci Client Unhandled Rejection]:', event.reason);
+  });
+}
+
 interface Props {
   children: ReactNode;
 }

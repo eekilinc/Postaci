@@ -195,13 +195,27 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [activeAccountId, activeFolder, accounts, refreshEmails, refreshStats]);
 
-  // Window focus, visibilitychange and periodic auto-sync
+  // Refs to avoid closing and re-opening SSE connection on every filter/search/folder state change
+  const refreshEmailsRef = useRef(refreshEmails);
+  refreshEmailsRef.current = refreshEmails;
+  const refreshStatsRef = useRef(refreshStats);
+  refreshStatsRef.current = refreshStats;
+  const refreshAccountsRef = useRef(refreshAccounts);
+  refreshAccountsRef.current = refreshAccounts;
+  const setActiveAccountIdRef = useRef(setActiveAccountId);
+  setActiveAccountIdRef.current = setActiveAccountId;
+  const infoRef = useRef(info);
+  infoRef.current = info;
+  const successRef = useRef(success);
+  successRef.current = success;
+
+  // Window focus and visibilitychange sync (throttled to at most once every 30s)
   useEffect(() => {
     let lastFocusSync = 0;
     const handleFocusSync = () => {
       if (!navigator.onLine) return;
       const now = Date.now();
-      if (now - lastFocusSync < 25000) return; // at most once every 25s
+      if (now - lastFocusSync < 30000) return; // at most once every 30s
       lastFocusSync = now;
 
       const targetAccounts = (activeAccountId && activeAccountId !== 'all')
@@ -210,8 +224,8 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       targetAccounts.forEach(acc => {
         api.syncAccount(acc.id).then(() => {
-          refreshEmails(false);
-          refreshStats();
+          refreshEmailsRef.current(false);
+          refreshStatsRef.current();
         }).catch(() => {});
       });
     };
@@ -222,14 +236,11 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     document.addEventListener('visibilitychange', handleVis);
 
-    const interval = setInterval(handleFocusSync, 20000);
-
     return () => {
       window.removeEventListener('focus', handleFocusSync);
       document.removeEventListener('visibilitychange', handleVis);
-      clearInterval(interval);
     };
-  }, [activeAccountId, accounts, refreshEmails, refreshStats]);
+  }, [activeAccountId, accounts]);
 
   // Load Thread when selectedEmailId changes (without depending on whole emails array)
   useEffect(() => {
@@ -262,9 +273,19 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Server-Sent Events (SSE) for real-time incoming mail and sync
+  // Server-Sent Events (SSE) for real-time incoming mail and sync (Connects ONCE on mount)
   useEffect(() => {
     let eventSource: EventSource | null = null;
+    let refreshDebounceTimer: NodeJS.Timeout | null = null;
+
+    const debouncedRefresh = () => {
+      if (refreshDebounceTimer) clearTimeout(refreshDebounceTimer);
+      refreshDebounceTimer = setTimeout(() => {
+        refreshEmailsRef.current(false);
+        refreshStatsRef.current();
+      }, 300);
+    };
+
     try {
       eventSource = new EventSource(EVENTS_URL);
 
@@ -276,7 +297,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const body = `${newMail.subject || '(Konusuz)'}\n${(newMail.snippet || '').substring(0, 90)}`;
 
           // 1. In-app toast notification
-          info(`${sender}: ${newMail.subject || '(Konusuz)'}`, 'Yeni E-Posta');
+          infoRef.current(`${sender}: ${newMail.subject || '(Konusuz)'}`, 'Yeni E-Posta');
 
           // 2. Play gentle notification audio chime
           const soundPref = localStorage.getItem('postaci_notif_sound') || 'subtle';
@@ -296,8 +317,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
 
-          refreshEmails();
-          refreshStats();
+          debouncedRefresh();
         } catch (e) {
           console.error('Error parsing SSE new_email:', e);
         }
@@ -307,41 +327,38 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const acc = JSON.parse(event.data);
           if (!acc.deleted && acc.email) {
-            success(`${acc.email} hesabı başarıyla bağlandı!`, 'Hesap Eklendi');
+            successRef.current(`${acc.email} hesabı başarıyla bağlandı!`, 'Hesap Eklendi');
           }
-          await refreshAccounts();
+          await refreshAccountsRef.current();
           if (!acc.deleted && acc.id) {
-            setActiveAccountId(acc.id);
+            setActiveAccountIdRef.current(acc.id);
           }
-          refreshEmails();
-          refreshStats();
+          debouncedRefresh();
         } catch (e) {
           console.error('Error parsing SSE accounts_updated:', e);
         }
       });
 
       eventSource.addEventListener('emails_synced', () => {
-        refreshEmails();
-        refreshStats();
+        debouncedRefresh();
       });
 
       eventSource.addEventListener('email_updated', () => {
-        refreshEmails();
-        refreshStats();
+        debouncedRefresh();
       });
 
       eventSource.addEventListener('email_deleted', () => {
-        refreshEmails();
-        refreshStats();
+        debouncedRefresh();
       });
     } catch (err) {
       console.warn('SSE connection failed (local polling fallback):', err);
     }
 
     return () => {
+      if (refreshDebounceTimer) clearTimeout(refreshDebounceTimer);
       if (eventSource) eventSource.close();
     };
-  }, [info, success, refreshAccounts, setActiveAccountId, refreshEmails, refreshStats]);
+  }, []);
 
   const selectEmail = (id: string) => {
     setSelectedEmailId(id);
