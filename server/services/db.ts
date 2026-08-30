@@ -1388,7 +1388,7 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
   const checkStmt = db.prepare(`
     SELECT id, folder, isDeleted, isArchived, isSpam 
     FROM emails 
-    WHERE id = ? OR id = ? OR (messageId IS NOT NULL AND (messageId = ? OR messageId = ? OR messageId = ?) AND accountId = ?)
+    WHERE id = ? OR id = ? OR (messageId IS NOT NULL AND length(messageId) > 3 AND (messageId = ? OR messageId = ? OR messageId = ?) AND accountId = ?)
     LIMIT 1
   `);
 
