@@ -646,14 +646,32 @@ export function updateAccount(id: string, acc: Partial<Account>): Account | unde
 }
 
 export function deleteAccount(id: string): boolean {
+  // 1. Clean in-memory server folders cache
+  for (const [key, folder] of serverFoldersMap.entries()) {
+    if (folder.accountId === id) {
+      serverFoldersMap.delete(key);
+    }
+  }
+
   if (!isNativeSqlite) {
     const prevLen = memStore.accounts.length;
     memStore.accounts = memStore.accounts.filter(a => a.id !== id);
     memStore.emails = memStore.emails.filter(e => e.accountId !== id);
+    memStore.deletedRecords = (memStore.deletedRecords || []).filter((d: any) => d.accountId !== id);
+    memStore.calendar_events = (memStore.calendar_events || []).filter((c: any) => c.accountId !== id);
     saveJsonStore();
     return memStore.accounts.length < prevLen;
   }
-  db.prepare('DELETE FROM emails WHERE accountId = ?').run(id);
+
+  // 2. Clean SQLite tables for this account
+  try {
+    db.prepare('DELETE FROM emails WHERE accountId = ?').run(id);
+    db.prepare('DELETE FROM deleted_records WHERE accountId = ?').run(id);
+    db.prepare('DELETE FROM calendar_events WHERE accountId = ?').run(id);
+  } catch (err) {
+    console.warn('Error cleaning up tables for deleted account:', err);
+  }
+
   const res = db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
   return res.changes > 0;
 }
@@ -970,8 +988,12 @@ export function markDeletedLocally(item: string | { id: string; accountId?: stri
       VALUES (@id, @accountId, @messageId, @imapUid, @mailboxPath, @deletedAt)
     `);
     stmt.run({ id, accountId, messageId, imapUid, mailboxPath, deletedAt });
-    if (cleanMid && cleanMid !== messageId && cleanMid.length > 3) {
+    if (rawId && rawId !== id) {
+      stmt.run({ id: rawId, accountId, messageId, imapUid, mailboxPath, deletedAt });
+    }
+    if (cleanMid && cleanMid.length > 3) {
       stmt.run({ id: cleanMid, accountId, messageId: cleanMid, imapUid, mailboxPath, deletedAt });
+      stmt.run({ id: `<${cleanMid}>`, accountId, messageId: `<${cleanMid}>`, imapUid, mailboxPath, deletedAt });
     }
   } catch (err) {
     console.warn('Failed to insert into deleted_records:', err);
@@ -988,16 +1010,18 @@ export function isDeletedLocally(
   // Check by ID
   if (identifier && identifier.trim().length >= 3) {
     const cleanId = identifier.replace(/[<>]/g, '').trim();
+    const rawId = decodeURIComponent(identifier);
+    const cleanRawId = rawId.replace(/[<>]/g, '').trim();
     if (!isNativeSqlite) {
-      if ((memStore.deletedRecords || []).some(r => (r.id === identifier || r.id === cleanId || decodeURIComponent(r.id) === cleanId) && (!accountId || !r.accountId || r.accountId === accountId))) {
+      if ((memStore.deletedRecords || []).some(r => (r.id === identifier || r.id === cleanId || r.id === rawId || r.id === cleanRawId) && (!accountId || !r.accountId || r.accountId === accountId))) {
         return true;
       }
     } else {
       try {
         const query = accountId
-          ? 'SELECT 1 FROM deleted_records WHERE (id = ? OR id = ?) AND (accountId = ? OR accountId IS NULL)'
-          : 'SELECT 1 FROM deleted_records WHERE id = ? OR id = ?';
-        const params = accountId ? [identifier, cleanId, accountId] : [identifier, cleanId];
+          ? 'SELECT 1 FROM deleted_records WHERE (id = ? OR id = ? OR id = ? OR id = ?) AND (accountId = ? OR accountId IS NULL)'
+          : 'SELECT 1 FROM deleted_records WHERE id = ? OR id = ? OR id = ? OR id = ?';
+        const params = accountId ? [identifier, cleanId, rawId, cleanRawId, accountId] : [identifier, cleanId, rawId, cleanRawId];
         const row = db.prepare(query).get(...params);
         if (row) return true;
       } catch {}
@@ -1014,9 +1038,11 @@ export function isDeletedLocally(
     } else {
       try {
         const query = accountId
-          ? 'SELECT 1 FROM deleted_records WHERE (messageId = ? OR messageId = ? OR messageId = ?) AND (accountId = ? OR accountId IS NULL)'
-          : 'SELECT 1 FROM deleted_records WHERE messageId = ? OR messageId = ? OR messageId = ?';
-        const params = accountId ? [messageId, cleanMid, `<${cleanMid}>`, accountId] : [messageId, cleanMid, `<${cleanMid}>`];
+          ? 'SELECT 1 FROM deleted_records WHERE (messageId = ? OR messageId = ? OR messageId = ? OR id = ? OR id = ?) AND (accountId = ? OR accountId IS NULL)'
+          : 'SELECT 1 FROM deleted_records WHERE messageId = ? OR messageId = ? OR messageId = ? OR id = ? OR id = ?';
+        const params = accountId
+          ? [messageId, cleanMid, `<${cleanMid}>`, messageId, cleanMid, accountId]
+          : [messageId, cleanMid, `<${cleanMid}>`, messageId, cleanMid];
         const row = db.prepare(query).get(...params);
         if (row) return true;
       } catch {}
@@ -1310,12 +1336,24 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
     )
   `);
 
-  const checkStmt = db.prepare('SELECT id, folder, isDeleted, isArchived, isSpam FROM emails WHERE id = ? OR (messageId IS NOT NULL AND messageId = ? AND accountId = ?)');
+  const checkStmt = db.prepare(`
+    SELECT id, folder, isDeleted, isArchived, isSpam 
+    FROM emails 
+    WHERE id = ? OR id = ? OR (messageId IS NOT NULL AND (messageId = ? OR messageId = ? OR messageId = ?) AND accountId = ?)
+    LIMIT 1
+  `);
 
   const newEmails: Email[] = [];
   const runTx = db.transaction((items: Email[]) => {
     for (const email of items) {
-      const existing = checkStmt.get(email.id, email.messageId || '', email.accountId) as any;
+      if (isFromImapSync && isDeletedLocally(email.id, email.messageId, email.accountId, email.imapUid, email.mailboxPath)) {
+        continue;
+      }
+
+      const rawId = decodeURIComponent(email.id);
+      const cleanMid = email.messageId ? email.messageId.replace(/[<>]/g, '').trim() : '';
+      const existing = checkStmt.get(email.id, rawId, email.messageId || '', cleanMid, `<${cleanMid}>`, email.accountId) as any;
+
       if (isFromImapSync && existing) {
         if (existing.folder === 'TRASH' || existing.isDeleted) continue;
         if (existing.folder === 'ARCHIVE' || existing.isArchived) {
@@ -1511,7 +1549,12 @@ export function deleteEmailPermanent(id: string): boolean {
     return memStore.emails.length < prevLen;
   }
   const targetId = email ? email.id : id;
-  const res = db.prepare('DELETE FROM emails WHERE id = ? OR id = ?').run(targetId, rawId);
+  const cleanMid = email?.messageId ? email.messageId.replace(/[<>]/g, '').trim() : '';
+  const res = db.prepare(`
+    DELETE FROM emails 
+    WHERE id = ? OR id = ? 
+    OR (messageId IS NOT NULL AND messageId != '' AND (messageId = ? OR messageId = ? OR messageId = ?))
+  `).run(targetId, rawId, email?.messageId || '', cleanMid, `<${cleanMid}>`);
   return res.changes > 0;
 }
 
@@ -1534,7 +1577,8 @@ export function registerServerFolder(record: ServerFolderRecord) {
 }
 
 export function getServerFolders(accountId?: string): ServerFolderRecord[] {
-  const all = Array.from(serverFoldersMap.values());
+  const activeAccountIds = new Set(getAccounts().map(a => a.id));
+  const all = Array.from(serverFoldersMap.values()).filter(f => activeAccountIds.has(f.accountId));
   if (accountId && accountId !== 'all') {
     return all.filter(f => f.accountId === accountId);
   }

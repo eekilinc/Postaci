@@ -809,22 +809,32 @@ export class ImapService {
         try {
           const lock = await client.getMailboxLock(mb.path);
           try {
-            // 1. Search for all UNSEEN (unread) message UIDs
+            // 1. Search for all UNSEEN (unread & undeleted) message UIDs
             let unseenUids: number[] = [];
             try {
-              const unseenSearchResult = await client.search({ seen: false }, { uid: true });
+              const unseenSearchResult = await client.search({ seen: false, deleted: false }, { uid: true });
               if (Array.isArray(unseenSearchResult)) unseenUids = unseenSearchResult;
-            } catch (unseenErr) {
-              console.warn(`Unseen search on mailbox ${mb.path} failed:`, unseenErr);
+            } catch {
+              try {
+                const res = await client.search({ seen: false }, { uid: true });
+                if (Array.isArray(res)) unseenUids = res;
+              } catch (unseenErr) {
+                console.warn(`Unseen search on mailbox ${mb.path} failed:`, unseenErr);
+              }
             }
 
-            // 2. Search for all message UIDs in this mailbox
+            // 2. Search for all active message UIDs (undeleted)
             let allUids: number[] = [];
             try {
-              const searchResult = await client.search({ all: true }, { uid: true });
+              const searchResult = await client.search({ deleted: false }, { uid: true });
               if (Array.isArray(searchResult)) allUids = searchResult;
-            } catch (searchErr) {
-              console.warn(`UID search on mailbox ${mb.path} failed:`, searchErr);
+            } catch {
+              try {
+                const res = await client.search({ all: true }, { uid: true });
+                if (Array.isArray(res)) allUids = res;
+              } catch (searchErr) {
+                console.warn(`UID search on mailbox ${mb.path} failed:`, searchErr);
+              }
             }
 
             let fetchLimit = 300;
@@ -867,6 +877,11 @@ export class ImapService {
 
               for await (const message of messages) {
                 try {
+                  // Skip messages flagged as \Deleted on server
+                  if (message.flags && (message.flags.has('\\Deleted') || message.flags.has('\\deleted'))) {
+                    continue;
+                  }
+
                   const env = message.envelope;
                   const rawMid = env?.messageId || undefined;
                   const emailId = rawMid
@@ -1113,9 +1128,14 @@ export class ImapService {
       try {
         let uids: number[] = [];
         try {
-          const searchResult = await client.search({ all: true }, { uid: true });
+          const searchResult = await client.search({ deleted: false }, { uid: true });
           if (Array.isArray(searchResult)) uids = searchResult;
-        } catch {}
+        } catch {
+          try {
+            const searchResult2 = await client.search({ all: true }, { uid: true });
+            if (Array.isArray(searchResult2)) uids = searchResult2;
+          } catch {}
+        }
 
         const { folder: targetFolder, isCustom } = this.mapMailboxToFolder({ path: mailboxPath, name: mailboxPath });
 
@@ -1140,6 +1160,11 @@ export class ImapService {
 
         for await (const message of messages) {
           try {
+            // Skip messages flagged as \Deleted on server
+            if (message.flags && (message.flags.has('\\Deleted') || message.flags.has('\\deleted'))) {
+              continue;
+            }
+
             const env = message.envelope;
             const rawMid = env?.messageId || undefined;
             const emailId = rawMid
