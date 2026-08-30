@@ -232,25 +232,17 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const successRef = useRef(success);
   successRef.current = success;
 
-  // Window focus and visibilitychange sync (throttled to at most once every 30s)
+  // Window focus and visibilitychange sync (re-validates local state instantly without network lag)
   useEffect(() => {
     let lastFocusSync = 0;
     const handleFocusSync = () => {
       if (!navigator.onLine) return;
       const now = Date.now();
-      if (now - lastFocusSync < 30000) return; // at most once every 30s
+      if (now - lastFocusSync < 15000) return; // at most once every 15s
       lastFocusSync = now;
 
-      const targetAccounts = (activeAccountId && activeAccountId !== 'all')
-        ? accounts.filter(a => a.id === activeAccountId && a.provider !== 'demo')
-        : accounts.filter(a => a.provider !== 'demo');
-
-      targetAccounts.forEach(acc => {
-        api.syncAccount(acc.id).then(() => {
-          refreshEmailsRef.current(false);
-          refreshStatsRef.current();
-        }).catch(() => {});
-      });
+      refreshEmailsRef.current(false);
+      refreshStatsRef.current();
     };
 
     window.addEventListener('focus', handleFocusSync);
@@ -263,7 +255,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.removeEventListener('focus', handleFocusSync);
       document.removeEventListener('visibilitychange', handleVis);
     };
-  }, [activeAccountId, accounts]);
+  }, []);
 
   // Load Thread when selectedEmailId changes (without depending on whole emails array)
   useEffect(() => {
@@ -830,6 +822,11 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ? freshAccounts.filter(a => a.id === activeAccountId && a.provider !== 'demo')
         : freshAccounts.filter(a => a.provider !== 'demo');
 
+      if (targets.length === 0) {
+        info('Senkronize edilecek aktif posta hesabı bulunamadı.', 'Postacı');
+        return;
+      }
+
       const results = await Promise.allSettled(
         targets.map(async acc => {
           return api.syncAccount(acc.id);
@@ -844,13 +841,13 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      await refreshEmails();
+      await refreshEmails(false);
       await refreshStats();
 
       if (successCount > 0) {
-        info('Senkronizasyon tamamlandı.', 'Postacı');
+        info(targets.length > 1 ? `${successCount}/${targets.length} hesap senkronize edildi.` : 'E-postalar eşitlendi.', 'Postacı');
       } else if (lastError) {
-        error(lastError.response?.data?.error || lastError.message || 'Senkronizasyon sırasında hata oluştu.');
+        error(lastError.response?.data?.error || lastError.message || 'Senkronizasyon sırasında bağlantı hatası oluştu.');
       }
     } finally {
       setIsSyncing(false);

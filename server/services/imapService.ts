@@ -40,6 +40,10 @@ export class ImapService {
     const client = await this.connectClient(account);
     this.clientPool.set(account.id, { client, lastUsed: Date.now() });
 
+    client.on('error', () => {
+      this.clientPool.delete(account.id);
+    });
+
     client.on('close', () => {
       const cur = this.clientPool.get(account.id);
       if (cur && cur.client === client) {
@@ -874,7 +878,10 @@ export class ImapService {
         if (mb.flags && mb.flags.has('\\Noselect')) continue;
 
         try {
-          const lock = await client.getMailboxLock(mb.path);
+          const lock = await Promise.race([
+            client.getMailboxLock(mb.path),
+            new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${mb.path}`)), 8000))
+          ]);
           try {
             const stateKey = `${account.id}:::${mb.path}`;
             let state = this.mailboxStates.get(stateKey);
@@ -898,9 +905,9 @@ export class ImapService {
 
             const isValidityChanged = state.uidValidity && currentValidity && String(state.uidValidity) !== String(currentValidity);
 
-            // Fast Incremental Check: If not full sync, validity is same, exists count is same, and uidNext hasn't increased
-            if (!isFullSync && !isValidityChanged && state.highestKnownUid > 0 && currentUidNext > 0 && currentUidNext <= state.highestKnownUid + 1 && currentExists === state.exists) {
-              // Nothing changed on server! Finish instantly (< 10ms)
+            // Fast Incremental Check: Only skip if not full sync, validity is same, exists count is same, uidNext hasn't increased, and already has local emails
+            if (!isFullSync && !isValidityChanged && state.highestKnownUid > 0 && currentUidNext > 0 && currentUidNext <= state.highestKnownUid + 1 && currentExists === state.exists && (Date.now() - state.lastSyncedAt < 45000)) {
+              // Nothing changed on server! Finish quickly
               continue;
             }
 
@@ -1070,9 +1077,9 @@ export class ImapService {
                 const { savedCount, newEmails } = saveEmailsBatch(envelopeEmails, true);
                 syncedCount += savedCount;
 
-                // Notify frontend immediately for real-time progressive update!
-                if (this.broadcastCb) {
-                  this.broadcastCb('emails_synced', { accountId: account.id, folder: targetFolder });
+                // Notify frontend immediately ONLY if new emails arrived!
+                if (this.broadcastCb && newEmails.length > 0) {
+                  this.broadcastCb('emails_synced', { accountId: account.id, folder: targetFolder, newCount: newEmails.length });
                   for (const nm of newEmails) {
                     if (targetFolder === 'INBOX' && !nm.isRead) {
                       this.broadcastCb('new_email', nm);
@@ -1373,10 +1380,10 @@ export class ImapService {
       this.runBackgroundSyncCycle(false);
     }, 10000);
 
-    // Fast 15-second continuous sync cycle (INBOX only - lightning fast & low memory)
+    // Fast 30-second continuous sync cycle (INBOX only - lightning fast & low memory)
     this.autoSyncTimer = setInterval(() => {
       this.runBackgroundSyncCycle(true);
-    }, 15000);
+    }, 30000);
 
     // 3-minute periodic full sync across all folders
     this.fullSyncTimer = setInterval(() => {
@@ -1395,19 +1402,21 @@ export class ImapService {
       };
 
       const accounts = getAccounts().filter(isSyncable);
-      for (const acc of accounts) {
-        if (this.syncingAccounts.has(acc.id)) continue;
-        (async () => {
+      if (accounts.length === 0) return;
+
+      await Promise.allSettled(
+        accounts.map(async acc => {
+          if (this.syncingAccounts.has(acc.id)) return;
           try {
             const result = await this.syncAccount(acc.id, { onlyInbox });
-            if (this.broadcastCb) {
+            if (this.broadcastCb && result.syncedCount > 0) {
               this.broadcastCb('emails_synced', { accountId: acc.id, ...result });
             }
           } catch (err) {
             console.warn(`Background sync error for account ${acc.email}:`, err);
           }
-        })();
-      }
+        })
+      );
     } catch {}
   }
 }
