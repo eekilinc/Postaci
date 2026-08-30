@@ -489,6 +489,7 @@ export const SettingsModal: React.FC = () => {
 
   const handleEditAccount = (acc: Account) => {
     setEditingAccountId(acc.id);
+    setSelectedProviderKey(acc.provider || 'custom');
     setAccName(acc.name || '');
     setAccEmail(acc.email || '');
     setAccProvider(acc.provider as any || 'custom');
@@ -514,6 +515,7 @@ export const SettingsModal: React.FC = () => {
 
   const handleResetForm = () => {
     setEditingAccountId(null);
+    setSelectedProviderKey(null);
     setAccName('');
     setAccEmail('');
     setAccProvider('custom');
@@ -664,6 +666,64 @@ export const SettingsModal: React.FC = () => {
         }
       }
 
+      const accountData: Partial<Account> = {
+        name: (accName || cleanEmail.split('@')[0]).trim(),
+        email: cleanEmail,
+        provider: accProvider,
+        imapHost: cleanImapHost,
+        imapPort: Number(accImapPort) || 993,
+        imapUser: cleanImapUser,
+        imapPassword: accImapPass,
+        imapSecure: accImapSecurity === 'SSL',
+        smtpHost: cleanSmtpHost,
+        smtpPort: Number(accSmtpPort) || 587,
+        smtpUser: cleanSmtpUser,
+        smtpPassword: useSameCredentials ? accImapPass : accSmtpPass,
+        smtpSecure: accSmtpSecurity === 'SSL',
+        color: accColor,
+        signature: accSignature,
+        syncInterval: accSyncInterval,
+      };
+
+      if (editingAccountId) {
+        await api.updateAccount(editingAccountId, accountData);
+        success('Hesap ayarları güncellendi.');
+      } else {
+        const created = await api.createAccount(accountData);
+        success('✅ Hesap eklendi! E-postalar arka planda senkronize ediliyor...');
+        if (created && created.id) {
+          setActiveAccountId(created.id);
+        }
+      }
+
+      await refreshAccounts();
+      handleResetForm();
+      setIsFormOpen(false);
+      setEditingAccountId(null);
+      setActiveTab('accounts');
+      refreshEmails();
+      refreshStats();
+    } catch (err: any) {
+      error(err.message || 'Hesap kaydedilirken bir hata oluştu.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleForceSaveAccount = async () => {
+    const cleanImapHost = accImapHost.trim().replace(/^(https?:\/\/|imaps?:\/\/|smtps?:\/\/|ssl:\/\/|tls:\/\/)/i, '').replace(/\/.*$/, '');
+    const cleanSmtpHost = (accSmtpHost || accImapHost).trim().replace(/^(https?:\/\/|imaps?:\/\/|smtps?:\/\/|ssl:\/\/|tls:\/\/)/i, '').replace(/\/.*$/, '');
+    const cleanImapUser = accImapUser.trim() || accEmail.trim();
+    const cleanSmtpUser = (useSameCredentials ? accImapUser : accSmtpUser).trim() || accEmail.trim();
+    const cleanEmail = accEmail.trim();
+
+    if (!cleanEmail || !cleanImapHost || !accImapPass) {
+      error('Lütfen e-posta adresi, IMAP sunucu ve parola alanlarını doldurun.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
       const accountData: Partial<Account> = {
         name: (accName || cleanEmail.split('@')[0]).trim(),
         email: cleanEmail,
@@ -962,7 +1022,7 @@ export const SettingsModal: React.FC = () => {
 
                         {/* TAB: ACCOUNTS FORM */}
             {activeTab === 'accounts' && isFormOpen && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px', margin: '0 auto', paddingTop: '10px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '620px', margin: '0 auto', paddingTop: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '10px' }}>
                   <button
                     type="button"
@@ -987,10 +1047,10 @@ export const SettingsModal: React.FC = () => {
                   </button>
                   <div>
                     <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {editingAccountId ? 'Hesap Ayarları' : (!selectedProviderKey ? 'Sağlayıcı Seçin' : 'Hesap Kurulumu')}
+                      {editingAccountId ? 'Hesap Ayarları' : (!selectedProviderKey ? 'Sağlayıcı Seçin' : `${(selectedProviderKey && PROVIDER_PRESETS[selectedProviderKey]?.name) || 'Hesap Kurulumu'}`)}
                     </h4>
                     <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-                      {editingAccountId ? 'Bağlantı ve kimlik doğrulama ayarlarını güncelleyin.' : (!selectedProviderKey ? 'Lütfen e-posta hizmet sağlayıcınızı seçin.' : 'E-posta adresinizi girin. Sunucu ayarları otomatik bulunacaktır.')}
+                      {editingAccountId ? 'Bağlantı ve kimlik doğrulama ayarlarını güncelleyin.' : (!selectedProviderKey ? 'Lütfen e-posta hizmet sağlayıcınızı seçin.' : 'E-posta ve şifrenizi girerek anında bağlanın.')}
                     </p>
                   </div>
                 </div>
@@ -1015,6 +1075,7 @@ export const SettingsModal: React.FC = () => {
                           <Mail size={24} />
                         </div>
                         <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>{preset.name}</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{preset.badge}</span>
                       </button>
                     ))}
                     <button
@@ -1032,11 +1093,49 @@ export const SettingsModal: React.FC = () => {
                       <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}>
                         <Server size={24} />
                       </div>
-                      <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>Diğer (IMAP/SMTP)</span>
+                      <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>Diğer (Özel IMAP / SMTP)</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Kurumsal / cPanel / Plesk</span>
                     </button>
                   </div>
                 ) : (
-                  <form onSubmit={handleSaveAccount} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  <form onSubmit={handleSaveAccount} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {/* PROVIDER GUIDANCE BANNER */}
+                    {selectedProviderKey && selectedProviderKey !== 'custom' && PROVIDER_PRESETS[selectedProviderKey] && (
+                      <div style={{
+                        padding: '16px', borderRadius: 'var(--radius-md)',
+                        background: 'rgba(59, 130, 246, 0.05)', border: '1px solid var(--border-medium)',
+                        display: 'flex', flexDirection: 'column', gap: '10px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '20px' }}>{PROVIDER_PRESETS[selectedProviderKey].icon}</span>
+                            <div>
+                              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                {PROVIDER_PRESETS[selectedProviderKey].helpTitle || `${PROVIDER_PRESETS[selectedProviderKey].name} Kurulumu`}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px', lineHeight: '1.4' }}>
+                                {PROVIDER_PRESETS[selectedProviderKey].helpText}
+                              </div>
+                            </div>
+                          </div>
+                          {PROVIDER_PRESETS[selectedProviderKey].helpUrl && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenExternal(PROVIDER_PRESETS[selectedProviderKey].helpUrl!)}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px',
+                                borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
+                                color: 'var(--accent-primary)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap'
+                              }}
+                            >
+                              <ExternalLink size={14} />
+                              <span>Şifre Al</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{
                       display: 'flex', flexDirection: 'column', gap: '16px',
                       padding: '24px', borderRadius: 'var(--radius-lg)',
@@ -1068,7 +1167,7 @@ export const SettingsModal: React.FC = () => {
                       </div>
 
                       {!editingAccountId && selectedProviderKey === 'google' && googleAuthMode === 'oauth' ? (
-                        <div style={{ marginTop: '8px', padding: '16px', borderRadius: 'var(--radius-md)', background: 'rgba(66, 133, 244, 0.08)', border: '1px solid rgba(66, 133, 244, 0.2)' }}>
+                        <div style={{ marginTop: '4px', padding: '16px', borderRadius: 'var(--radius-md)', background: 'rgba(66, 133, 244, 0.08)', border: '1px solid rgba(66, 133, 244, 0.2)' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <div style={{ color: '#4285F4' }}><ShieldCheck size={28} /></div>
                             <div>
@@ -1087,7 +1186,7 @@ export const SettingsModal: React.FC = () => {
                           </div>
                         </div>
                       ) : (
-                        <div style={{ marginTop: '8px' }}>
+                        <div style={{ marginTop: '4px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
                             <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                               {selectedProviderKey !== 'custom' && selectedProviderKey !== 'google' ? 'Uygulama Şifresi (App Password) *' : 'Parola *'}
@@ -1105,7 +1204,7 @@ export const SettingsModal: React.FC = () => {
                           <input
                             type="password"
                             required={!isWaitingOAuth && !(selectedProviderKey === 'google' && googleAuthMode === 'oauth')}
-                            placeholder={selectedProviderKey !== 'custom' && selectedProviderKey !== 'google' ? '16 haneli uygulama şifreniz' : 'Parolanız'}
+                            placeholder={selectedProviderKey !== 'custom' && selectedProviderKey !== 'google' ? '16 haneli uygulama şifreniz' : 'Hesap parolanız'}
                             value={accImapPass}
                             onChange={e => {
                               setAccImapPass(e.target.value);
@@ -1131,7 +1230,7 @@ export const SettingsModal: React.FC = () => {
                               {isAutoDiscovering ? 'Sunucu ayarları aranıyor...' : (selectedProviderKey !== 'custom' ? `${(selectedProviderKey ? PROVIDER_PRESETS[selectedProviderKey]?.name : undefined) || discoveredInfo?.providerName} Bağlantısı` : 'Manuel Yapılandırma')}
                             </div>
                             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                              IMAP: {accImapHost || 'Bilinmiyor'} • SMTP: {accSmtpHost || 'Bilinmiyor'}
+                              IMAP: {accImapHost || 'Bilinmiyor'}:{accImapPort || 993} ({accImapSecurity}) • SMTP: {accSmtpHost || 'Bilinmiyor'}:{accSmtpPort || 587} ({accSmtpSecurity})
                             </div>
                           </div>
                         </div>
@@ -1142,15 +1241,15 @@ export const SettingsModal: React.FC = () => {
                           onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
                           onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
                         >
-                          {showAdvancedSettings ? 'Gizle' : 'Ayarlar'}
+                          {showAdvancedSettings ? 'Gizle' : 'Gelişmiş Ayarlar'}
                         </button>
                       </div>
 
                       {showAdvancedSettings && (
                         <div style={{ padding: '20px', borderRadius: 'var(--radius-md)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-medium)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div>
-                            <h5 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>IMAP (Gelen) Sunucu</h5>
-                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
+                            <h5 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>IMAP (Gelen Posta) Sunucusu</h5>
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                               <div>
                                 <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Sunucu *</label>
                                 <input type="text" required value={accImapHost} onChange={e => setAccImapHost(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }} />
@@ -1168,10 +1267,23 @@ export const SettingsModal: React.FC = () => {
                                 </select>
                               </div>
                             </div>
+                            <div>
+                              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>IMAP Kullanıcı Adı (Boş bırakılırsa e-posta kullanılır)</label>
+                              <input
+                                type="text"
+                                placeholder={accEmail || "ornek@alanadi.com"}
+                                value={accImapUser}
+                                onChange={e => setAccImapUser(e.target.value)}
+                                style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
+                              />
+                            </div>
                           </div>
+
+                          <div style={{ height: '1px', background: 'var(--border-subtle)' }} />
+
                           <div>
-                            <h5 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>SMTP (Giden) Sunucu</h5>
-                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
+                            <h5 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>SMTP (Giden Posta) Sunucusu</h5>
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                               <div>
                                 <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Sunucu *</label>
                                 <input type="text" required value={accSmtpHost} onChange={e => setAccSmtpHost(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }} />
@@ -1189,16 +1301,22 @@ export const SettingsModal: React.FC = () => {
                                 </select>
                               </div>
                             </div>
-                            <div style={{ marginTop: '16px' }}>
+                            <div style={{ marginTop: '12px' }}>
                               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                                 <input type="checkbox" checked={useSameCredentials} onChange={e => { setUseSameCredentials(e.target.checked); if (e.target.checked) setAccSmtpPass(accImapPass); }} style={{ cursor: 'pointer', width: '16px', height: '16px' }} />
-                                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Gelen sunucuyla aynı parolayı kullan</span>
+                                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Gelen sunucuyla aynı kullanıcı adı ve parolayı kullan</span>
                               </label>
                             </div>
                             {!useSameCredentials && (
-                              <div style={{ marginTop: '12px' }}>
-                                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>SMTP Parolası</label>
-                                <input type="password" value={accSmtpPass} onChange={e => setAccSmtpPass(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px', letterSpacing: accSmtpPass ? '0.2em' : 'normal' }} />
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '12px' }}>
+                                <div>
+                                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>SMTP Kullanıcı Adı</label>
+                                  <input type="text" placeholder={accEmail || "kullanici"} value={accSmtpUser} onChange={e => setAccSmtpUser(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>SMTP Parolası</label>
+                                  <input type="password" value={accSmtpPass} onChange={e => setAccSmtpPass(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px', letterSpacing: accSmtpPass ? '0.2em' : 'normal' }} />
+                                </div>
                               </div>
                             )}
                           </div>
@@ -1208,20 +1326,67 @@ export const SettingsModal: React.FC = () => {
 
                     {testResult && (
                       <div style={{
-                        padding: '12px 16px', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'flex-start', gap: '10px',
+                        padding: '14px 16px', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '10px',
                         backgroundColor: testResult.success ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                         border: `1px solid ${testResult.success ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
                         color: testResult.success ? 'var(--accent-success)' : 'var(--accent-danger)'
                       }}>
-                        {testResult.success ? <CheckCircle2 size={18} style={{ marginTop: '2px' }} /> : <AlertCircle size={18} style={{ marginTop: '2px' }} />}
-                        <div style={{ fontSize: '13px', lineHeight: '1.5' }}>{testResult.message}</div>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                          {testResult.success ? <CheckCircle2 size={18} style={{ marginTop: '2px', flexShrink: 0 }} /> : <AlertCircle size={18} style={{ marginTop: '2px', flexShrink: 0 }} />}
+                          <div style={{ fontSize: '13px', lineHeight: '1.5', fontWeight: 500 }}>{testResult.message}</div>
+                        </div>
+                        {!testResult.success && (
+                          <div style={{ display: 'flex', gap: '10px', marginTop: '4px', justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              onClick={handleTestConnection}
+                              disabled={isTesting}
+                              style={{
+                                padding: '6px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)',
+                                border: '1px solid var(--border-medium)', color: 'var(--text-primary)', fontSize: '12px',
+                                fontWeight: 600, cursor: 'pointer'
+                              }}
+                            >
+                              {isTesting ? 'Test Ediliyor...' : 'Tekrar Test Et'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleForceSaveAccount}
+                              disabled={isSaving}
+                              style={{
+                                padding: '6px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--accent-primary)',
+                                border: 'none', color: 'white', fontSize: '12px',
+                                fontWeight: 600, cursor: 'pointer'
+                              }}
+                            >
+                              Yine de Kaydet (Testi Atla)
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
-                      <button type="button" onClick={() => { setIsFormOpen(false); setEditingAccountId(null); setIsWaitingOAuth(false); }} style={{ padding: '12px 24px', borderRadius: 'var(--radius-md)', background: 'transparent', border: '1px solid var(--border-medium)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
+                      <button type="button" onClick={() => { setIsFormOpen(false); setEditingAccountId(null); setIsWaitingOAuth(false); }} style={{ padding: '12px 20px', borderRadius: 'var(--radius-md)', background: 'transparent', border: '1px solid var(--border-medium)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
                         İptal
                       </button>
+
+                      {(!selectedProviderKey || selectedProviderKey !== 'google' || googleAuthMode !== 'oauth') && (
+                        <button
+                          type="button"
+                          onClick={handleTestConnection}
+                          disabled={isTesting || isSaving || !accEmail}
+                          style={{
+                            padding: '12px 20px', borderRadius: 'var(--radius-md)', background: 'var(--bg-tertiary)',
+                            border: '1px solid var(--border-medium)', color: 'var(--text-primary)', fontSize: '14px',
+                            fontWeight: 600, cursor: (isTesting || isSaving || !accEmail) ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '8px'
+                          }}
+                        >
+                          {isTesting ? <RefreshCw size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
+                          <span>{isTesting ? 'Test Ediliyor...' : 'Bağlantıyı Test Et'}</span>
+                        </button>
+                      )}
                       
                       {!editingAccountId && selectedProviderKey === 'google' && googleAuthMode === 'oauth' ? (
                         <button type="button" onClick={handleStartGoogleOAuth} disabled={isWaitingOAuth || !accEmail} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 28px', borderRadius: 'var(--radius-md)', background: '#4285F4', color: 'white', border: 'none', fontSize: '14px', fontWeight: 600, cursor: (isWaitingOAuth || !accEmail) ? 'not-allowed' : 'pointer', opacity: (isWaitingOAuth || !accEmail) ? 0.7 : 1, transition: 'all 0.2s', boxShadow: '0 4px 14px rgba(66, 133, 244, 0.3)' }}>
@@ -1231,7 +1396,7 @@ export const SettingsModal: React.FC = () => {
                       ) : (
                         <button type="submit" disabled={isSaving || isTesting || isAutoDiscovering || !accEmail} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 28px', borderRadius: 'var(--radius-md)', background: 'var(--accent-primary)', color: 'white', border: 'none', fontSize: '14px', fontWeight: 600, cursor: (isSaving || isTesting || isAutoDiscovering || !accEmail) ? 'not-allowed' : 'pointer', opacity: (isSaving || isTesting || isAutoDiscovering || !accEmail) ? 0.7 : 1, transition: 'all 0.2s', boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)' }}>
                           {(isSaving || isTesting) ? <RefreshCw size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
-                          {isTesting ? 'Test Ediliyor...' : (isSaving ? 'Kaydediliyor...' : (editingAccountId ? 'Değişiklikleri Kaydet' : 'Hesabı Ekle'))}
+                          {isTesting ? 'Test Ediliyor...' : (isSaving ? 'Kaydediliyor...' : (editingAccountId ? 'Değişiklikleri Kaydet' : 'Bağlan ve Hesabı Ekle'))}
                         </button>
                       )}
                     </div>
@@ -1239,7 +1404,6 @@ export const SettingsModal: React.FC = () => {
                 )}
               </div>
             )}
-            
 {/* TAB: SYSTEM & STARTUP */}
             {activeTab === 'system' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '640px' }}>
