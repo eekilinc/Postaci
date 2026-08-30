@@ -264,15 +264,24 @@ export const SettingsModal: React.FC = () => {
     }
   }, []);
 
+  const handleCloseModal = () => {
+    handleResetForm();
+    setIsSettingsOpen(false);
+  };
+
   useEffect(() => {
     if (isSettingsOpen) {
       if (accounts.length === 0) {
+        handleResetForm();
         setIsFormOpen(true);
       } else if (!editingAccountId) {
+        handleResetForm();
         setIsFormOpen(false);
       }
+    } else {
+      handleResetForm();
     }
-  }, [isSettingsOpen, accounts.length]);
+  }, [isSettingsOpen]);
 
   const handleUpdateDesktopSettings = async (partial: Partial<typeof desktopSettings>) => {
     const updated = { ...desktopSettings, ...partial };
@@ -516,6 +525,10 @@ export const SettingsModal: React.FC = () => {
   const handleResetForm = () => {
     setEditingAccountId(null);
     setSelectedProviderKey(null);
+    setIsWaitingOAuth(false);
+    setShowAdvancedSettings(false);
+    setGoogleAuthMode('oauth');
+    setUseSameCredentials(true);
     setAccName('');
     setAccEmail('');
     setAccProvider('custom');
@@ -809,7 +822,7 @@ export const SettingsModal: React.FC = () => {
   if (!isSettingsOpen) return null;
 
   return (
-    <div style={{
+    <div onClick={(e) => { if (e.target === e.currentTarget) handleCloseModal(); }} style={{
       position: 'fixed',
       inset: 0,
       backgroundColor: 'rgba(0, 0, 0, 0.65)',
@@ -862,7 +875,7 @@ export const SettingsModal: React.FC = () => {
             ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => { setActiveTab(tab.id as any); setIsFormOpen(false); }}
+                onClick={() => { setActiveTab(tab.id as any); handleResetForm(); }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -916,7 +929,7 @@ export const SettingsModal: React.FC = () => {
             </h3>
 
             <button
-              onClick={() => setIsSettingsOpen(false)}
+              onClick={handleCloseModal}
               style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
             >
               <X size={18} />
@@ -1030,11 +1043,9 @@ export const SettingsModal: React.FC = () => {
                       if (selectedProviderKey && !editingAccountId) {
                         setSelectedProviderKey(null);
                         setIsWaitingOAuth(false);
+                        setTestResult(null);
                       } else {
-                        setIsFormOpen(false);
-                        setEditingAccountId(null);
-                        setSelectedProviderKey(null);
-                        setIsWaitingOAuth(false);
+                        handleResetForm();
                       }
                     }}
                     style={{
@@ -1367,7 +1378,7 @@ export const SettingsModal: React.FC = () => {
                     )}
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
-                      <button type="button" onClick={() => { setIsFormOpen(false); setEditingAccountId(null); setIsWaitingOAuth(false); }} style={{ padding: '12px 20px', borderRadius: 'var(--radius-md)', background: 'transparent', border: '1px solid var(--border-medium)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
+                      <button type="button" onClick={handleResetForm} style={{ padding: '12px 20px', borderRadius: 'var(--radius-md)', background: 'transparent', border: '1px solid var(--border-medium)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
                         İptal
                       </button>
 
