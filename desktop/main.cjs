@@ -56,8 +56,25 @@ let desktopSettings = loadDesktopSettings();
 function startBackend() {
   if (!isDev) {
     try {
-      const serverBundle = path.join(__dirname, '../dist/server/index.cjs');
-      console.log('🚀 Starting internal Postacı server:', serverBundle);
+      const userDataDir = path.join(app.getPath('userData'), 'data');
+      if (!fs.existsSync(userDataDir)) {
+        try {
+          fs.mkdirSync(userDataDir, { recursive: true });
+        } catch (e) {
+          console.warn('Could not create userData data dir:', e);
+        }
+      }
+      process.env.POSTACI_DATA_DIR = userDataDir;
+
+      const candidates = [
+        path.join(__dirname, '../dist/server/index.cjs'),
+        path.join(__dirname, 'dist/server/index.cjs'),
+        path.join(process.resourcesPath, 'app.asar/dist/server/index.cjs'),
+        path.join(process.resourcesPath, 'app/dist/server/index.cjs'),
+        path.join(process.resourcesPath, 'dist/server/index.cjs')
+      ];
+      const serverBundle = candidates.find(c => fs.existsSync(c)) || candidates[0];
+      console.log('🚀 Starting internal Postacı server from:', serverBundle);
       require(serverBundle);
     } catch (err) {
       console.error('Failed to start internal server:', err);
@@ -301,9 +318,15 @@ process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   desktopSettings = loadDesktopSettings();
   startBackend();
+
+  if (!isDev) {
+    // Wait for the internal backend server to be healthy before displaying the UI
+    await waitForServer(`http://127.0.0.1:${PORT}/api/system/health`, 8000);
+  }
+
   createWindow();
   setupTray();
 

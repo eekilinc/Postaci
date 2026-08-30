@@ -1,4 +1,4 @@
-import { getAccounts, createAccount, updateAccount, getEmails, getFolderStats, getServerFolders } from './db.js';
+import { getAccounts, createAccount, updateAccount, getEmails, getFolderStats, getServerFolders, jsonDbPath } from './db.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -21,9 +21,8 @@ export class BackupService {
     // Read stored preferences from JSON store if exists
     let preferences: any = {};
     try {
-      const storePath = path.resolve(process.cwd(), 'data/postaci_store.json');
-      if (fs.existsSync(storePath)) {
-        const raw = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
+      if (fs.existsSync(jsonDbPath)) {
+        const raw = JSON.parse(fs.readFileSync(jsonDbPath, 'utf-8'));
         preferences = raw.settings || {};
       }
     } catch {}

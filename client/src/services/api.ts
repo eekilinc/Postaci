@@ -8,27 +8,27 @@ export const EVENTS_URL = (typeof window !== 'undefined' && (window.location.pro
   ? (window.location.port === '5173' ? '/events' : 'http://127.0.0.1:3001/events')
   : '/events';
 
-async function fetchSafe(url: string, options?: RequestInit, retries = 2, delay = 250): Promise<Response> {
+async function fetchSafe(url: string, options?: RequestInit, retries = 5, delay = 300): Promise<Response> {
   let lastError: any = null;
   const urlsToTry: string[] = [url];
-  if (url.startsWith('/api')) {
+  if (url.startsWith('/api') && !urlsToTry.includes(`http://127.0.0.1:3001${url}`)) {
     urlsToTry.push(`http://127.0.0.1:3001${url}`);
   }
 
-  for (const targetUrl of urlsToTry) {
-    for (let i = 0; i < retries; i++) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    for (const targetUrl of urlsToTry) {
       try {
         const res = await fetch(targetUrl, options);
         return res;
       } catch (err) {
         lastError = err;
-        if (i < retries - 1) {
-          await new Promise(r => setTimeout(r, delay * (i + 1)));
-        }
       }
     }
+    if (attempt < retries - 1) {
+      await new Promise(r => setTimeout(r, delay * Math.min(attempt + 1, 3)));
+    }
   }
-  if (lastError instanceof TypeError && lastError.message === 'Failed to fetch') {
+  if (lastError instanceof TypeError && (lastError.message === 'Failed to fetch' || lastError.message?.includes('fetch'))) {
     throw new Error('Sunucuya bağlanılamadı ("Failed to fetch"). Lütfen uygulamanın arka plan servisinin çalıştığından emin olun (port 3001).');
   }
   

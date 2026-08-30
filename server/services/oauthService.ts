@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { Account } from '../types.js';
-import { getAccountByEmail, saveAccount, getAccountById } from './db.js';
+import { getAccountByEmail, saveAccount, getAccountById, dataDir } from './db.js';
 import { v4 as uuidv4 } from 'uuid';
 
-const oauthConfigPath = path.resolve(process.cwd(), 'data/oauth_credentials.json');
+const oauthConfigPath = path.join(dataDir, 'oauth_credentials.json');
 
 const _k1 = '789045427209';
 const _k2 = 'boh4tqlvsgivef1lb3nmmco4bibk1lpp';

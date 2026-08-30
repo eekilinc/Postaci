@@ -3,15 +3,15 @@ import fs from 'fs';
 import { Account, Email, Contact, CalendarEvent, FolderStat, Attachment } from '../types.js';
 import { initialAccounts, initialContacts, initialEmails, initialCalendarEvents } from './demoData.js';
 
-const dataDir = path.resolve(process.cwd(), 'data');
+export const dataDir = process.env.POSTACI_DATA_DIR || path.resolve(process.cwd(), 'data');
 if (!fs.existsSync(dataDir)) {
   try {
     fs.mkdirSync(dataDir, { recursive: true });
   } catch {}
 }
 
-const dbPath = path.join(dataDir, 'postaci.db');
-const jsonDbPath = path.join(dataDir, 'postaci_store.json');
+export const dbPath = path.join(dataDir, 'postaci.db');
+export const jsonDbPath = path.join(dataDir, 'postaci_store.json');
 
 let isNativeSqlite = false;
 let db: any = null;
