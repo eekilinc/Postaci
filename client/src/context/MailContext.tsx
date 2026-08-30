@@ -302,6 +302,9 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }, 300);
     };
 
+    let lastChimeTime = 0;
+    let lastToastTime = 0;
+
     try {
       eventSource = new EventSource(EVENTS_URL);
 
@@ -311,13 +314,20 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const sender = newMail.fromName || newMail.fromEmail || 'Bilinmeyen';
           const title = `Yeni E-Posta: ${sender}`;
           const body = `${newMail.subject || '(Konusuz)'}\n${(newMail.snippet || '').substring(0, 90)}`;
+          const now = Date.now();
 
-          // 1. In-app toast notification
-          infoRef.current(`${sender}: ${newMail.subject || '(Konusuz)'}`, 'Yeni E-Posta');
+          // 1. In-app toast notification (rate limited to once every 3s)
+          if (now - lastToastTime > 3000) {
+            lastToastTime = now;
+            infoRef.current(`${sender}: ${newMail.subject || '(Konusuz)'}`, 'Yeni E-Posta');
+          }
 
-          // 2. Play gentle notification audio chime
-          const soundPref = localStorage.getItem('postaci_notif_sound') || 'subtle';
-          playNotificationChime(soundPref);
+          // 2. Play gentle notification audio chime (rate limited to once every 4s)
+          if (now - lastChimeTime > 4000) {
+            lastChimeTime = now;
+            const soundPref = localStorage.getItem('postaci_notif_sound') || 'subtle';
+            playNotificationChime(soundPref);
+          }
 
           // 3. Desktop Native Notification (Windows Action Center / Electron / Web)
           const desktopNotifsEnabled = localStorage.getItem('postaci_desktop_notifs') !== 'false';

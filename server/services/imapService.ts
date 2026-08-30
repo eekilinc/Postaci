@@ -885,12 +885,12 @@ export class ImapService {
         }
       }
 
-      // Prioritize core standard mailboxes (INBOX first, then Sent, Trash, Drafts, Junk, Spam)
+      // Prioritize core standard mailboxes (INBOX first, then Sent, Trash, Drafts, Junk, Spam, All Mail)
       const isCore = (mb: any) => {
         const p = mb.path.toUpperCase();
         const s = (mb.specialUse || '').toUpperCase();
-        return p === 'INBOX' || s === '\\INBOX' || s === '\\SENT' || s === '\\TRASH' || s === '\\DRAFTS' || s === '\\JUNK' ||
-          /sent|trash|çöp|draft|taslak|junk|spam/i.test(mb.path);
+        return p === 'INBOX' || s === '\\INBOX' || s === '\\SENT' || s === '\\TRASH' || s === '\\DRAFTS' || s === '\\JUNK' || s === '\\ALL' || s === '\\ARCHIVE' ||
+          /sent|trash|çöp|draft|taslak|junk|spam|all mail|tüm postalar|arsiv|archive/i.test(mb.path);
       };
 
       const sortedMailboxes = onlyInbox
@@ -1011,6 +1011,7 @@ export class ImapService {
               const CHUNK_SIZE = 50;
               for (let c = 0; c < targetUidsToFetch.length; c += CHUNK_SIZE) {
                 const uidChunk = targetUidsToFetch.slice(c, c + CHUNK_SIZE);
+                const chunkEmails: Email[] = [];
                 try {
                   const messages = client.fetch(uidChunk, {
                     envelope: true,
@@ -1101,6 +1102,7 @@ export class ImapService {
                         aiSmartReplies: null
                       };
 
+                      chunkEmails.push(email);
                       envelopeEmails.push(email);
                     } catch (itemErr) {
                       console.warn('Failed to process message envelope:', itemErr);
@@ -1108,6 +1110,24 @@ export class ImapService {
                   }
                 } catch (chunkErr) {
                   console.warn(`Failed to fetch chunk for ${account.email} on ${mb.path}:`, chunkErr);
+                }
+
+                // Progressive batch saving per 50 emails (user sees initial emails instantly while rest stream in)
+                if (chunkEmails.length > 0) {
+                  const { savedCount: chunkSaved, newEmails: chunkNew } = saveEmailsBatch(chunkEmails, true);
+                  syncedCount += chunkSaved;
+
+                  if (this.broadcastCb && chunkNew.length > 0) {
+                    this.broadcastCb('emails_synced', { accountId: account.id, folder: targetFolder, newCount: chunkNew.length });
+                    // ONLY send real-time notification if this is a background incremental update with <= 3 new incoming emails
+                    if (!isFullSync && chunkNew.length <= 3 && state.highestKnownUid > 0) {
+                      for (const nm of chunkNew) {
+                        if (targetFolder === 'INBOX' && !nm.isRead) {
+                          this.broadcastCb('new_email', nm);
+                        }
+                      }
+                    }
+                  }
                 }
               }
             } else if (currentExists > 0) {
@@ -1207,37 +1227,29 @@ export class ImapService {
                     console.warn('Failed to process message envelope from sequence fetch:', itemErr);
                   }
                 }
+
+                if (envelopeEmails.length > 0) {
+                  const { savedCount: seqSaved, newEmails: seqNew } = saveEmailsBatch(envelopeEmails, true);
+                  syncedCount += seqSaved;
+                  if (this.broadcastCb && seqNew.length > 0) {
+                    this.broadcastCb('emails_synced', { accountId: account.id, folder: targetFolder, newCount: seqNew.length });
+                  }
+                }
               } catch (seqErr) {
                 console.warn(`Sequence fetch failed for ${account.email} on ${mb.path}:`, seqErr);
               }
             }
 
-            // High-speed bulk insertion in single SQLite transaction
-            if (envelopeEmails.length > 0) {
-                const { savedCount, newEmails } = saveEmailsBatch(envelopeEmails, true);
-                syncedCount += savedCount;
-
-                // Notify frontend immediately ONLY if new emails arrived!
-                if (this.broadcastCb && newEmails.length > 0) {
-                  this.broadcastCb('emails_synced', { accountId: account.id, folder: targetFolder, newCount: newEmails.length });
-                  for (const nm of newEmails) {
-                    if (targetFolder === 'INBOX' && !nm.isRead) {
-                      this.broadcastCb('new_email', nm);
-                    }
-                  }
-                }
-
-                // Collect top 2 newest unseen emails to preload bodies in background (keeps CPU/memory near zero)
-                if (targetFolder === 'INBOX') {
-                  const unreadRecent = envelopeEmails
-                    .filter(e => !e.isRead && e.imapUid)
-                    .sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0))
-                    .slice(0, 2);
-                  for (const em of unreadRecent) {
-                    if (em.imapUid) uidsToPreloadBody.push(em.imapUid);
-                  }
-                }
+            // Collect top 2 newest unseen emails to preload bodies in background (keeps CPU/memory near zero)
+            if (targetFolder === 'INBOX' && envelopeEmails.length > 0) {
+              const unreadRecent = envelopeEmails
+                .filter(e => !e.isRead && e.imapUid)
+                .sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0))
+                .slice(0, 2);
+              for (const em of unreadRecent) {
+                if (em.imapUid) uidsToPreloadBody.push(em.imapUid);
               }
+            }
 
               // TIER 2: Fast Pre-load of top 2 latest unseen email bodies
               if (uidsToPreloadBody.length > 0) {
