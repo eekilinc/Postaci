@@ -1088,15 +1088,23 @@ export function isDeletedLocally(
     }
   }
 
-  // Check by accountId + imapUid
+  // Check by accountId + imapUid + mailboxPath (UID is per-mailbox, must include path)
   if (accountId && imapUid) {
     if (!isNativeSqlite) {
-      if ((memStore.deletedRecords || []).some(r => r.accountId === accountId && r.imapUid === imapUid && (!mailboxPath || !r.mailboxPath || r.mailboxPath === mailboxPath))) {
+      // Must match mailboxPath too — UIDs are per-mailbox, not globally unique
+      if ((memStore.deletedRecords || []).some(r =>
+        r.accountId === accountId &&
+        r.imapUid === imapUid &&
+        (!r.mailboxPath || !mailboxPath || r.mailboxPath === mailboxPath)
+      )) {
         return true;
       }
     } else {
       try {
-        const row = db.prepare('SELECT 1 FROM deleted_records WHERE accountId = ? AND imapUid = ?').get(accountId, imapUid);
+        // Include mailboxPath constraint to prevent cross-mailbox false positives
+        const row = mailboxPath
+          ? db.prepare('SELECT 1 FROM deleted_records WHERE accountId = ? AND imapUid = ? AND (mailboxPath = ? OR mailboxPath IS NULL)').get(accountId, imapUid, mailboxPath)
+          : db.prepare('SELECT 1 FROM deleted_records WHERE accountId = ? AND imapUid = ?').get(accountId, imapUid);
         if (row) return true;
       } catch {}
     }

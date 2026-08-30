@@ -1166,7 +1166,10 @@ export class ImapService {
               }
             } else if (currentExists > 0) {
               // Sequence Range Fallback: Guarantees email ingestion even if SEARCH is disabled/throttled on server
-              const fetchLimit = mb.path.toUpperCase() === 'INBOX' || targetFolder === 'INBOX' ? 300 : 100;
+              // Use same limits as UID-search path for consistency
+              const fetchLimit = (mb.path.toUpperCase() === 'INBOX' || targetFolder === 'INBOX') ? 300
+                : (targetFolder === 'TRASH' || targetFolder === 'SPAM') ? 500
+                : 100;
               const startSeq = Math.max(1, currentExists - fetchLimit + 1);
               try {
                 const messages = client.fetch(`${startSeq}:*`, {
