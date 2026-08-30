@@ -456,16 +456,22 @@ app.post('/api/emails/bulk-flags', (req: Request, res: Response) => {
     broadcastSSE('emails_synced', { count });
     res.json({ success: true, updatedCount: count });
 
-    // Asynchronously synchronize bulk updates with remote IMAP mail server
+    // Asynchronously synchronize bulk updates with remote IMAP mail server in parallel batches
     (async () => {
-      for (const mail of mails) {
+      const byAccount = new Map<string, Email[]>();
+      for (const m of mails) {
+        if (!byAccount.has(m.accountId)) byAccount.set(m.accountId, []);
+        byAccount.get(m.accountId)!.push(m);
+      }
+
+      for (const [accId, accMails] of byAccount.entries()) {
         try {
           if (updates.folder || updates.isDeleted) {
             const targetFolder = (updates.folder === 'TRASH' || updates.isDeleted) ? 'TRASH' : (updates.folder || 'INBOX');
-            await ImapService.moveMessageOnServer(mail.accountId, mail, targetFolder);
+            await ImapService.bulkMoveMessagesOnServer(accId, accMails, targetFolder);
           }
           if (updates.isRead !== undefined || updates.isStarred !== undefined) {
-            await ImapService.updateFlagsOnServer(mail.accountId, mail, {
+            await ImapService.bulkUpdateFlagsOnServer(accId, accMails, {
               isRead: updates.isRead,
               isStarred: updates.isStarred
             });
@@ -491,11 +497,17 @@ app.post('/api/emails/bulk-delete', (req: Request, res: Response) => {
     broadcastSSE('emails_synced', { count });
     res.json({ success: true, deletedCount: count });
 
-    // Asynchronously delete permanently on remote IMAP mail server
+    // Asynchronously delete permanently on remote IMAP mail server in parallel batches
     (async () => {
-      for (const mail of mails) {
+      const byAccount = new Map<string, Email[]>();
+      for (const m of mails) {
+        if (!byAccount.has(m.accountId)) byAccount.set(m.accountId, []);
+        byAccount.get(m.accountId)!.push(m);
+      }
+
+      for (const [accId, accMails] of byAccount.entries()) {
         try {
-          await ImapService.deleteMessageOnServer(mail.accountId, mail);
+          await ImapService.bulkDeleteMessagesOnServer(accId, accMails);
         } catch (e) {
           console.warn('Bulk IMAP delete error:', e);
         }

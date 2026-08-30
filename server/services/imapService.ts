@@ -430,155 +430,97 @@ export class ImapService {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo') return false;
 
-    let client: ImapFlow | null = null;
     try {
-      client = await this.connectClient(account);
-      const mailboxes = await client.list();
+      const client = await this.getOrCreateClient(account);
+      const targetPath = await this.resolveServerMailboxPath(client, account.id, targetFolder);
+      const sourcePath = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
 
-      // Find source mailbox
-      const sourcePath = email.mailboxPath || 'INBOX';
+      if (sourcePath === targetPath) return true;
 
-      // Find target mailbox
-      let targetMailbox = mailboxes.find((mb: any) => {
-        const special = (mb.specialUse || '').toLowerCase();
-        const p = mb.path.toLowerCase();
-        const n = mb.name.toLowerCase();
+      const lock = await Promise.race([
+        client.getMailboxLock(sourcePath),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${sourcePath}`)), 6000))
+      ]);
+      try {
+        let uidToMove = email.imapUid;
 
-        if (targetFolder === 'TRASH') {
-          return special === '\\trash' || /trash|çöp|cop|deleted|silinmiş|silinmis/i.test(p) || /trash|çöp|cop|deleted|silinmiş|silinmis/i.test(n);
-        }
-        if (targetFolder === 'ARCHIVE') {
-          return special === '\\archive' || special === '\\all' || /archive|arşiv|arsiv|all mail/i.test(p) || /archive|arşiv|arsiv|all mail/i.test(n);
-        }
-        if (targetFolder === 'SPAM') {
-          return special === '\\junk' || /spam|junk|istenmeyen/i.test(p) || /spam|junk|istenmeyen/i.test(n);
-        }
-        if (targetFolder === 'INBOX') {
-          return p === 'inbox' || n === 'inbox';
-        }
-        if (targetFolder === 'SENT') {
-          return special === '\\sent' || /sent|gönderilen|gonderilen/i.test(p) || /sent|gönderilen|gonderilen/i.test(n);
-        }
-        return p === targetFolder.toLowerCase() || n === targetFolder.toLowerCase();
-      });
-
-      let targetPath = targetMailbox ? targetMailbox.path : (targetFolder === 'TRASH' ? 'Trash' : targetFolder);
-
-      if (!targetMailbox && targetFolder === 'TRASH') {
-        try {
-          await client.mailboxCreate('Trash');
-          targetPath = 'Trash';
-        } catch {}
-      }
-
-      // Resolve best messageId
-      let resolvedMessageId = email.messageId;
-      if (!resolvedMessageId && email.id && email.id.startsWith('imap-')) {
-        try {
-          const parts = email.id.split('-');
-          const lastPart = decodeURIComponent(parts.slice(3).join('-'));
-          if (lastPart && lastPart.includes('@')) {
-            resolvedMessageId = lastPart;
-          }
-        } catch {}
-      }
-
-      const pathsToCheck = [sourcePath];
-      if (sourcePath.toUpperCase() !== 'INBOX') {
-        pathsToCheck.push('INBOX');
-      }
-
-      for (const currentSource of pathsToCheck) {
-        try {
-          const lock = await client.getMailboxLock(currentSource);
+        if (!uidToMove && email.messageId) {
+          const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
           try {
-            let uidToMove: number | null = null;
+            const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
+            if (searchResults && searchResults.length > 0) uidToMove = searchResults[0];
+          } catch {}
+        }
 
-            // Search by Message-ID if available
-            if (resolvedMessageId) {
-              const cleanMid = resolvedMessageId.replace(/[<>]/g, '').trim();
-              try {
-                const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
-                if (searchResults && searchResults.length > 0) {
-                  uidToMove = searchResults[0];
-                } else {
-                  const searchResults2 = await client.search({ header: { 'message-id': `<${cleanMid}>` } }, { uid: true });
-                  if (searchResults2 && searchResults2.length > 0) {
-                    uidToMove = searchResults2[0];
-                  }
-                }
-              } catch {}
-            }
-
-            // Search by Subject if not found by Message-ID
-            if (!uidToMove && email.subject && email.subject !== '(Konusuz)') {
-              try {
-                const searchBySubj = await client.search({ header: { subject: email.subject } }, { uid: true });
-                if (searchBySubj && searchBySubj.length > 0) {
-                  uidToMove = searchBySubj[0];
-                }
-              } catch {}
-            }
-
-            // Fallback to exact original UID if in the same mailbox
-            if (!uidToMove && email.imapUid && (currentSource === email.mailboxPath || (!email.mailboxPath && currentSource.toUpperCase() === 'INBOX'))) {
-              uidToMove = email.imapUid;
-            }
-
-            if (uidToMove) {
-              let moved = false;
-              let newUid: number | undefined = undefined;
-              if (targetPath && targetPath !== currentSource) {
-                try {
-                  const moveRes = await client.messageMove(String(uidToMove), targetPath, { uid: true });
-                  if (moveRes && moveRes.uidMap) {
-                    newUid = moveRes.uidMap.get(uidToMove);
-                  }
-                  moved = true;
-                } catch {
-                  try {
-                    const copyRes = await client.messageCopy(String(uidToMove), targetPath, { uid: true });
-                    if (copyRes && copyRes.uidMap) {
-                      newUid = copyRes.uidMap.get(uidToMove);
-                    }
-                    moved = true;
-                  } catch {}
-                }
-              }
-
-              // Update local email record with new folder, mailboxPath and new UID
-              if (email.id) {
-                try {
-                  updateEmailFlags(email.id, {
-                    folder: targetFolder,
-                    isDeleted: targetFolder === 'TRASH',
-                    isArchived: targetFolder === 'ARCHIVE',
-                    isSpam: targetFolder === 'SPAM',
-                    mailboxPath: targetPath,
-                    imapUid: newUid || email.imapUid
-                  });
-                } catch {}
-              }
-
-              // Guarantee deletion from source mailbox
-              try {
-                await client.messageFlagsAdd(String(uidToMove), ['\\Deleted'], { uid: true });
-                await client.messageDelete(String(uidToMove), { uid: true });
-              } catch {}
+        if (uidToMove) {
+          try {
+            await client.messageMove(String(uidToMove), targetPath, { uid: true });
+            return true;
+          } catch {
+            try {
+              await client.messageCopy(String(uidToMove), targetPath, { uid: true });
+              await client.messageFlagsAdd(String(uidToMove), ['\\Deleted'], { uid: true });
+              await client.messageDelete(String(uidToMove), { uid: true });
               return true;
+            } catch {}
+          }
+        }
+      } finally {
+        lock.release();
+      }
+    } catch (err) {
+      console.warn(`Error moving message on server for ${account.email}:`, err);
+    }
+    return false;
+  }
+
+  public static async bulkMoveMessagesOnServer(accountId: string, emails: Email[], targetFolder: string): Promise<boolean> {
+    const account = getAccountById(accountId);
+    if (!account || account.provider === 'demo' || emails.length === 0) return false;
+
+    try {
+      const client = await this.getOrCreateClient(account);
+      const targetPath = await this.resolveServerMailboxPath(client, account.id, targetFolder);
+
+      const groups = new Map<string, number[]>();
+      for (const e of emails) {
+        if (!e.imapUid) continue;
+        const src = e.mailboxPath || 'INBOX';
+        if (!groups.has(src)) groups.set(src, []);
+        groups.get(src)!.push(e.imapUid);
+      }
+
+      for (const [sourcePathRaw, uids] of groups.entries()) {
+        const sourcePath = await this.resolveServerMailboxPath(client, account.id, sourcePathRaw);
+        if (sourcePath === targetPath) continue;
+
+        try {
+          const lock = await Promise.race([
+            client.getMailboxLock(sourcePath),
+            new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${sourcePath}`)), 6000))
+          ]);
+          try {
+            const uidStr = uids.join(',');
+            try {
+              await client.messageMove(uidStr, targetPath, { uid: true });
+            } catch {
+              try {
+                await client.messageCopy(uidStr, targetPath, { uid: true });
+                await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
+                await client.messageDelete(uidStr, { uid: true });
+              } catch {}
             }
           } finally {
             lock.release();
           }
-        } catch {}
+        } catch (err) {
+          console.warn(`Bulk move on ${sourcePath} failed:`, err);
+        }
       }
-
-      return false;
+      return true;
     } catch (err) {
-      console.warn(`Error moving message on server for ${account.email}:`, err);
+      console.warn(`Bulk move error for account ${account.email}:`, err);
       return false;
-    } finally {
-      if (client) await client.logout().catch(() => {});
     }
   }
 
@@ -586,122 +528,74 @@ export class ImapService {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo') return false;
 
-    let client: ImapFlow | null = null;
     try {
-      client = await this.connectClient(account);
-      const mailboxes = await client.list();
+      const client = await this.getOrCreateClient(account);
+      const sourcePath = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
 
-      // Find trash mailbox
-      const trashMailbox = mailboxes.find((mb: any) => {
-        const special = (mb.specialUse || '').toLowerCase();
-        const p = mb.path.toLowerCase();
-        const n = mb.name.toLowerCase();
-        return special === '\\trash' || /trash|çöp|cop|deleted|silinmiş|silinmis/i.test(p) || /trash|çöp|cop|deleted|silinmiş|silinmis/i.test(n);
-      });
-
-      const isTrash = email.folder === 'TRASH' || email.isDeleted;
-      const primaryPath = email.mailboxPath || (isTrash && trashMailbox ? trashMailbox.path : 'INBOX');
-
-      // Resolve best messageId
-      let resolvedMessageId = email.messageId;
-      if (!resolvedMessageId && email.id && email.id.startsWith('imap-')) {
-        try {
-          const parts = email.id.split('-');
-          const lastPart = decodeURIComponent(parts.slice(3).join('-'));
-          if (lastPart && lastPart.includes('@')) {
-            resolvedMessageId = lastPart;
-          }
-        } catch {}
-      }
-
-      const pathsToCheck: string[] = [];
-      if (trashMailbox && !pathsToCheck.includes(trashMailbox.path)) {
-        pathsToCheck.push(trashMailbox.path);
-      }
-      if (primaryPath && !pathsToCheck.includes(primaryPath)) {
-        pathsToCheck.push(primaryPath);
-      }
-      if (!pathsToCheck.includes('INBOX')) {
-        pathsToCheck.push('INBOX');
-      }
-
-      let deletedAnywhere = false;
-
-      for (const mPath of pathsToCheck) {
-        try {
-          const lock = await client.getMailboxLock(mPath);
+      const lock = await Promise.race([
+        client.getMailboxLock(sourcePath),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${sourcePath}`)), 6000))
+      ]);
+      try {
+        let uidToDelete = email.imapUid;
+        if (!uidToDelete && email.messageId) {
+          const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
           try {
-            let uidsToDelete: number[] = [];
+            const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
+            if (searchResults && searchResults.length > 0) uidToDelete = searchResults[0];
+          } catch {}
+        }
 
-            // 1. Search by Message-ID (exact header)
-            if (resolvedMessageId) {
-              const cleanMid = resolvedMessageId.replace(/[<>]/g, '').trim();
-              try {
-                const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
-                if (searchResults && searchResults.length > 0) {
-                  uidsToDelete.push(...searchResults);
-                } else {
-                  const searchResults2 = await client.search({ header: { 'message-id': `<${cleanMid}>` } }, { uid: true });
-                  if (searchResults2 && searchResults2.length > 0) {
-                    uidsToDelete.push(...searchResults2);
-                  }
-                }
-              } catch {}
-            }
+        if (uidToDelete) {
+          await client.messageFlagsAdd(String(uidToDelete), ['\\Deleted'], { uid: true });
+          await client.messageDelete(String(uidToDelete), { uid: true });
+          return true;
+        }
+      } finally {
+        lock.release();
+      }
+    } catch (err) {
+      console.warn(`Could not delete message on server for account ${account.email}:`, err);
+    }
+    return false;
+  }
 
-            // 2. Search by Subject if not found by Message-ID
-            if (uidsToDelete.length === 0 && email.subject && email.subject !== '(Konusuz)') {
-              try {
-                const searchBySubj = await client.search({ header: { subject: email.subject } }, { uid: true });
-                if (searchBySubj && searchBySubj.length > 0) {
-                  uidsToDelete.push(...searchBySubj);
-                }
-              } catch {}
-            }
+  public static async bulkDeleteMessagesOnServer(accountId: string, emails: Email[]): Promise<boolean> {
+    const account = getAccountById(accountId);
+    if (!account || account.provider === 'demo' || emails.length === 0) return false;
 
-            // 3. Fallback: Search all messages in this mailbox if small and match envelope
-            if (uidsToDelete.length === 0 && client.mailbox && client.mailbox.exists > 0 && client.mailbox.exists <= 50) {
-              try {
-                const msgs = client.fetch('1:*', { envelope: true, uid: true });
-                for await (const m of msgs) {
-                  const mid = m.envelope?.messageId?.replace(/[<>]/g, '').trim();
-                  const cleanTarget = resolvedMessageId ? resolvedMessageId.replace(/[<>]/g, '').trim() : '';
-                  if (cleanTarget && mid === cleanTarget) {
-                    uidsToDelete.push(m.uid);
-                  } else if (email.subject && m.envelope?.subject === email.subject) {
-                    uidsToDelete.push(m.uid);
-                  }
-                }
-              } catch {}
-            }
+    try {
+      const client = await this.getOrCreateClient(account);
+      const groups = new Map<string, number[]>();
+      for (const e of emails) {
+        if (!e.imapUid) continue;
+        const src = e.mailboxPath || 'INBOX';
+        if (!groups.has(src)) groups.set(src, []);
+        groups.get(src)!.push(e.imapUid);
+      }
 
-            // 4. Exact original UID if in the exact matching mailbox
-            if (uidsToDelete.length === 0 && email.imapUid && (mPath === email.mailboxPath || (!email.mailboxPath && mPath.toUpperCase() === 'INBOX'))) {
-              uidsToDelete.push(email.imapUid);
-            }
-
-            if (uidsToDelete.length > 0) {
-              const uniqueUids = Array.from(new Set(uidsToDelete));
-              for (const uid of uniqueUids) {
-                try {
-                  await client.messageFlagsAdd(String(uid), ['\\Deleted'], { uid: true });
-                  await client.messageDelete(String(uid), { uid: true });
-                  deletedAnywhere = true;
-                } catch {}
-              }
-            }
+      for (const [sourcePathRaw, uids] of groups.entries()) {
+        const sourcePath = await this.resolveServerMailboxPath(client, account.id, sourcePathRaw);
+        try {
+          const lock = await Promise.race([
+            client.getMailboxLock(sourcePath),
+            new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${sourcePath}`)), 6000))
+          ]);
+          try {
+            const uidStr = uids.join(',');
+            await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
+            await client.messageDelete(uidStr, { uid: true });
           } finally {
             lock.release();
           }
-        } catch {}
+        } catch (err) {
+          console.warn(`Bulk delete on ${sourcePath} failed:`, err);
+        }
       }
-
-      return deletedAnywhere;
+      return true;
     } catch (err) {
-      console.warn(`Could not delete message on server for account ${account.email}:`, err);
+      console.warn(`Bulk delete error for account ${account.email}:`, err);
       return false;
-    } finally {
-      if (client) await client.logout().catch(() => {});
     }
   }
 
@@ -709,25 +603,20 @@ export class ImapService {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo') return false;
 
-    let client: ImapFlow | null = null;
     try {
-      client = await this.connectClient(account);
-      const mailboxPath = email.mailboxPath || 'INBOX';
-      const lock = await client.getMailboxLock(mailboxPath);
+      const client = await this.getOrCreateClient(account);
+      const mailboxPath = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
+      const lock = await Promise.race([
+        client.getMailboxLock(mailboxPath),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${mailboxPath}`)), 6000))
+      ]);
       try {
-        let uidToUpdate: number | null = email.imapUid || null;
+        let uidToUpdate = email.imapUid;
         if (!uidToUpdate && email.messageId) {
           const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
           try {
             const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
-            if (searchResults && searchResults.length > 0) {
-              uidToUpdate = searchResults[0];
-            } else {
-              const searchResults2 = await client.search({ header: { 'message-id': `<${cleanMid}>` } }, { uid: true });
-              if (searchResults2 && searchResults2.length > 0) {
-                uidToUpdate = searchResults2[0];
-              }
-            }
+            if (searchResults && searchResults.length > 0) uidToUpdate = searchResults[0];
           } catch {}
         }
 
@@ -748,15 +637,57 @@ export class ImapService {
           }
           return true;
         }
-        return false;
       } finally {
         lock.release();
       }
     } catch (err) {
       console.warn(`Could not update flags on server for account ${account.email}:`, err);
+    }
+    return false;
+  }
+
+  public static async bulkUpdateFlagsOnServer(accountId: string, emails: Email[], flags: { isRead?: boolean; isStarred?: boolean }): Promise<boolean> {
+    const account = getAccountById(accountId);
+    if (!account || account.provider === 'demo' || emails.length === 0) return false;
+
+    try {
+      const client = await this.getOrCreateClient(account);
+      const groups = new Map<string, number[]>();
+      for (const e of emails) {
+        if (!e.imapUid) continue;
+        const src = e.mailboxPath || 'INBOX';
+        if (!groups.has(src)) groups.set(src, []);
+        groups.get(src)!.push(e.imapUid);
+      }
+
+      for (const [sourcePathRaw, uids] of groups.entries()) {
+        const sourcePath = await this.resolveServerMailboxPath(client, account.id, sourcePathRaw);
+        try {
+          const lock = await Promise.race([
+            client.getMailboxLock(sourcePath),
+            new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${sourcePath}`)), 6000))
+          ]);
+          try {
+            const uidStr = uids.join(',');
+            if (flags.isRead !== undefined) {
+              if (flags.isRead) await client.messageFlagsAdd(uidStr, ['\\Seen'], { uid: true });
+              else await client.messageFlagsRemove(uidStr, ['\\Seen'], { uid: true });
+            }
+            if (flags.isStarred !== undefined) {
+              if (flags.isStarred) await client.messageFlagsAdd(uidStr, ['\\Flagged'], { uid: true });
+              else await client.messageFlagsRemove(uidStr, ['\\Flagged'], { uid: true });
+            }
+          } finally {
+            lock.release();
+          }
+        } catch (err) {
+          console.warn(`Bulk flag update on ${sourcePath} failed:`, err);
+        }
+      }
+      return true;
+    } catch (err) {
+      console.warn(`Bulk flag error for account ${account.email}:`, err);
       return false;
-    } finally {
-      if (client) await client.logout().catch(() => {});
     }
   }
 
@@ -986,10 +917,15 @@ export class ImapService {
               minUid = targetUidsToFetch.length > 0 ? targetUidsToFetch[0] : (allUids.length > 0 ? allUids[0] : 1);
 
               // Prune messages locally that were deleted or moved away on remote server
+              let prunedCount = 0;
               if (allUids.length > 0) {
-                pruneMissingServerUids(account.id, mb.path, allUids, minUid, targetFolder);
+                prunedCount = pruneMissingServerUids(account.id, mb.path, allUids, minUid, targetFolder);
               } else if (currentExists === 0) {
-                pruneMissingServerUids(account.id, mb.path, [], 1, targetFolder);
+                prunedCount = pruneMissingServerUids(account.id, mb.path, [], 1, targetFolder);
+              }
+
+              if (prunedCount > 0 && this.broadcastCb) {
+                this.broadcastCb('emails_synced', { accountId: account.id, folder: targetFolder, prunedCount });
               }
             }
 
@@ -1543,15 +1479,15 @@ export class ImapService {
       this.runBackgroundSyncCycle(false);
     }, 10000);
 
-    // Fast 30-second continuous sync cycle (INBOX only - lightning fast & low memory)
+    // Fast 15-second continuous sync cycle (INBOX only - lightning fast & low memory)
     this.autoSyncTimer = setInterval(() => {
       this.runBackgroundSyncCycle(true);
-    }, 30000);
+    }, 15000);
 
-    // 3-minute periodic full sync across all folders
+    // 90-second periodic full sync across all folders
     this.fullSyncTimer = setInterval(() => {
       this.runBackgroundSyncCycle(false);
-    }, 180000);
+    }, 90000);
   }
 
   public static async runBackgroundSyncCycle(onlyInbox = true) {
