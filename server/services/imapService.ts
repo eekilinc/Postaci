@@ -919,7 +919,7 @@ export class ImapService {
             // Incremental fetch: if only a few new emails arrived since last highest UID
             if (!isFullSync && !isValidityChanged && state.highestKnownUid > 0 && currentUidNext > state.highestKnownUid + 1) {
               try {
-                const newUids = await client.search({ uid: `${state.highestKnownUid + 1}:*`, deleted: false }, { uid: true });
+                const newUids = await client.search({ uid: `${state.highestKnownUid + 1}:*` }, { uid: true });
                 if (Array.isArray(newUids) && newUids.length > 0) {
                   targetUidsToFetch = newUids.sort((a, b) => a - b);
                   minUid = targetUidsToFetch[0];
@@ -927,18 +927,18 @@ export class ImapService {
               } catch {}
             }
 
-            // Fallback to standard search if incremental didn't apply or on full sync
+            // Fallback to universal standard search if incremental didn't apply or on full sync
             if (targetUidsToFetch.length === 0) {
               try {
-                const searchResult = await client.search({ deleted: false }, { uid: true });
-                if (Array.isArray(searchResult)) allUids = searchResult;
-              } catch {
-                try {
-                  const res = await client.search({ all: true }, { uid: true });
-                  if (Array.isArray(res)) allUids = res;
-                } catch (searchErr) {
-                  console.warn(`UID search on mailbox ${mb.path} failed:`, searchErr);
+                const searchResult = await client.search({ all: true }, { uid: true });
+                if (Array.isArray(searchResult) && searchResult.length > 0) {
+                  allUids = searchResult;
+                } else {
+                  const searchResultSeq = await client.search({ seq: '1:*' }, { uid: true });
+                  if (Array.isArray(searchResultSeq)) allUids = searchResultSeq;
                 }
+              } catch (searchErr) {
+                console.warn(`UID search on mailbox ${mb.path} failed:`, searchErr);
               }
 
               let fetchLimit = 300;
@@ -1228,14 +1228,14 @@ export class ImapService {
       try {
         let uids: number[] = [];
         try {
-          const searchResult = await client.search({ deleted: false }, { uid: true });
-          if (Array.isArray(searchResult)) uids = searchResult;
-        } catch {
-          try {
-            const searchResult2 = await client.search({ all: true }, { uid: true });
+          const searchResult = await client.search({ all: true }, { uid: true });
+          if (Array.isArray(searchResult) && searchResult.length > 0) {
+            uids = searchResult;
+          } else {
+            const searchResult2 = await client.search({ seq: '1:*' }, { uid: true });
             if (Array.isArray(searchResult2)) uids = searchResult2;
-          } catch {}
-        }
+          }
+        } catch {}
 
         const { folder: targetFolder, isCustom } = this.mapMailboxToFolder({ path: mailboxPath, name: mailboxPath });
 
