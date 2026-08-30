@@ -28,6 +28,10 @@ async function fetchSafe(url: string, options?: RequestInit, retries = 2, delay 
       }
     }
   }
+  if (lastError instanceof TypeError && lastError.message === 'Failed to fetch') {
+    throw new Error('Sunucuya bağlanılamadı ("Failed to fetch"). Lütfen uygulamanın arka plan servisinin çalıştığından emin olun (port 3001).');
+  }
+  
   throw lastError || new Error('Sunucuya bağlanılamadı. Lütfen sunucunun aktif olduğundan emin olun.');
 }
 
