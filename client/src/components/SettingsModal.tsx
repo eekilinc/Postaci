@@ -378,18 +378,19 @@ export const SettingsModal: React.FC = () => {
           setIsWaitingOAuth(false);
           await refreshAccounts();
           setActiveAccountId(newAcc.id);
-          success(`${newAcc.email} hesabı başarıyla bağlandı! 🎉`, 'Giriş Başarılı');
+          success(`${newAcc.email} Google hesabı başarıyla bağlandı! 🎉`, 'Giriş Başarılı');
           refreshEmails();
           refreshStats();
           triggerSync();
+          handleResetForm();
           setIsFormOpen(false);
-          setIsSettingsOpen(false);
+          setActiveTab('accounts');
         }
       } catch {}
     }, 1200);
 
     return () => clearInterval(interval);
-  }, [isWaitingOAuth, accounts, refreshAccounts, setActiveAccountId, refreshEmails, refreshStats, triggerSync, setIsSettingsOpen, success]);
+  }, [isWaitingOAuth, accounts, refreshAccounts, setActiveAccountId, refreshEmails, refreshStats, triggerSync, success]);
 
   const handleStartGoogleOAuth = async () => {
     setIsSavingOAuth(true);

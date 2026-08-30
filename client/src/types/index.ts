@@ -139,7 +139,7 @@ export interface FolderStat {
   unreadCount: number;
 }
 
-export type ViewLayout = 'split-3-column' | 'split-horizontal' | 'compact';
+export type ViewLayout = 'split-3-column' | 'split-2-column' | 'split-horizontal';
 export type MainTab = 'mail' | 'calendar' | 'contacts' | 'settings';
 
 export type Theme =

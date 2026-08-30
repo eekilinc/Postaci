@@ -51,6 +51,7 @@ export const EmailList: React.FC = () => {
     activeFolder,
     activeLabel,
     triggerSync,
+    viewLayout,
   } = useMail();
 
   const [hoveredEmailId, setHoveredEmailId] = useState<string | null>(null);
@@ -108,13 +109,17 @@ export const EmailList: React.FC = () => {
 
   return (
     <section style={{
-      width: '380px',
-      height: '100%',
+      width: viewLayout === 'split-3-column' ? '380px' : '100%',
+      height: viewLayout === 'split-horizontal' ? '42%' : '100%',
+      minHeight: viewLayout === 'split-horizontal' ? '220px' : undefined,
+      maxHeight: viewLayout === 'split-horizontal' ? '50%' : undefined,
+      flex: viewLayout === 'split-2-column' ? 1 : undefined,
       backgroundColor: 'var(--bg-primary)',
-      borderRight: '1px solid var(--border-subtle)',
-      display: 'flex',
+      borderRight: viewLayout === 'split-3-column' ? '1px solid var(--border-subtle)' : 'none',
+      borderBottom: viewLayout === 'split-horizontal' ? '1px solid var(--border-subtle)' : 'none',
+      display: viewLayout === 'split-2-column' && selectedEmailId ? 'none' : 'flex',
       flexDirection: 'column',
-      flexShrink: 0,
+      flexShrink: viewLayout === 'split-2-column' ? undefined : 0,
       userSelect: 'none',
     }}>
       {/* Search Bar Header */}

@@ -48,7 +48,7 @@ interface MailContextType {
   refreshEmails: () => Promise<void>;
   refreshAccounts: () => Promise<void>;
   refreshStats: () => Promise<void>;
-  selectEmail: (id: string) => void;
+  selectEmail: (id: string | null) => void;
   nextEmail: () => void;
   prevEmail: () => void;
   toggleRead: (id: string, currentStatus: boolean) => Promise<void>;
@@ -84,7 +84,11 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'starred' | 'has_attachment'>('all');
-  const [viewLayout, setViewLayout] = useState<ViewLayout>('split-3-column');
+  const [viewLayout, setViewLayoutState] = useState<ViewLayout>(() => (localStorage.getItem('postaci_view_layout') as ViewLayout) || 'split-3-column');
+  const setViewLayout = useCallback((layout: ViewLayout) => {
+    setViewLayoutState(layout);
+    localStorage.setItem('postaci_view_layout', layout);
+  }, []);
   const [mainTab, setMainTab] = useState<MainTab>('mail');
 
   const [isComposerOpen, setIsComposerOpen] = useState<boolean>(false);
@@ -407,7 +411,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const selectEmail = (id: string) => {
+  const selectEmail = (id: string | null) => {
     setSelectedEmailId(id);
   };
 

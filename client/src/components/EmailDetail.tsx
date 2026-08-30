@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+  ArrowLeft,
   Reply,
   ReplyAll,
   Forward,
@@ -48,6 +49,8 @@ export const EmailDetail: React.FC = () => {
     markAsSpam,
     openReply,
     openForward,
+    viewLayout,
+    selectEmail,
   } = useMail();
 
   const { theme } = useTheme();
@@ -98,6 +101,8 @@ export const EmailDetail: React.FC = () => {
   }, [selectedEmail]);
 
   if (!selectedEmail) {
+    if (viewLayout === 'split-2-column') return null;
+
     return (
       <main style={{
         flex: 1,
@@ -261,7 +266,8 @@ export const EmailDetail: React.FC = () => {
   return (
     <main style={{
       flex: 1,
-      height: '100%',
+      width: '100%',
+      height: viewLayout === 'split-horizontal' ? '58%' : '100%',
       backgroundColor: 'var(--bg-primary)',
       display: 'flex',
       flexDirection: 'column',
@@ -277,6 +283,30 @@ export const EmailDetail: React.FC = () => {
         backgroundColor: 'var(--bg-secondary)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {viewLayout === 'split-2-column' && (
+            <button
+              onClick={() => selectEmail(null)}
+              title="Listeye Dön (Esc)"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-medium)',
+                backgroundColor: 'var(--bg-tertiary)',
+                color: 'var(--accent-primary)',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                marginRight: '6px',
+              }}
+            >
+              <ArrowLeft size={15} />
+              <span>Listeye Dön</span>
+            </button>
+          )}
+
           <button
             onClick={() => openReply(selectedEmail)}
             title="Yanıtla (r)"
