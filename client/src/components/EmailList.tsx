@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Search,
   Star,
@@ -30,6 +30,7 @@ export const EmailList: React.FC = () => {
     selectEmail,
     checkedEmailIds,
     toggleEmailCheck,
+    setCheckedRange,
     selectAllEmails,
     clearCheckedEmails,
     searchQuery,
@@ -53,17 +54,24 @@ export const EmailList: React.FC = () => {
   } = useMail();
 
   const [hoveredEmailId, setHoveredEmailId] = useState<string | null>(null);
+  const lastCheckedIdRef = useRef<string | null>(null);
 
   const formatEmailDate = (dateStr: string) => {
     try {
+      if (!dateStr) return '';
       const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return '';
       if (isToday(d)) {
         return format(d, 'HH:mm');
       }
       if (isYesterday(d)) {
         return 'Dün';
       }
-      return format(d, 'd MMM', { locale: tr });
+      const currentYear = new Date().getFullYear();
+      if (d.getFullYear() === currentYear) {
+        return format(d, 'd MMM', { locale: tr });
+      }
+      return format(d, 'd MMM yyyy', { locale: tr });
     } catch {
       return '';
     }
@@ -375,7 +383,7 @@ export const EmailList: React.FC = () => {
           </div>
         )}
 
-        {emails.map(email => {
+        {emails.map((email, index) => {
           const isSelected = email.id === selectedEmailId;
           const isChecked = checkedEmailIds.has(email.id);
           const isHovered = hoveredEmailId === email.id;
@@ -391,7 +399,27 @@ export const EmailList: React.FC = () => {
                 e.dataTransfer.setData('text/plain', JSON.stringify(idsToDrag));
                 e.dataTransfer.effectAllowed = 'move';
               }}
-              onClick={() => selectEmail(email.id)}
+              onClick={(e) => {
+                if (e.shiftKey && lastCheckedIdRef.current) {
+                  e.preventDefault();
+                  const startIdx = emails.findIndex(em => em.id === lastCheckedIdRef.current);
+                  const endIdx = index;
+                  if (startIdx !== -1 && endIdx !== -1) {
+                    const [minI, maxI] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
+                    const rangeIds = emails.slice(minI, maxI + 1).map(em => em.id);
+                    setCheckedRange(rangeIds);
+                    return;
+                  }
+                }
+                if (e.ctrlKey || e.metaKey) {
+                  e.preventDefault();
+                  toggleEmailCheck(email.id);
+                  lastCheckedIdRef.current = email.id;
+                  return;
+                }
+                lastCheckedIdRef.current = email.id;
+                selectEmail(email.id);
+              }}
               onMouseEnter={() => setHoveredEmailId(email.id)}
               onMouseLeave={() => setHoveredEmailId(null)}
               className={`glass-card ${isSelected ? 'animate-fade-in' : ''}`}
@@ -399,50 +427,74 @@ export const EmailList: React.FC = () => {
                 position: 'relative',
                 padding: '10px 12px',
                 marginBottom: '4px',
-                backgroundColor: isSelected ? 'var(--bg-active)' : 'var(--bg-secondary)',
-                borderColor: isSelected ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                backgroundColor: isChecked ? 'rgba(59, 130, 246, 0.08)' : isSelected ? 'var(--bg-active)' : 'var(--bg-secondary)',
+                borderColor: isChecked ? 'var(--accent-primary)' : isSelected ? 'var(--accent-primary)' : 'var(--border-subtle)',
                 borderRadius: 'var(--radius-md)',
-                cursor: 'grab',
-                borderLeft: !email.isRead ? '3px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                cursor: 'pointer',
+                borderLeft: isChecked ? '3px solid var(--accent-primary)' : !email.isRead ? '3px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
                 transition: 'all 0.15s ease',
               }}
             >
               {/* Top Row: Sender, Monogram Avatar, Date, Star, Selection, Pin */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                  {/* Select Checkbox or Monogram Avatar on hover */}
+                  {/* Dedicated Selection Checkbox */}
                   <div
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (e.shiftKey && lastCheckedIdRef.current) {
+                        const startIdx = emails.findIndex(em => em.id === lastCheckedIdRef.current);
+                        const endIdx = index;
+                        if (startIdx !== -1 && endIdx !== -1) {
+                          const [minI, maxI] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
+                          const rangeIds = emails.slice(minI, maxI + 1).map(em => em.id);
+                          setCheckedRange(rangeIds);
+                          return;
+                        }
+                      }
+                      lastCheckedIdRef.current = email.id;
                       toggleEmailCheck(email.id);
                     }}
-                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                    title="Seç / Çoklu Seç (Shift ile aralık seçebilir, Del ile silebilirsiniz)"
+                    style={{
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '4px',
+                      transition: 'all 0.15s ease',
+                      opacity: isChecked || isHovered || checkedEmailIds.size > 0 ? 1 : 0.4,
+                    }}
                   >
                     {isChecked ? (
-                      <CheckSquare size={16} color="var(--accent-primary)" />
-                    ) : isHovered ? (
-                      <Square size={16} color="var(--text-muted)" />
+                      <CheckSquare size={17} color="var(--accent-primary)" />
                     ) : (
-                      <div
-                        style={{
-                          width: '26px',
-                          height: '26px',
-                          borderRadius: '50%',
-                          background: getAvatarGradient(email.fromEmail || email.fromName),
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '10px',
-                          fontWeight: 700,
-                          color: '#ffffff',
-                          flexShrink: 0,
-                          boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
-                          border: '1px solid rgba(255,255,255,0.15)',
-                        }}
-                      >
-                        {getInitials(email.fromName || email.fromEmail)}
-                      </div>
+                      <Square size={17} color={isHovered ? "var(--text-primary)" : "var(--text-muted)"} />
                     )}
+                  </div>
+
+                  {/* Monogram Avatar */}
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: getAvatarGradient(email.fromEmail || email.fromName),
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: '#ffffff',
+                      flexShrink: 0,
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                    }}
+                  >
+                    {getInitials(email.fromName || email.fromEmail)}
                   </div>
 
                   <span style={{

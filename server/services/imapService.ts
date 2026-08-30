@@ -10,6 +10,16 @@ import { APP_VERSION } from '../version.js';
 
 const resolveMxAsync = promisify(dns.resolveMx);
 
+function parseSafeIsoDate(raw: any): string {
+  if (!raw) return new Date().toISOString();
+  if (raw instanceof Date && !isNaN(raw.getTime())) return raw.toISOString();
+  try {
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  } catch {}
+  return new Date().toISOString();
+}
+
 export interface MailboxState {
   uidValidity?: bigint | number;
   highestKnownUid: number;
@@ -977,8 +987,7 @@ export class ImapService {
                       const fromName = env?.from?.[0]?.name || env?.from?.[0]?.address || 'Bilinmeyen Gönderici';
                       const fromEmail = env?.from?.[0]?.address || 'unknown@example.com';
                       const subject = env?.subject || '(Konusuz)';
-                      const rawDate = env?.date || message.internalDate || new Date();
-                      const date = rawDate instanceof Date ? rawDate.toISOString() : new Date(rawDate).toISOString();
+                      const date = parseSafeIsoDate(env?.date || message.internalDate);
                       const snippet = subject.substring(0, 150);
 
                       const to = (env?.to || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
@@ -1098,8 +1107,7 @@ export class ImapService {
                     const fromName = env?.from?.[0]?.name || env?.from?.[0]?.address || 'Bilinmeyen Gönderici';
                     const fromEmail = env?.from?.[0]?.address || 'unknown@example.com';
                     const subject = env?.subject || '(Konusuz)';
-                    const rawDate = env?.date || message.internalDate || new Date();
-                    const date = rawDate instanceof Date ? rawDate.toISOString() : new Date(rawDate).toISOString();
+                    const date = parseSafeIsoDate(env?.date || message.internalDate);
                     const snippet = subject.substring(0, 150);
 
                     const to = (env?.to || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
@@ -1372,8 +1380,7 @@ export class ImapService {
                   const fromName = env?.from?.[0]?.name || env?.from?.[0]?.address || 'Bilinmeyen Gönderici';
                   const fromEmail = env?.from?.[0]?.address || 'unknown@example.com';
                   const subject = env?.subject || '(Konusuz)';
-                  const rawDate = env?.date || message.internalDate || new Date();
-                  const date = rawDate instanceof Date ? rawDate.toISOString() : new Date(rawDate).toISOString();
+                  const date = parseSafeIsoDate(env?.date || message.internalDate);
                   const snippet = subject.substring(0, 150);
 
                   const to = (env?.to || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));

@@ -812,7 +812,13 @@ export function getEmails(params: {
         if (!inSub && !inSender && !inText) return false;
       }
       return true;
-    }).slice(0, 300).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(e => {
+    }).sort((a, b) => {
+      const ta = !a.date ? 0 : (isNaN(new Date(a.date).getTime()) ? 0 : new Date(a.date).getTime());
+      const tb = !b.date ? 0 : (isNaN(new Date(b.date).getTime()) ? 0 : new Date(b.date).getTime());
+      const diff = tb - ta;
+      if (diff !== 0) return diff;
+      return (b.imapUid || 0) - (a.imapUid || 0);
+    }).slice(0, 500).map(e => {
       const acc = memStore.accounts.find(a => a.id === e.accountId);
       return {
         ...e,
@@ -879,7 +885,7 @@ export function getEmails(params: {
     conditions.push(s, s, s, s, s);
   }
 
-  query += ' ORDER BY emails.date DESC LIMIT 300';
+  query += ' ORDER BY emails.date DESC, emails.imapUid DESC LIMIT 500';
 
   const rows = db.prepare(query).all(...conditions) as any[];
   return rows.map(r => parseEmailRow(r, true));

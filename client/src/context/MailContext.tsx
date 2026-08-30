@@ -19,6 +19,7 @@ interface MailContextType {
   threadEmails: Email[];
   checkedEmailIds: Set<string>;
   toggleEmailCheck: (id: string) => void;
+  setCheckedRange: (ids: string[]) => void;
   selectAllEmails: () => void;
   clearCheckedEmails: () => void;
   searchQuery: string;
@@ -161,11 +162,19 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Filter by attachment if requested
       const filtered = filter === 'has_attachment' ? data.filter(e => e.attachments && e.attachments.length > 0) : data;
       
-      // Sort pinned emails to the top
+      const getTime = (d: any) => {
+        if (!d) return 0;
+        const t = new Date(d).getTime();
+        return isNaN(t) ? 0 : t;
+      };
+
+      // Sort pinned emails to top, then strictly newest date first, then highest imapUid
       const sorted = [...filtered].sort((a, b) => {
         if (a.isPinned && !b.isPinned) return -1;
         if (!a.isPinned && b.isPinned) return 1;
-        return new Date(b.date).getTime() - new Date(a.date).getTime();
+        const diff = getTime(b.date) - getTime(a.date);
+        if (diff !== 0) return diff;
+        return (b.imapUid || 0) - (a.imapUid || 0);
       });
 
       folderCacheRef.current.set(cacheKey, sorted);
@@ -650,6 +659,14 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const setCheckedRange = (ids: string[]) => {
+    setCheckedEmailIds(prev => {
+      const next = new Set(prev);
+      ids.forEach(id => next.add(id));
+      return next;
+    });
+  };
+
   const selectAllEmails = () => {
     if (checkedEmailIds.size === emails.length) {
       setCheckedEmailIds(new Set());
@@ -1051,6 +1068,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         threadEmails,
         checkedEmailIds,
         toggleEmailCheck,
+        setCheckedRange,
         selectAllEmails,
         clearCheckedEmails,
         searchQuery,
