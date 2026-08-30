@@ -53,6 +53,8 @@ export const Sidebar: React.FC = () => {
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
 
   const activeAccount = accounts.find(a => a.id === activeAccountId);
+  const totalUnread = accounts.reduce((acc, a) => acc + (a.unreadCount || 0), 0);
+  const currentAccountUnread = activeAccountId === 'all' ? totalUnread : (activeAccount?.unreadCount || 0);
 
   const getFolderIcon = (iconName: string) => {
     switch (iconName) {
@@ -178,7 +180,21 @@ export const Sidebar: React.FC = () => {
               {activeAccountId === 'all' ? 'Tüm Hesaplar (Birleşik)' : activeAccount?.name || 'Hesap Seçin'}
             </span>
           </div>
-          <ChevronDown size={14} color="var(--text-muted)" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {currentAccountUnread > 0 && (
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                background: 'var(--accent-primary)',
+                color: 'white',
+                padding: '1px 6px',
+                borderRadius: '999px',
+              }}>
+                {currentAccountUnread}
+              </span>
+            )}
+            <ChevronDown size={14} color="var(--text-muted)" />
+          </div>
         </button>
 
         {isAccountDropdownOpen && (
@@ -220,6 +236,18 @@ export const Sidebar: React.FC = () => {
                 <Layers size={15} />
                 <span>Birleşik Gelen Kutusu</span>
               </div>
+              {totalUnread > 0 && (
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  background: 'var(--accent-primary)',
+                  color: 'white',
+                  padding: '1px 6px',
+                  borderRadius: '999px',
+                }}>
+                  {totalUnread}
+                </span>
+              )}
             </button>
 
             {accounts.map(acc => (

@@ -118,11 +118,17 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Load Folder Stats
+  // Load Folder Stats & Accounts in parallel
   const refreshStats = useCallback(async () => {
     try {
-      const stats = await api.getFolderStats(activeAccountId !== 'all' ? activeAccountId : undefined);
+      const [stats, accs] = await Promise.all([
+        api.getFolderStats(activeAccountId !== 'all' ? activeAccountId : undefined),
+        api.getAccounts().catch(() => null)
+      ]);
       setFolderStats(stats);
+      if (accs && Array.isArray(accs)) {
+        setAccounts(accs);
+      }
     } catch (err) {
       console.error('Error fetching folder stats:', err);
     }
@@ -456,14 +462,28 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, []);
 
+  const adjustAccountUnread = useCallback((accountId?: string, unreadDelta?: number) => {
+    if (!accountId || unreadDelta === undefined || unreadDelta === 0) return;
+    setAccounts(prev => prev.map(a => {
+      if (a.id === accountId) {
+        return { ...a, unreadCount: Math.max(0, (a.unreadCount || 0) + unreadDelta) };
+      }
+      return a;
+    }));
+  }, []);
+
   const toggleRead = async (id: string, currentStatus: boolean) => {
     const newStatus = !currentStatus;
+    const cur = emails.find(e => e.id === id);
     setEmails(prev => prev.map(e => (e.id === id ? { ...e, isRead: newStatus } : e)));
     
     // 0ms instant stats adjustment
     adjustFolderStats([
       { folder: activeFolder, countDelta: 0, unreadDelta: newStatus ? -1 : 1 }
     ]);
+    if (cur?.accountId && (cur.folder === 'INBOX' || activeFolder === 'INBOX')) {
+      adjustAccountUnread(cur.accountId, newStatus ? -1 : 1);
+    }
 
     await api.updateEmailFlags(id, { isRead: newStatus });
     refreshStats();
@@ -521,6 +541,9 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       { folder: srcFolder, countDelta: -1, unreadDelta: wasUnread ? -1 : 0 },
       { folder: 'ARCHIVE', countDelta: 1, unreadDelta: wasUnread ? 1 : 0 },
     ]);
+    if (cur?.accountId && wasUnread && (srcFolder === 'INBOX' || activeFolder === 'INBOX')) {
+      adjustAccountUnread(cur.accountId, -1);
+    }
 
     success('İleti arşive taşındı.');
 
@@ -567,6 +590,9 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       adjustFolderStats(adjs);
     }
+    if (cur?.accountId && wasUnread && (srcFolder === 'INBOX' || activeFolder === 'INBOX')) {
+      adjustAccountUnread(cur.accountId, -1);
+    }
 
     success(isAlreadyTrash ? 'İleti kalıcı olarak silindi.' : 'İleti çöp kutusuna taşındı.');
 
@@ -606,6 +632,20 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       { folder: activeFolder, countDelta: -idList.length, unreadDelta: -unreadCount },
       { folder: targetFolder, countDelta: idList.length, unreadDelta: unreadCount },
     ]);
+
+    if (activeFolder === 'INBOX' && targetFolder !== 'INBOX') {
+      for (const item of selectedItems) {
+        if (!item.isRead && item.accountId) {
+          adjustAccountUnread(item.accountId, -1);
+        }
+      }
+    } else if (activeFolder !== 'INBOX' && targetFolder === 'INBOX') {
+      for (const item of selectedItems) {
+        if (!item.isRead && item.accountId) {
+          adjustAccountUnread(item.accountId, 1);
+        }
+      }
+    }
 
     clearCheckedEmails();
 
@@ -651,6 +691,9 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       { folder: activeFolder, countDelta: -1, unreadDelta: wasUnread ? -1 : 0 },
       { folder: 'SPAM', countDelta: 1, unreadDelta: wasUnread ? 1 : 0 },
     ]);
+    if (cur?.accountId && wasUnread && (activeFolder === 'INBOX' || cur.folder === 'INBOX')) {
+      adjustAccountUnread(cur.accountId, -1);
+    }
 
     info('İleti spam olarak işaretlendi.');
 
@@ -710,6 +753,13 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       { folder: activeFolder, countDelta: -ids.length, unreadDelta: -unreadCount },
       { folder: 'ARCHIVE', countDelta: ids.length, unreadDelta: unreadCount },
     ]);
+    if (activeFolder === 'INBOX') {
+      for (const item of selectedItems) {
+        if (!item.isRead && item.accountId) {
+          adjustAccountUnread(item.accountId, -1);
+        }
+      }
+    }
 
     success(`${ids.length} e-posta arşivlendi.`);
 
@@ -744,6 +794,13 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         { folder: activeFolder, countDelta: -ids.length, unreadDelta: -unreadCount },
         { folder: 'TRASH', countDelta: ids.length, unreadDelta: unreadCount },
       ]);
+    }
+    if (activeFolder === 'INBOX') {
+      for (const item of selectedItems) {
+        if (!item.isRead && item.accountId) {
+          adjustAccountUnread(item.accountId, -1);
+        }
+      }
     }
 
     success(isTrash ? `${ids.length} e-posta kalıcı olarak silindi.` : `${ids.length} e-posta çöp kutusuna taşındı.`);
@@ -792,6 +849,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (checkedEmailIds.size === 0) return;
     const ids = Array.from(checkedEmailIds);
     const idSet = new Set(ids);
+    const selectedItems = emails.filter(e => idSet.has(e.id));
 
     setEmails(prev => prev.map(e => idSet.has(e.id) ? { ...e, isRead: read } : e));
     
@@ -799,6 +857,13 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     adjustFolderStats([
       { folder: activeFolder, countDelta: 0, unreadDelta: read ? -ids.length : ids.length }
     ]);
+    if (activeFolder === 'INBOX') {
+      for (const item of selectedItems) {
+        if (item.isRead !== read && item.accountId) {
+          adjustAccountUnread(item.accountId, read ? -1 : 1);
+        }
+      }
+    }
 
     success(`${ids.length} e-posta ${read ? 'okundu' : 'okunmadı'} olarak işaretlendi.`);
 

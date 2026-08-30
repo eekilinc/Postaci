@@ -1052,6 +1052,12 @@ export class ImapService {
               let prunedCount = 0;
               if (allUids.length > 0) {
                 prunedCount = pruneMissingServerUids(account.id, mb.path, allUids, minUid, targetFolder);
+                try {
+                  const unseenUids = await client.search({ seen: false }, { uid: true });
+                  if (Array.isArray(unseenUids)) {
+                    syncFolderReadFlags(account.id, targetFolder, unseenUids, allUids, minUid);
+                  }
+                } catch {}
               } else if (currentExists === 0) {
                 prunedCount = pruneMissingServerUids(account.id, mb.path, [], 1, targetFolder);
               }
@@ -1475,6 +1481,12 @@ export class ImapService {
         const minUid = latestUids[0] || 1;
         if (latestUids.length > 0) {
           pruneMissingServerUids(account.id, resolvedPath, latestUids, minUid, targetFolder);
+          try {
+            const unseenUids = await client.search({ seen: false }, { uid: true });
+            if (Array.isArray(unseenUids)) {
+              syncFolderReadFlags(account.id, targetFolder, unseenUids, latestUids, minUid);
+            }
+          } catch {}
         } else {
           pruneMissingServerUids(account.id, resolvedPath, [], 1, targetFolder);
         }

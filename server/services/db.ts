@@ -459,15 +459,23 @@ function seedDemoData() {
 // ----------------- ACCOUNTS -----------------
 export function getAccounts(): Account[] {
   if (!isNativeSqlite) {
-    return memStore.accounts.map(a => ({
-      ...a,
-      unreadCount: memStore.emails.filter(e => e.accountId === a.id && !e.isRead && e.folder === 'INBOX').length
-    }));
+    return memStore.accounts.map(a => {
+      const unread = memStore.emails.filter(e =>
+        e.accountId === a.id &&
+        !e.isRead &&
+        (e.folder === 'INBOX' || (e.folder && e.folder.toUpperCase() === 'INBOX')) &&
+        !e.isDeleted
+      ).length;
+      return {
+        ...a,
+        unreadCount: unread
+      };
+    });
   }
 
   const rows = db.prepare('SELECT * FROM accounts ORDER BY isDefault DESC, name ASC').all() as any[];
   return rows.map(r => {
-    const unread = (db.prepare("SELECT COUNT(*) as c FROM emails WHERE accountId = ? AND isRead = 0 AND folder = 'INBOX' AND isDeleted = 0").get(r.id) as any)?.c || 0;
+    const unread = (db.prepare("SELECT COUNT(*) as c FROM emails WHERE accountId = ? AND isRead = 0 AND (folder = 'INBOX' OR UPPER(folder) = 'INBOX') AND isDeleted = 0").get(r.id) as any)?.c || 0;
     return {
       ...r,
       isDefault: Boolean(r.isDefault),
@@ -480,15 +488,25 @@ export function getAccounts(): Account[] {
 
 export function getAccountById(id: string): Account | undefined {
   if (!isNativeSqlite) {
-    return memStore.accounts.find(a => a.id === id);
+    const a = memStore.accounts.find(acc => acc.id === id);
+    if (!a) return undefined;
+    const unread = memStore.emails.filter(e =>
+      e.accountId === a.id &&
+      !e.isRead &&
+      (e.folder === 'INBOX' || (e.folder && e.folder.toUpperCase() === 'INBOX')) &&
+      !e.isDeleted
+    ).length;
+    return { ...a, unreadCount: unread };
   }
   const r = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) as any;
   if (!r) return undefined;
+  const unread = (db.prepare("SELECT COUNT(*) as c FROM emails WHERE accountId = ? AND isRead = 0 AND (folder = 'INBOX' OR UPPER(folder) = 'INBOX') AND isDeleted = 0").get(r.id) as any)?.c || 0;
   return {
     ...r,
     isDefault: Boolean(r.isDefault),
     imapSecure: Boolean(r.imapSecure),
-    smtpSecure: Boolean(r.smtpSecure)
+    smtpSecure: Boolean(r.smtpSecure),
+    unreadCount: unread
   };
 }
 
@@ -1369,8 +1387,28 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
   if (!isNativeSqlite) {
     const newEmails: Email[] = [];
     for (const email of validEmails) {
+      if (isFromImapSync && isDeletedLocally(email.id, email.messageId, email.accountId, email.imapUid, email.mailboxPath)) {
+        continue;
+      }
       const idx = memStore.emails.findIndex(e => e.id === email.id || (email.messageId && e.messageId === email.messageId && e.accountId === email.accountId));
       if (idx !== -1) {
+        const existing = memStore.emails[idx];
+        if (isFromImapSync) {
+          if (existing.folder === 'TRASH' || existing.isDeleted) {
+            if (email.folder !== 'TRASH' && !email.isDeleted) {
+              continue;
+            }
+            email.folder = 'TRASH';
+            email.isDeleted = true;
+          }
+          if (existing.folder === 'ARCHIVE' || existing.isArchived) {
+            email.folder = 'ARCHIVE';
+            email.isArchived = true;
+          } else if (existing.folder === 'SPAM' || existing.isSpam) {
+            email.folder = 'SPAM';
+            email.isSpam = true;
+          }
+        }
         memStore.emails[idx] = { ...memStore.emails[idx], ...email };
       } else {
         memStore.emails.unshift(email);
