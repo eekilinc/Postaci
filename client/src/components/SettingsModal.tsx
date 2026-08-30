@@ -645,7 +645,7 @@ export const SettingsModal: React.FC = () => {
         success('Hesap ayarları güncellendi.');
       } else {
         const created = await api.createAccount(accountData);
-        success('Yeni hesap başarıyla eklendi.');
+        success('Yeni hesap eklendi. İlk senkronizasyon arka planda başlatıldı...');
         if (created && created.id) {
           setActiveAccountId(created.id);
         }

@@ -1,7 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { Account, Email, Attachment } from '../types.js';
-import { saveEmail, saveEmailWithStatus, getAccounts, getAccountById, getEmailById, isDeletedLocally, registerServerFolder, pruneMissingServerUids, updateEmailFlags, syncFolderReadFlags, saveEmailsBatch, updateEmailBody } from './db.js';
+import { saveEmail, saveEmailWithStatus, getAccounts, getAccountById, getEmailById, isDeletedLocally, registerServerFolder, pruneMissingServerUids, updateEmailFlags, syncFolderReadFlags, saveEmailsBatch, updateEmailBody, getEmailMaxUid } from './db.js';
 import { OAuthService } from './oauthService.js';
 import { v4 as uuidv4 } from 'uuid';
 import dns from 'dns';
@@ -9,7 +9,66 @@ import { promisify } from 'util';
 
 const resolveMxAsync = promisify(dns.resolveMx);
 
+export interface MailboxState {
+  uidValidity?: bigint | number;
+  highestKnownUid: number;
+  uidNext?: number;
+  exists?: number;
+  lastSyncedAt: number;
+}
+
 export class ImapService {
+  private static clientPool = new Map<string, { client: ImapFlow; lastUsed: number }>();
+  private static mailboxStates = new Map<string, MailboxState>();
+  private static mailboxListCache = new Map<string, { mailboxes: any[]; cachedAt: number }>();
+
+  public static async getOrCreateClient(account: Account): Promise<ImapFlow> {
+    const pooled = this.clientPool.get(account.id);
+    if (pooled && pooled.client && pooled.client.authenticated && pooled.client.usable) {
+      pooled.lastUsed = Date.now();
+      return pooled.client;
+    }
+
+    if (pooled) {
+      try {
+        await pooled.client.logout().catch(() => {});
+      } catch {}
+      this.clientPool.delete(account.id);
+    }
+
+    const client = await this.connectClient(account);
+    this.clientPool.set(account.id, { client, lastUsed: Date.now() });
+
+    client.on('close', () => {
+      const cur = this.clientPool.get(account.id);
+      if (cur && cur.client === client) {
+        this.clientPool.delete(account.id);
+      }
+    });
+
+    return client;
+  }
+
+  public static async closeAccountClient(accountId: string) {
+    const pooled = this.clientPool.get(accountId);
+    if (pooled) {
+      this.clientPool.delete(accountId);
+      try {
+        await pooled.client.logout().catch(() => {});
+      } catch {}
+    }
+  }
+
+  public static clearAccountCache(accountId: string) {
+    this.mailboxListCache.delete(accountId);
+    for (const key of this.mailboxStates.keys()) {
+      if (key.startsWith(`${accountId}:::`)) {
+        this.mailboxStates.delete(key);
+      }
+    }
+    this.closeAccountClient(accountId);
+  }
+
   public static async connectClient(account: Account): Promise<ImapFlow> {
     if (account.authType === 'oauth2') {
       const accessToken = await OAuthService.refreshGoogleToken(account);
@@ -756,32 +815,39 @@ export class ImapService {
     }
     this.syncingAccounts.add(accountId);
 
-    let client: ImapFlow | null = null;
     let syncedCount = 0;
 
     try {
-      client = await this.connectClient(account);
-
-      // Fetch all mailboxes from server
-      const mailboxes = await client.list();
-
-      // Register all mailboxes in database for UI folders sidebar
-      for (const mb of mailboxes) {
-        const { folder: targetFolder, isCustom, cleanName } = this.mapMailboxToFolder(mb);
-        if (isCustom) {
-          registerServerFolder({
-            id: `folder-${account.id}-${mb.path}`,
-            accountId: account.id,
-            path: mb.path,
-            name: cleanName,
-            folderKey: targetFolder,
-            delimiter: mb.delimiter,
-            specialUse: mb.specialUse
-          });
-        }
-      }
+      const client = await this.getOrCreateClient(account);
 
       const onlyInbox = options?.onlyInbox ?? false;
+      const isFullSync = !onlyInbox;
+
+      // 1. Mailbox list caching (cache for 3 minutes on fast sync, refresh on full sync)
+      let mailboxes: any[] = [];
+      const cachedList = this.mailboxListCache.get(account.id);
+      if (cachedList && Date.now() - cachedList.cachedAt < 180000 && !isFullSync) {
+        mailboxes = cachedList.mailboxes;
+      } else {
+        mailboxes = await client.list();
+        this.mailboxListCache.set(account.id, { mailboxes, cachedAt: Date.now() });
+
+        // Register all mailboxes in database for UI folders sidebar
+        for (const mb of mailboxes) {
+          const { folder: targetFolder, isCustom, cleanName } = this.mapMailboxToFolder(mb);
+          if (isCustom) {
+            registerServerFolder({
+              id: `folder-${account.id}-${mb.path}`,
+              accountId: account.id,
+              path: mb.path,
+              name: cleanName,
+              folderKey: targetFolder,
+              delimiter: mb.delimiter,
+              specialUse: mb.specialUse
+            });
+          }
+        }
+      }
 
       // Prioritize core standard mailboxes (INBOX first, then Sent, Trash, Drafts, Junk, Spam)
       const isCore = (mb: any) => {
@@ -809,60 +875,96 @@ export class ImapService {
         try {
           const lock = await client.getMailboxLock(mb.path);
           try {
-            // 1. Search for all UNSEEN (unread & undeleted) message UIDs
-            let unseenUids: number[] = [];
-            try {
-              const unseenSearchResult = await client.search({ seen: false, deleted: false }, { uid: true });
-              if (Array.isArray(unseenSearchResult)) unseenUids = unseenSearchResult;
-            } catch {
-              try {
-                const res = await client.search({ seen: false }, { uid: true });
-                if (Array.isArray(res)) unseenUids = res;
-              } catch (unseenErr) {
-                console.warn(`Unseen search on mailbox ${mb.path} failed:`, unseenErr);
-              }
+            const stateKey = `${account.id}:::${mb.path}`;
+            let state = this.mailboxStates.get(stateKey);
+
+            const mbObj: any = client.mailbox;
+            const currentValidity = mbObj ? mbObj.uidValidity : undefined;
+            const currentUidNext = mbObj ? (mbObj.uidNext || 0) : 0;
+            const currentExists = mbObj ? (mbObj.exists || 0) : 0;
+
+            if (!state) {
+              const maxUid = getEmailMaxUid(account.id, mb.path);
+              state = {
+                uidValidity: currentValidity,
+                highestKnownUid: maxUid,
+                uidNext: currentUidNext,
+                exists: currentExists,
+                lastSyncedAt: Date.now()
+              };
+              this.mailboxStates.set(stateKey, state);
             }
 
-            // 2. Search for all active message UIDs (undeleted)
+            const isValidityChanged = state.uidValidity && currentValidity && String(state.uidValidity) !== String(currentValidity);
+
+            // Fast Incremental Check: If not full sync, validity is same, exists count is same, and uidNext hasn't increased
+            if (!isFullSync && !isValidityChanged && state.highestKnownUid > 0 && currentUidNext > 0 && currentUidNext <= state.highestKnownUid + 1 && currentExists === state.exists) {
+              // Nothing changed on server! Finish instantly (< 10ms)
+              continue;
+            }
+
+            // Determine UIDs to fetch
+            let targetUidsToFetch: number[] = [];
+            let minUid = 1;
             let allUids: number[] = [];
-            try {
-              const searchResult = await client.search({ deleted: false }, { uid: true });
-              if (Array.isArray(searchResult)) allUids = searchResult;
-            } catch {
+
+            // Incremental fetch: if only a few new emails arrived since last highest UID
+            if (!isFullSync && !isValidityChanged && state.highestKnownUid > 0 && currentUidNext > state.highestKnownUid + 1) {
               try {
-                const res = await client.search({ all: true }, { uid: true });
-                if (Array.isArray(res)) allUids = res;
-              } catch (searchErr) {
-                console.warn(`UID search on mailbox ${mb.path} failed:`, searchErr);
+                const newUids = await client.search({ uid: `${state.highestKnownUid + 1}:*`, deleted: false }, { uid: true });
+                if (Array.isArray(newUids) && newUids.length > 0) {
+                  targetUidsToFetch = newUids.sort((a, b) => a - b);
+                  minUid = targetUidsToFetch[0];
+                }
+              } catch {}
+            }
+
+            // Fallback to standard search if incremental didn't apply or on full sync
+            if (targetUidsToFetch.length === 0) {
+              try {
+                const searchResult = await client.search({ deleted: false }, { uid: true });
+                if (Array.isArray(searchResult)) allUids = searchResult;
+              } catch {
+                try {
+                  const res = await client.search({ all: true }, { uid: true });
+                  if (Array.isArray(res)) allUids = res;
+                } catch (searchErr) {
+                  console.warn(`UID search on mailbox ${mb.path} failed:`, searchErr);
+                }
               }
-            }
 
-            let fetchLimit = 300;
-            if (mb.path.toUpperCase() === 'INBOX' || targetFolder === 'INBOX') {
-              fetchLimit = 500;
-            } else if (targetFolder === 'SENT') {
-              fetchLimit = 200;
-            } else if (targetFolder === 'TRASH' || targetFolder === 'DRAFTS' || targetFolder === 'SPAM') {
-              fetchLimit = 100;
-            }
+              let fetchLimit = 300;
+              if (mb.path.toUpperCase() === 'INBOX' || targetFolder === 'INBOX') {
+                fetchLimit = 500;
+              } else if (targetFolder === 'SENT') {
+                fetchLimit = 200;
+              } else if (targetFolder === 'TRASH' || targetFolder === 'DRAFTS' || targetFolder === 'SPAM') {
+                fetchLimit = 100;
+              }
 
-            const recentUids = allUids.slice(-fetchLimit);
-            const targetUidsToFetch = Array.from(new Set([...recentUids, ...unseenUids])).sort((a, b) => a - b);
-            const minUid = targetUidsToFetch.length > 0 ? targetUidsToFetch[0] : (allUids.length > 0 ? allUids[0] : 1);
+              const recentUids = allUids.slice(-fetchLimit);
+              targetUidsToFetch = recentUids.sort((a, b) => a - b);
+              minUid = targetUidsToFetch.length > 0 ? targetUidsToFetch[0] : (allUids.length > 0 ? allUids[0] : 1);
 
-            // Prune messages locally that were deleted or moved away on remote server
-            if (allUids.length > 0) {
-              pruneMissingServerUids(account.id, mb.path, allUids, minUid, targetFolder);
-            } else {
-              const totalExists = client.mailbox && typeof client.mailbox === 'object' && 'exists' in client.mailbox
-                ? (client.mailbox as any).exists
-                : 0;
-              if (totalExists === 0) {
+              // Prune messages locally that were deleted or moved away on remote server
+              if (allUids.length > 0) {
+                pruneMissingServerUids(account.id, mb.path, allUids, minUid, targetFolder);
+              } else if (currentExists === 0) {
                 pruneMissingServerUids(account.id, mb.path, [], 1, targetFolder);
               }
             }
 
-            // TIER 1: Lightning-fast Envelope & Metadata Fetch (Takes < 300ms!)
+            // Update state
+            if (targetUidsToFetch.length > 0) {
+              const maxFetched = Math.max(...targetUidsToFetch);
+              state.highestKnownUid = Math.max(state.highestKnownUid, maxFetched);
+            }
+            state.uidValidity = currentValidity;
+            state.uidNext = currentUidNext;
+            state.exists = currentExists;
+            state.lastSyncedAt = Date.now();
+
+            // TIER 1: Lightning-fast Envelope & Metadata Fetch
             const envelopeEmails: Email[] = [];
             const uidsToPreloadBody: number[] = [];
 
@@ -989,11 +1091,6 @@ export class ImapService {
                 }
               }
 
-              // Synchronize read/unread flags between local SQLite and remote server
-              if (allUids.length > 0) {
-                syncFolderReadFlags(account.id, targetFolder, unseenUids, allUids, minUid);
-              }
-
               // TIER 2: Fast Pre-load of top 2 latest unseen email bodies
               if (uidsToPreloadBody.length > 0) {
                 try {
@@ -1056,7 +1153,6 @@ export class ImapService {
       throw new Error(userMsg);
     } finally {
       this.syncingAccounts.delete(accountId);
-      if (client) await client.logout().catch(() => {});
     }
 
     return { syncedCount };
@@ -1066,9 +1162,8 @@ export class ImapService {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo') return null;
 
-    let client: ImapFlow | null = null;
     try {
-      client = await this.connectClient(account);
+      const client = await this.getOrCreateClient(account);
       const lock = await client.getMailboxLock(mailboxPath);
       try {
         const message = await client.fetchOne(imapUid, {
@@ -1110,8 +1205,6 @@ export class ImapService {
     } catch (err) {
       console.warn(`Could not fetch full body on demand for email ${emailId}:`, err);
       return null;
-    } finally {
-      if (client) await client.logout().catch(() => {});
     }
   }
 
@@ -1119,11 +1212,10 @@ export class ImapService {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo') return { syncedCount: 0 };
 
-    let client: ImapFlow | null = null;
     let syncedCount = 0;
 
     try {
-      client = await this.connectClient(account);
+      const client = await this.getOrCreateClient(account);
       const lock = await client.getMailboxLock(mailboxPath);
       try {
         let uids: number[] = [];
@@ -1256,8 +1348,6 @@ export class ImapService {
       }
     } catch (err) {
       console.warn(`Could not sync mailbox ${mailboxPath}:`, err);
-    } finally {
-      if (client) await client.logout().catch(() => {});
     }
 
     return { syncedCount };

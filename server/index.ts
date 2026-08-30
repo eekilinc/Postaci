@@ -306,6 +306,7 @@ app.put('/api/accounts/:id', (req: Request, res: Response) => {
 
 app.delete('/api/accounts/:id', (req: Request, res: Response) => {
   try {
+    ImapService.clearAccountCache(req.params.id);
     const success = deleteAccount(req.params.id);
     if (!success) return res.status(404).json({ error: 'Hesap bulunamadı.' });
     broadcastSSE('accounts_updated', { id: req.params.id, deleted: true });

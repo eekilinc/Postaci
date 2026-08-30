@@ -1066,6 +1066,22 @@ export function isDeletedLocally(
   return false;
 }
 
+export function getEmailMaxUid(accountId: string, mailboxPath: string): number {
+  if (!isNativeSqlite) {
+    const matching = memStore.emails.filter(e => e.accountId === accountId && (e.mailboxPath === mailboxPath || (!e.mailboxPath && mailboxPath.toUpperCase() === 'INBOX')));
+    return matching.reduce((max, e) => Math.max(max, e.imapUid || 0), 0);
+  }
+  try {
+    const row = db.prepare(`
+      SELECT MAX(imapUid) as maxUid FROM emails 
+      WHERE accountId = ? AND (mailboxPath = ? OR (mailboxPath IS NULL AND UPPER(?) = 'INBOX'))
+    `).get(accountId, mailboxPath, mailboxPath) as any;
+    return row?.maxUid || 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function pruneMissingServerUids(
   accountId: string,
   mailboxPath: string,

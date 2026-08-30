@@ -45,6 +45,7 @@ export const EmailList: React.FC = () => {
     bulkMarkRead,
     emptyTrashFolder,
     isLoading,
+    isSyncing,
     activeFolder,
     activeLabel,
   } = useMail();
@@ -303,7 +304,21 @@ export const EmailList: React.FC = () => {
           </div>
         )}
 
-        {!isLoading && emails.length === 0 && (
+        {!isLoading && emails.length === 0 && isSyncing && (
+          <div style={{ padding: '50px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <div style={{ width: '56px', height: '56px', margin: '0 auto 14px auto', borderRadius: '50%', background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-subtle)' }}>
+              <Sparkles size={28} className="animate-spin" color="var(--accent-primary)" />
+            </div>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+              📬 E-postalar Senkronize Ediliyor
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '250px', margin: '0 auto 14px auto', lineHeight: 1.5 }}>
+              Hesabınız kuruluyor ve iletileriniz sunucudan aktarılıyor. Lütfen birkaç saniye bekleyin...
+            </p>
+          </div>
+        )}
+
+        {!isLoading && emails.length === 0 && !isSyncing && (
           <div style={{ padding: '50px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
             <div className="animate-float" style={{ width: '56px', height: '56px', margin: '0 auto 14px auto', borderRadius: '50%', background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-subtle)' }}>
               <Sparkles size={28} color="var(--accent-primary)" />
