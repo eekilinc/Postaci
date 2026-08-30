@@ -458,7 +458,7 @@ export function getAccounts(): Account[] {
 
   const rows = db.prepare('SELECT * FROM accounts ORDER BY isDefault DESC, name ASC').all() as any[];
   return rows.map(r => {
-    const unread = (db.prepare("SELECT COUNT(*) as c FROM emails WHERE accountId = ? AND isRead = 0 AND folder = 'INBOX'").get(r.id) as any)?.c || 0;
+    const unread = (db.prepare("SELECT COUNT(*) as c FROM emails WHERE accountId = ? AND isRead = 0 AND folder = 'INBOX' AND isDeleted = 0").get(r.id) as any)?.c || 0;
     return {
       ...r,
       isDefault: Boolean(r.isDefault),
@@ -828,7 +828,7 @@ export function getEmailById(id: string): Email | undefined {
   return parseEmailRow(row);
 }
 
-export function getEmailByMessageId(messageId: string): Email | undefined {
+export function getEmailByMessageId(messageId: string, accountId?: string): Email | undefined {
   if (!messageId) return undefined;
   const cleanMid = messageId.replace(/[<>]/g, '').trim();
   if (!cleanMid) return undefined;
@@ -836,6 +836,7 @@ export function getEmailByMessageId(messageId: string): Email | undefined {
   if (!isNativeSqlite) {
     const found = memStore.emails.find(e => {
       if (!e.messageId) return false;
+      if (accountId && e.accountId !== accountId) return false;
       const m = e.messageId.replace(/[<>]/g, '').trim();
       return m === cleanMid || e.messageId === messageId;
     });
@@ -847,7 +848,19 @@ export function getEmailByMessageId(messageId: string): Email | undefined {
     };
   }
 
-  const query = `
+  const query = accountId
+    ? `
+    SELECT 
+      emails.*,
+      accounts.name AS acc_name,
+      accounts.email AS acc_email,
+      accounts.color AS acc_color
+    FROM emails
+    LEFT JOIN accounts ON emails.accountId = accounts.id
+    WHERE (emails.messageId = ? OR emails.messageId = ? OR emails.messageId = ?) AND emails.accountId = ?
+    LIMIT 1
+  `
+    : `
     SELECT 
       emails.*,
       accounts.name AS acc_name,
@@ -858,7 +871,8 @@ export function getEmailByMessageId(messageId: string): Email | undefined {
     WHERE emails.messageId = ? OR emails.messageId = ? OR emails.messageId = ?
     LIMIT 1
   `;
-  const row = db.prepare(query).get(messageId, cleanMid, `<${cleanMid}>`);
+  const params = accountId ? [messageId, cleanMid, `<${cleanMid}>`, accountId] : [messageId, cleanMid, `<${cleanMid}>`];
+  const row = db.prepare(query).get(...params);
   if (!row) return undefined;
   return parseEmailRow(row);
 }
@@ -938,12 +952,16 @@ export function isDeletedLocally(
   if (identifier && identifier.trim().length >= 3) {
     const cleanId = identifier.replace(/[<>]/g, '').trim();
     if (!isNativeSqlite) {
-      if ((memStore.deletedRecords || []).some(r => r.id === identifier || r.id === cleanId || decodeURIComponent(r.id) === cleanId)) {
+      if ((memStore.deletedRecords || []).some(r => (r.id === identifier || r.id === cleanId || decodeURIComponent(r.id) === cleanId) && (!accountId || !r.accountId || r.accountId === accountId))) {
         return true;
       }
     } else {
       try {
-        const row = db.prepare('SELECT 1 FROM deleted_records WHERE id = ? OR id = ?').get(identifier, cleanId);
+        const query = accountId
+          ? 'SELECT 1 FROM deleted_records WHERE (id = ? OR id = ?) AND (accountId = ? OR accountId IS NULL)'
+          : 'SELECT 1 FROM deleted_records WHERE id = ? OR id = ?';
+        const params = accountId ? [identifier, cleanId, accountId] : [identifier, cleanId];
+        const row = db.prepare(query).get(...params);
         if (row) return true;
       } catch {}
     }
@@ -953,12 +971,16 @@ export function isDeletedLocally(
   if (messageId && messageId.trim().length >= 4) {
     const cleanMid = messageId.replace(/[<>]/g, '').trim();
     if (!isNativeSqlite) {
-      if ((memStore.deletedRecords || []).some(r => r.messageId && (r.messageId === messageId || r.messageId.replace(/[<>]/g, '').trim() === cleanMid))) {
+      if ((memStore.deletedRecords || []).some(r => r.messageId && (r.messageId === messageId || r.messageId.replace(/[<>]/g, '').trim() === cleanMid) && (!accountId || !r.accountId || r.accountId === accountId))) {
         return true;
       }
     } else {
       try {
-        const row = db.prepare('SELECT 1 FROM deleted_records WHERE messageId = ? OR messageId = ? OR messageId = ?').get(messageId, cleanMid, `<${cleanMid}>`);
+        const query = accountId
+          ? 'SELECT 1 FROM deleted_records WHERE (messageId = ? OR messageId = ? OR messageId = ?) AND (accountId = ? OR accountId IS NULL)'
+          : 'SELECT 1 FROM deleted_records WHERE messageId = ? OR messageId = ? OR messageId = ?';
+        const params = accountId ? [messageId, cleanMid, `<${cleanMid}>`, accountId] : [messageId, cleanMid, `<${cleanMid}>`];
+        const row = db.prepare(query).get(...params);
         if (row) return true;
       } catch {}
     }
@@ -1079,7 +1101,7 @@ export function saveEmailWithStatus(email: Email, isFromImapSync = false): { ema
     return { email, isNew: false };
   }
 
-  const existing = getEmailById(email.id) || (email.messageId ? getEmailByMessageId(email.messageId) : undefined);
+  const existing = getEmailById(email.id) || (email.messageId ? getEmailByMessageId(email.messageId, email.accountId) : undefined);
   const isNew = !existing;
 
   if (isFromImapSync) {
@@ -1118,7 +1140,7 @@ export function saveEmail(email: Email, isFromImapSync = false): Email {
     if (email.folder !== 'TRASH' && !email.isDeleted && isDeletedLocally(email.id, email.messageId, email.accountId, email.imapUid, email.mailboxPath)) {
       return email;
     }
-    const existing = getEmailById(email.id) || (email.messageId ? getEmailByMessageId(email.messageId) : undefined);
+    const existing = getEmailById(email.id) || (email.messageId ? getEmailByMessageId(email.messageId, email.accountId) : undefined);
     if (existing) {
       if (existing.folder === 'TRASH' || existing.isDeleted) {
         return existing; // Strictly prevent resurrecting deleted emails
@@ -1133,7 +1155,7 @@ export function saveEmail(email: Email, isFromImapSync = false): Email {
   }
 
   if (!isNativeSqlite) {
-    const idx = memStore.emails.findIndex(e => e.id === email.id || (email.messageId && e.messageId === email.messageId));
+    const idx = memStore.emails.findIndex(e => e.id === email.id || (email.messageId && e.messageId === email.messageId && e.accountId === email.accountId));
     if (idx !== -1) {
       memStore.emails[idx] = { ...memStore.emails[idx], ...email };
     } else {
@@ -1221,7 +1243,7 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
   if (!isNativeSqlite) {
     const newEmails: Email[] = [];
     for (const email of validEmails) {
-      const idx = memStore.emails.findIndex(e => e.id === email.id || (email.messageId && e.messageId === email.messageId));
+      const idx = memStore.emails.findIndex(e => e.id === email.id || (email.messageId && e.messageId === email.messageId && e.accountId === email.accountId));
       if (idx !== -1) {
         memStore.emails[idx] = { ...memStore.emails[idx], ...email };
       } else {
@@ -1251,12 +1273,12 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
     )
   `);
 
-  const checkStmt = db.prepare('SELECT id, folder, isDeleted, isArchived, isSpam FROM emails WHERE id = ? OR (messageId IS NOT NULL AND messageId = ?)');
+  const checkStmt = db.prepare('SELECT id, folder, isDeleted, isArchived, isSpam FROM emails WHERE id = ? OR (messageId IS NOT NULL AND messageId = ? AND accountId = ?)');
 
   const newEmails: Email[] = [];
   const runTx = db.transaction((items: Email[]) => {
     for (const email of items) {
-      const existing = checkStmt.get(email.id, email.messageId || '') as any;
+      const existing = checkStmt.get(email.id, email.messageId || '', email.accountId) as any;
       if (isFromImapSync && existing) {
         if (existing.folder === 'TRASH' || existing.isDeleted) continue;
         if (existing.folder === 'ARCHIVE' || existing.isArchived) {

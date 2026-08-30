@@ -108,11 +108,6 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.length === 0) {
         setIsSettingsOpen(true);
       }
-      // Automatically sync real accounts in background on startup
-      const realAccounts = data.filter(a => a.provider !== 'demo');
-      for (const acc of realAccounts) {
-        api.syncAccount(acc.id).catch(() => {});
-      }
     } catch (err) {
       console.error('Error fetching accounts:', err);
     }
@@ -200,10 +195,15 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [activeAccountId, activeFolder, accounts, refreshEmails, refreshStats]);
 
-  // Window focus, visibilitychange and 20-second active auto-sync
+  // Window focus, visibilitychange and periodic auto-sync
   useEffect(() => {
+    let lastFocusSync = 0;
     const handleFocusSync = () => {
       if (!navigator.onLine) return;
+      const now = Date.now();
+      if (now - lastFocusSync < 25000) return; // at most once every 25s
+      lastFocusSync = now;
+
       const targetAccounts = (activeAccountId && activeAccountId !== 'all')
         ? accounts.filter(a => a.id === activeAccountId && a.provider !== 'demo')
         : accounts.filter(a => a.provider !== 'demo');
