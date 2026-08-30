@@ -475,7 +475,7 @@ export const SettingsModal: React.FC = () => {
 
           setAccSmtpHost(disc.smtpHost);
           setAccSmtpPort(disc.smtpPort);
-          setAccSmtpSecurity(disc.smtpSecure ? 'STARTTLS' : 'SSL');
+          setAccSmtpSecurity(disc.smtpSecure ? 'SSL' : 'STARTTLS');
         }
       } catch {
         // Fallback silently
@@ -500,7 +500,7 @@ export const SettingsModal: React.FC = () => {
 
     setAccSmtpHost(acc.smtpHost || '');
     setAccSmtpPort(acc.smtpPort || 587);
-    setAccSmtpSecurity(acc.smtpSecure ? 'STARTTLS' : 'SSL');
+    setAccSmtpSecurity(acc.smtpSecure ? 'SSL' : 'STARTTLS');
     setAccSmtpUser(acc.smtpUser || '');
     setAccSmtpPass(acc.smtpPassword || '');
 
@@ -611,17 +611,59 @@ export const SettingsModal: React.FC = () => {
     e.preventDefault();
     const cleanImapHost = accImapHost.trim().replace(/^(https?:\/\/|imaps?:\/\/|smtps?:\/\/|ssl:\/\/|tls:\/\/)/i, '').replace(/\/.*$/, '');
     const cleanSmtpHost = (accSmtpHost || accImapHost).trim().replace(/^(https?:\/\/|imaps?:\/\/|smtps?:\/\/|ssl:\/\/|tls:\/\/)/i, '').replace(/\/.*$/, '');
-    const cleanImapUser = accImapUser.trim();
-    const cleanSmtpUser = (useSameCredentials ? accImapUser : accSmtpUser).trim();
+    const cleanImapUser = accImapUser.trim() || accEmail.trim();
+    const cleanSmtpUser = (useSameCredentials ? accImapUser : accSmtpUser).trim() || accEmail.trim();
     const cleanEmail = accEmail.trim();
 
-    if (!cleanEmail || !cleanImapHost || !cleanImapUser || !accImapPass) {
-      error('Lütfen zorunlu alanları doldurun.');
+    if (!cleanEmail || !cleanImapHost || !accImapPass) {
+      error('Lütfen e-posta adresi, IMAP sunucu ve parola alanlarını doldurun.');
       return;
     }
 
     setIsSaving(true);
     try {
+      // Auto-test connection before saving a NEW account (skipped on edit)
+      if (!editingAccountId && !testResult?.success) {
+        try {
+          const testPayload = {
+            email: cleanEmail,
+            imapHost: cleanImapHost,
+            imapPort: Number(accImapPort) || 993,
+            imapUser: cleanImapUser,
+            imapPassword: accImapPass,
+            imapSecure: accImapSecurity === 'SSL',
+            smtpHost: cleanSmtpHost,
+            smtpPort: Number(accSmtpPort) || 587,
+            smtpUser: cleanSmtpUser,
+            smtpPassword: useSameCredentials ? accImapPass : accSmtpPass,
+            smtpSecure: accSmtpSecurity === 'SSL',
+          };
+          const autoTestResult: any = await api.testAccountConnection(testPayload);
+          setTestResult(autoTestResult);
+
+          // Apply any server-suggested corrections
+          if (autoTestResult.suggestedImapHost) setAccImapHost(autoTestResult.suggestedImapHost);
+          if (autoTestResult.suggestedImapPort) setAccImapPort(autoTestResult.suggestedImapPort);
+          if (autoTestResult.suggestedImapSecure !== undefined) setAccImapSecurity(autoTestResult.suggestedImapSecure ? 'SSL' : 'STARTTLS');
+          if (autoTestResult.suggestedSmtpHost) setAccSmtpHost(autoTestResult.suggestedSmtpHost);
+          if (autoTestResult.suggestedSmtpPort) setAccSmtpPort(autoTestResult.suggestedSmtpPort);
+          if (autoTestResult.suggestedSmtpSecure !== undefined) setAccSmtpSecurity(autoTestResult.suggestedSmtpSecure ? 'SSL' : 'STARTTLS');
+          if (autoTestResult.suggestedImapUser) setAccImapUser(autoTestResult.suggestedImapUser);
+
+          if (!autoTestResult.success) {
+            error(`Bağlantı testi başarısız: ${autoTestResult.message}. Ayarlarınızı kontrol edip tekrar deneyin.`);
+            setIsSaving(false);
+            return;
+          }
+        } catch (testErr: any) {
+          // Test failed hard — stop saving
+          setTestResult({ success: false, message: testErr.message || 'Bağlantı testi hatası.' });
+          error(`Sunucuya bağlanılamadı: ${testErr.message || 'Bağlantı hatası.'} Ayarlarınızı kontrol edin.`);
+          setIsSaving(false);
+          return;
+        }
+      }
+
       const accountData: Partial<Account> = {
         name: (accName || cleanEmail.split('@')[0]).trim(),
         email: cleanEmail,
@@ -646,7 +688,7 @@ export const SettingsModal: React.FC = () => {
         success('Hesap ayarları güncellendi.');
       } else {
         const created = await api.createAccount(accountData);
-        success('Yeni hesap eklendi. İlk senkronizasyon arka planda başlatıldı...');
+        success('✅ Hesap eklendi! E-postalar arka planda senkronize ediliyor...');
         if (created && created.id) {
           setActiveAccountId(created.id);
         }
@@ -665,6 +707,7 @@ export const SettingsModal: React.FC = () => {
       setIsSaving(false);
     }
   };
+
 
   const handleDeleteAccount = async (id: string, name: string) => {
     const isLast = accounts.length <= 1;
@@ -1220,45 +1263,63 @@ export const SettingsModal: React.FC = () => {
                       </div>
                     )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    {/* Password — full-width, most important field */}
+                    <div>
+                      <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '6px' }}>
+                        🔑 {selectedProviderKey !== 'custom' ? 'Uygulama Şifresi (App Password)' : 'Parola'} *
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        placeholder={selectedProviderKey !== 'custom' ? '16 haneli uygulama şifresi (örn: abcd efgh ijkl mnop)' : '••••••••••••'}
+                        value={accImapPass}
+                        onChange={e => {
+                          setAccImapPass(e.target.value);
+                          if (useSameCredentials) setAccSmtpPass(e.target.value);
+                          // Clear test result when password changes
+                          if (testResult) setTestResult(null);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '12px 14px',
+                          borderRadius: 'var(--radius-sm)',
+                          background: 'var(--bg-secondary)',
+                          border: `1px solid ${testResult?.success ? 'var(--accent-success)' : testResult ? 'var(--accent-danger)' : 'var(--border-medium)'}`,
+                          color: 'var(--text-primary)',
+                          fontSize: '14px',
+                          fontWeight: 600,
+                          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.2)',
+                          letterSpacing: accImapPass ? '0.08em' : 'normal'
+                        }}
+                      />
+                      {!accImapPass && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                          {selectedProviderKey === 'google' ? '💡 Google hesabı şifrenizi DEĞİL, myaccount.google.com/apppasswords\'dan aldığınız 16 haneli şifreyi girin.' : ''}
+                          {selectedProviderKey === 'microsoft' ? '💡 Outlook.com hesabı şifrenizi girin. Kurumsal hesaplar için yöneticinize danışın.' : ''}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Account name & color — secondary row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '12px', alignItems: 'end' }}>
                       <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                          Parola {selectedProviderKey !== 'custom' ? '(veya Uygulama Şifresi)' : ''} *
-                        </label>
-                        <input
-                          type="password"
-                          required
-                          placeholder="••••••••••••"
-                          value={accImapPass}
-                          onChange={e => {
-                            setAccImapPass(e.target.value);
-                            if (useSameCredentials) setAccSmtpPass(e.target.value);
-                          }}
-                          style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Hesap Görünen Adı</label>
+                        <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Hesap Görünen Adı (İsteğe Bağlı)</label>
                         <input
                           type="text"
-                          placeholder="Kişisel / İş / Okul"
+                          placeholder={accEmail ? accEmail.split('@')[0].charAt(0).toUpperCase() + accEmail.split('@')[0].slice(1) : 'Kişisel / İş / Okul'}
                           value={accName}
                           onChange={e => setAccName(e.target.value)}
                           style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '13px' }}
                         />
                       </div>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Hesap Rengi:</label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textAlign: 'center' }}>Renk</label>
                         <input
                           type="color"
                           value={accColor}
                           onChange={e => setAccColor(e.target.value)}
-                          style={{ width: '32px', height: '32px', padding: 0, border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'transparent' }}
+                          style={{ width: '44px', height: '42px', padding: '2px', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'transparent' }}
                         />
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{accColor}</span>
                       </div>
                     </div>
 
