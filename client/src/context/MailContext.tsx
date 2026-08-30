@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { Account, Email, FolderStat, ViewLayout, MainTab } from '../types';
+import { Account, Email, FolderStat, ViewLayout, MainTab, SortOption } from '../types';
 import { api, EVENTS_URL } from '../services/api';
 import { useToast } from './ToastContext';
 import { playNotificationChime } from '../utils/sound';
@@ -26,6 +26,8 @@ interface MailContextType {
   setSearchQuery: (query: string) => void;
   filter: 'all' | 'unread' | 'starred' | 'has_attachment';
   setFilter: (filter: 'all' | 'unread' | 'starred' | 'has_attachment') => void;
+  sortBy: SortOption;
+  setSortBy: (sort: SortOption) => void;
   viewLayout: ViewLayout;
   setViewLayout: (layout: ViewLayout) => void;
   mainTab: MainTab;
@@ -68,6 +70,64 @@ interface MailContextType {
 
 const MailContext = createContext<MailContextType | undefined>(undefined);
 
+export const sortEmailsList = (list: Email[], sortOption: SortOption): Email[] => {
+  const getTime = (d: any) => {
+    if (!d) return 0;
+    const t = new Date(d).getTime();
+    return isNaN(t) ? 0 : t;
+  };
+
+  return [...list].sort((a, b) => {
+    if (a.isPinned && !b.isPinned) return -1;
+    if (!a.isPinned && b.isPinned) return 1;
+
+    switch (sortOption) {
+      case 'oldest': {
+        const diff = getTime(a.date) - getTime(b.date);
+        if (diff !== 0) return diff;
+        return (a.imapUid || 0) - (b.imapUid || 0);
+      }
+      case 'from-asc': {
+        const nameA = (a.fromName || a.fromEmail || '').toLowerCase();
+        const nameB = (b.fromName || b.fromEmail || '').toLowerCase();
+        const diff = nameA.localeCompare(nameB, 'tr');
+        if (diff !== 0) return diff;
+        return getTime(b.date) - getTime(a.date);
+      }
+      case 'from-desc': {
+        const nameA = (a.fromName || a.fromEmail || '').toLowerCase();
+        const nameB = (b.fromName || b.fromEmail || '').toLowerCase();
+        const diff = nameB.localeCompare(nameA, 'tr');
+        if (diff !== 0) return diff;
+        return getTime(b.date) - getTime(a.date);
+      }
+      case 'subject-asc': {
+        const subA = (a.subject || '').toLowerCase();
+        const subB = (b.subject || '').toLowerCase();
+        const diff = subA.localeCompare(subB, 'tr');
+        if (diff !== 0) return diff;
+        return getTime(b.date) - getTime(a.date);
+      }
+      case 'unread-first': {
+        if (!a.isRead && b.isRead) return -1;
+        if (a.isRead && !b.isRead) return 1;
+        return getTime(b.date) - getTime(a.date);
+      }
+      case 'starred-first': {
+        if (a.isStarred && !b.isStarred) return -1;
+        if (!a.isStarred && b.isStarred) return 1;
+        return getTime(b.date) - getTime(a.date);
+      }
+      case 'newest':
+      default: {
+        const diff = getTime(b.date) - getTime(a.date);
+        if (diff !== 0) return diff;
+        return (b.imapUid || 0) - (a.imapUid || 0);
+      }
+    }
+  });
+};
+
 export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { success, info, error } = useToast();
 
@@ -84,6 +144,13 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'starred' | 'has_attachment'>('all');
+  const [sortBy, setSortByState] = useState<SortOption>(() => (localStorage.getItem('postaci_sort_by') as SortOption) || 'newest');
+  const setSortBy = useCallback((sort: SortOption) => {
+    setSortByState(sort);
+    localStorage.setItem('postaci_sort_by', sort);
+    setEmails(prev => sortEmailsList(prev, sort));
+  }, []);
+
   const [viewLayout, setViewLayoutState] = useState<ViewLayout>(() => (localStorage.getItem('postaci_view_layout') as ViewLayout) || 'split-3-column');
   const setViewLayout = useCallback((layout: ViewLayout) => {
     setViewLayoutState(layout);
@@ -172,20 +239,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Filter by attachment if requested
       const filtered = filter === 'has_attachment' ? data.filter(e => e.attachments && e.attachments.length > 0) : data;
       
-      const getTime = (d: any) => {
-        if (!d) return 0;
-        const t = new Date(d).getTime();
-        return isNaN(t) ? 0 : t;
-      };
-
-      // Sort pinned emails to top, then strictly newest date first, then highest imapUid
-      const sorted = [...filtered].sort((a, b) => {
-        if (a.isPinned && !b.isPinned) return -1;
-        if (!a.isPinned && b.isPinned) return 1;
-        const diff = getTime(b.date) - getTime(a.date);
-        if (diff !== 0) return diff;
-        return (b.imapUid || 0) - (a.imapUid || 0);
-      });
+      const sorted = sortEmailsList(filtered, sortBy);
 
       folderCacheRef.current.set(cacheKey, sorted);
       setEmails(sorted);
@@ -204,7 +258,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsLoading(false);
     }
-  }, [activeAccountId, activeFolder, filter, activeLabel, searchQuery]);
+  }, [activeAccountId, activeFolder, filter, activeLabel, searchQuery, sortBy]);
 
   // Initial load
   useEffect(() => {
@@ -1153,6 +1207,8 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSearchQuery,
         filter,
         setFilter,
+        sortBy,
+        setSortBy,
         viewLayout,
         setViewLayout,
         mainTab,

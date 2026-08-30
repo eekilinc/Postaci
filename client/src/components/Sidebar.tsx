@@ -255,6 +255,10 @@ export const Sidebar: React.FC = () => {
                 key={acc.id}
                 onClick={() => {
                   setActiveAccountId(acc.id);
+                  if (!['INBOX', 'STARRED', 'SENT', 'DRAFTS', 'ARCHIVE', 'SPAM', 'TRASH'].includes(activeFolder)) {
+                    setActiveFolder('INBOX');
+                    setActiveLabel(null);
+                  }
                   setIsAccountDropdownOpen(false);
                 }}
                 style={{

@@ -139,6 +139,8 @@ export interface FolderStat {
   unreadCount: number;
 }
 
+export type SortOption = 'newest' | 'oldest' | 'from-asc' | 'from-desc' | 'subject-asc' | 'unread-first' | 'starred-first';
+
 export type ViewLayout = 'split-3-column' | 'split-2-column' | 'split-horizontal';
 export type MainTab = 'mail' | 'calendar' | 'contacts' | 'settings';
 

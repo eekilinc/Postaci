@@ -1802,12 +1802,16 @@ export function getFolderStats(accountId?: string): FolderStat[] {
 
   if (!isNativeSqlite) {
     const activeAccountIds = new Set(memStore.accounts.map(a => a.id));
-    // Find all custom folders in memory
+    // Find all custom folders in memory strictly for the selected account(s)
     const memoryCustomFolders = Array.from(new Set(
       memStore.emails
-        .filter(e => activeAccountIds.has(e.accountId))
+        .filter(e => {
+          if (!activeAccountIds.has(e.accountId)) return false;
+          if (accountId && accountId !== 'all' && e.accountId !== accountId) return false;
+          return !e.isDeleted;
+        })
         .map(e => e.folder)
-        .filter(f => !baseFolders.some(b => b.folder === f))
+        .filter(f => !baseFolders.some(b => b.folder === f) && f !== 'STARRED')
     ));
 
     const combinedCustomFolders = Array.from(new Set([...discoveredNames, ...memoryCustomFolders]));

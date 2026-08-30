@@ -16,10 +16,11 @@ import {
   Inbox,
   Filter,
   Check,
-  RotateCw
+  RotateCw,
+  ArrowUpDown
 } from 'lucide-react';
 import { useMail } from '../context/MailContext';
-import { Email } from '../types';
+import { Email, SortOption } from '../types';
 import { isToday, isYesterday, format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 
@@ -37,6 +38,8 @@ export const EmailList: React.FC = () => {
     setSearchQuery,
     filter,
     setFilter,
+    sortBy,
+    setSortBy,
     toggleRead,
     toggleStarred,
     togglePinned,
@@ -54,8 +57,19 @@ export const EmailList: React.FC = () => {
     viewLayout,
   } = useMail();
 
+  const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [hoveredEmailId, setHoveredEmailId] = useState<string | null>(null);
   const lastCheckedIdRef = useRef<string | null>(null);
+
+  const sortOptions: Array<{ key: SortOption; label: string; icon: string }> = [
+    { key: 'newest', label: 'En Yeni Tarih', icon: '📅' },
+    { key: 'oldest', label: 'En Eski Tarih', icon: '⏳' },
+    { key: 'unread-first', label: 'Okunmamışlar Önce', icon: '✉️' },
+    { key: 'starred-first', label: 'Yıldızlılar Önce', icon: '⭐' },
+    { key: 'from-asc', label: 'Gönderen (A → Z)', icon: '👤' },
+    { key: 'from-desc', label: 'Gönderen (Z → A)', icon: '👤' },
+    { key: 'subject-asc', label: 'Konu (A → Z)', icon: '📝' },
+  ];
 
   const formatEmailDate = (dateStr: string) => {
     try {
@@ -169,33 +183,123 @@ export const EmailList: React.FC = () => {
           )}
         </div>
 
-        {/* Filter Chips */}
-        <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
-          {[
-            { key: 'all', label: 'Tümü' },
-            { key: 'unread', label: 'Okunmamış' },
-            { key: 'starred', label: 'Yıldızlı' },
-            { key: 'has_attachment', label: 'Ekli' },
-          ].map(tab => (
+        {/* Filter Chips & Quick Sort Dropdown */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+          <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px', flex: 1 }}>
+            {[
+              { key: 'all', label: 'Tümü' },
+              { key: 'unread', label: 'Okunmamış' },
+              { key: 'starred', label: 'Yıldızlı' },
+              { key: 'has_attachment', label: 'Ekli' },
+            ].map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setFilter(tab.key as any)}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: 'none',
+                  backgroundColor: filter === tab.key ? 'var(--bg-active)' : 'var(--bg-secondary)',
+                  color: filter === tab.key ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  fontSize: '12px',
+                  fontWeight: filter === tab.key ? 600 : 400,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Quick Sort Dropdown */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
             <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key as any)}
+              onClick={() => setIsSortMenuOpen(!isSortMenuOpen)}
+              title="Sıralama Seçenekleri"
               style={{
-                padding: '4px 10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '4px 9px',
                 borderRadius: 'var(--radius-sm)',
-                border: 'none',
-                backgroundColor: filter === tab.key ? 'var(--bg-active)' : 'var(--bg-secondary)',
-                color: filter === tab.key ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                fontSize: '12px',
-                fontWeight: filter === tab.key ? 600 : 400,
+                border: '1px solid var(--border-subtle)',
+                backgroundColor: isSortMenuOpen ? 'var(--bg-active)' : 'var(--bg-secondary)',
+                color: isSortMenuOpen ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                fontSize: '11.5px',
+                fontWeight: 500,
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
                 transition: 'all 0.15s ease',
               }}
             >
-              {tab.label}
+              <ArrowUpDown size={13} color="var(--accent-primary)" />
+              <span>{sortOptions.find(o => o.key === sortBy)?.label || 'Sırala'}</span>
             </button>
-          ))}
+
+            {isSortMenuOpen && (
+              <>
+                <div
+                  onClick={() => setIsSortMenuOpen(false)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 60 }}
+                />
+                <div
+                  className="glass-panel"
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    right: 0,
+                    minWidth: '180px',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '4px',
+                    zIndex: 70,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.35)',
+                  }}
+                >
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '4px 8px', letterSpacing: '0.05em' }}>
+                    Sıralama Ölçütü
+                  </div>
+                  {sortOptions.map(opt => {
+                    const isSelected = sortBy === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        onClick={() => {
+                          setSortBy(opt.key);
+                          setIsSortMenuOpen(false);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '6px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: 'none',
+                          background: isSelected ? 'var(--bg-active)' : 'transparent',
+                          color: isSelected ? 'var(--accent-primary)' : 'var(--text-primary)',
+                          fontSize: '12px',
+                          fontWeight: isSelected ? 600 : 400,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          width: '100%',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>{opt.icon}</span>
+                          <span>{opt.label}</span>
+                        </div>
+                        {isSelected && <Check size={14} color="var(--accent-primary)" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
