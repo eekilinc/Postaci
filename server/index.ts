@@ -4,6 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
+import { APP_VERSION } from './version';
 
 process.on('uncaughtException', (err: any) => {
   console.warn('⚠️ Process uncaughtException caught (server kept alive):', err?.message || err);
@@ -827,8 +828,22 @@ app.post('/api/backup/import', (req: Request, res: Response) => {
 
 // ----------------- SYSTEM & HEALTH -----------------
 app.get('/api/system/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', version: '1.1.9', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', version: APP_VERSION, timestamp: new Date().toISOString() });
 });
+
+// ----------------- RESET DATABASE & FACTORY RESET -----------------
+const handleResetDb = (req: Request, res: Response) => {
+  try {
+    const { seedDemo } = req.body || {};
+    const result = resetDatabase(Boolean(seedDemo));
+    broadcastSSE('accounts_updated', {});
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+};
+app.post('/api/settings/reset-database', handleResetDb);
+app.post('/api/system/reset-database', handleResetDb);
 
 // ----------------- GITHUB UPDATER -----------------
 app.get('/api/system/update-check', async (req: Request, res: Response) => {

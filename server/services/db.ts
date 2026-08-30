@@ -105,13 +105,13 @@ export function saveJsonStore(forceSync = false) {
   }, 200);
 }
 
-export function resetDatabase() {
+export function resetDatabase(seedDemo: boolean = false) {
   if (!isNativeSqlite) {
     memStore = {
-      accounts: [...initialAccounts],
-      emails: [...initialEmails],
-      contacts: [...initialContacts],
-      calendar_events: [...initialCalendarEvents],
+      accounts: seedDemo ? [...initialAccounts] : [],
+      emails: seedDemo ? [...initialEmails] : [],
+      contacts: seedDemo ? [...initialContacts] : [],
+      calendar_events: seedDemo ? [...initialCalendarEvents] : [],
       deletedRecords: []
     };
     saveJsonStore();
@@ -127,7 +127,9 @@ export function resetDatabase() {
       DELETE FROM deleted_records;
       DELETE FROM accounts;
     `);
-    seedDemoData();
+    if (seedDemo) {
+      seedDemoData();
+    }
     return { success: true };
   } catch (err: any) {
     throw new Error(`Sıfırlama hatası: ${err.message}`);

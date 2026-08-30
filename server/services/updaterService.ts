@@ -1,4 +1,5 @@
 import https from 'https';
+import { APP_VERSION } from '../version';
 
 export interface UpdateCheckResult {
   updateAvailable: boolean;
@@ -13,7 +14,7 @@ export interface UpdateCheckResult {
 }
 
 export class UpdaterService {
-  public static readonly CURRENT_VERSION = '1.1.9';
+  public static readonly CURRENT_VERSION = APP_VERSION;
   public static repoSlug = 'eekilinc/Postaci';
 
   public static async checkForUpdates(repoSlug?: string): Promise<UpdateCheckResult> {

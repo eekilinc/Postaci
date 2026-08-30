@@ -6,6 +6,7 @@ import { OAuthService } from './oauthService.js';
 import { v4 as uuidv4 } from 'uuid';
 import dns from 'dns';
 import { promisify } from 'util';
+import { APP_VERSION } from '../version.js';
 
 const resolveMxAsync = promisify(dns.resolveMx);
 
@@ -86,7 +87,7 @@ export class ImapService {
         },
         clientInfo: {
           name: 'Postaci Mail Client',
-          version: '1.1.9',
+          version: APP_VERSION,
         },
         connectionTimeout: 10000,
         greetingTimeout: 10000,
@@ -127,7 +128,7 @@ export class ImapService {
         },
         clientInfo: {
           name: 'Postaci',
-          version: '1.1.9',
+          version: APP_VERSION,
           vendor: 'Postaci Mail Client',
         },
         connectionTimeout: 8000,
@@ -181,7 +182,7 @@ export class ImapService {
             },
             clientInfo: {
               name: 'Postaci',
-              version: '1.1.9',
+              version: APP_VERSION,
               vendor: 'Postaci Mail Client',
             },
             connectionTimeout: 5000,

@@ -37,6 +37,7 @@ import { useToast } from '../context/ToastContext';
 import { api } from '../services/api';
 import { Account, ViewLayout } from '../types';
 import { PostaciLogo } from './PostaciLogo';
+import { APP_VERSION } from '../version';
 
 export const PROVIDER_PRESETS: Record<string, {
   name: string;
@@ -297,7 +298,7 @@ export const SettingsModal: React.FC = () => {
       if (res.updateAvailable) {
         info(`Yeni sürüm mevcut: v${res.latestVersion}`, 'Güncelleme Bildirimi');
       } else {
-        success('En güncel sürümü (v1.1.9) kullanıyorsunuz.');
+        success(`En güncel sürümü (v${APP_VERSION}) kullanıyorsunuz.`);
       }
     } catch (err: any) {
       error(err.message || 'Güncelleme denetlenirken bir sorun oluştu.');
@@ -782,7 +783,7 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <div style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            Postacı Desktop v1.1.9
+            Postacı Desktop v{APP_VERSION}
           </div>
         </div>
 
@@ -2143,11 +2144,12 @@ export const SettingsModal: React.FC = () => {
                   </p>
                   <button
                     onClick={async () => {
-                      if (window.confirm('Veritabanı sıfırlanacaktır. Devam etmek istiyor musunuz?')) {
+                      if (window.confirm('Tüm hesaplar, e-postalar ve yerel veritabanı tamamen silinecektir. Fabrika ayarlarına sıfırlamak istiyor musunuz?')) {
                         try {
                           await api.resetDatabase();
-                          success('Veritabanı başarıyla sıfırlandı!');
+                          success('Veritabanı ve tüm hesaplar başarıyla sıfırlandı!');
                           refreshAccounts();
+                          setTimeout(() => window.location.reload(), 500);
                         } catch (err: any) {
                           error(err.message || 'Sıfırlama hatası');
                         }
@@ -2164,7 +2166,7 @@ export const SettingsModal: React.FC = () => {
                       cursor: 'pointer',
                     }}
                   >
-                    Veritabanını Sıfırla
+                    Veritabanını Sıfırla (Temiz Kurulum)
                   </button>
                 </div>
               </div>
@@ -2180,7 +2182,7 @@ export const SettingsModal: React.FC = () => {
                         Postacı Güncelleme Denetleyicisi
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v1.1.9</strong>
+                        Mevcut Kurulu Sürüm: <strong style={{ color: 'var(--accent-primary)' }}>v{APP_VERSION}</strong>
                       </div>
                     </div>
 
@@ -2323,7 +2325,7 @@ export const SettingsModal: React.FC = () => {
                     Postacı E-Posta İstemcisi Pro
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm 1.1.9 (x64 Windows & Linux Desktop)
+                    Sürüm {APP_VERSION} (x64 Windows & Linux Desktop)
                   </p>
                 </div>
 
