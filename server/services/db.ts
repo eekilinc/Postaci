@@ -298,6 +298,13 @@ export function initDatabase() {
       `);
     } catch (_) {}
 
+    // Auto-clean any orphaned emails, records, and calendar events from deleted accounts
+    try {
+      db.prepare('DELETE FROM emails WHERE accountId NOT IN (SELECT id FROM accounts)').run();
+      db.prepare('DELETE FROM deleted_records WHERE accountId IS NOT NULL AND accountId NOT IN (SELECT id FROM accounts)').run();
+      db.prepare('DELETE FROM calendar_events WHERE accountId NOT IN (SELECT id FROM accounts)').run();
+    } catch (_) {}
+
     const accountCount = db.prepare('SELECT COUNT(*) as count FROM accounts').get() as { count: number };
     if (accountCount.count === 0) {
       console.log('🌱 Seeding initial demo accounts, emails, contacts and calendar events...');
@@ -646,33 +653,51 @@ export function updateAccount(id: string, acc: Partial<Account>): Account | unde
 }
 
 export function deleteAccount(id: string): boolean {
+  const acc = getAccountById(id);
+  const accountEmail = acc?.email;
+
   // 1. Clean in-memory server folders cache
   for (const [key, folder] of serverFoldersMap.entries()) {
-    if (folder.accountId === id) {
+    if (folder.accountId === id || (accountEmail && folder.accountId === accountEmail)) {
       serverFoldersMap.delete(key);
     }
   }
 
   if (!isNativeSqlite) {
     const prevLen = memStore.accounts.length;
-    memStore.accounts = memStore.accounts.filter(a => a.id !== id);
-    memStore.emails = memStore.emails.filter(e => e.accountId !== id);
-    memStore.deletedRecords = (memStore.deletedRecords || []).filter((d: any) => d.accountId !== id);
-    memStore.calendar_events = (memStore.calendar_events || []).filter((c: any) => c.accountId !== id);
+    memStore.accounts = memStore.accounts.filter(a => a.id !== id && (!accountEmail || a.email !== accountEmail));
+    const activeIds = new Set(memStore.accounts.map(a => a.id));
+    memStore.emails = memStore.emails.filter(e => activeIds.has(e.accountId));
+    memStore.deletedRecords = (memStore.deletedRecords || []).filter((d: any) => !d.accountId || activeIds.has(d.accountId));
+    memStore.calendar_events = (memStore.calendar_events || []).filter((c: any) => activeIds.has(c.accountId));
     saveJsonStore();
     return memStore.accounts.length < prevLen;
   }
 
-  // 2. Clean SQLite tables for this account
+  // 2. Clean SQLite tables for this account AND its email address
   try {
-    db.prepare('DELETE FROM emails WHERE accountId = ?').run(id);
-    db.prepare('DELETE FROM deleted_records WHERE accountId = ?').run(id);
-    db.prepare('DELETE FROM calendar_events WHERE accountId = ?').run(id);
+    if (accountEmail) {
+      db.prepare('DELETE FROM emails WHERE accountId = ? OR accountId = ?').run(id, accountEmail);
+      db.prepare('DELETE FROM deleted_records WHERE accountId = ? OR accountId = ?').run(id, accountEmail);
+      db.prepare('DELETE FROM calendar_events WHERE accountId = ? OR accountId = ?').run(id, accountEmail);
+    } else {
+      db.prepare('DELETE FROM emails WHERE accountId = ?').run(id);
+      db.prepare('DELETE FROM deleted_records WHERE accountId = ?').run(id);
+      db.prepare('DELETE FROM calendar_events WHERE accountId = ?').run(id);
+    }
   } catch (err) {
     console.warn('Error cleaning up tables for deleted account:', err);
   }
 
   const res = db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
+
+  // 3. Purge all orphaned rows in SQLite so no leftovers remain
+  try {
+    db.prepare('DELETE FROM emails WHERE accountId NOT IN (SELECT id FROM accounts)').run();
+    db.prepare('DELETE FROM deleted_records WHERE accountId IS NOT NULL AND accountId NOT IN (SELECT id FROM accounts)').run();
+    db.prepare('DELETE FROM calendar_events WHERE accountId NOT IN (SELECT id FROM accounts)').run();
+  } catch (_) {}
+
   return res.changes > 0;
 }
 
@@ -761,7 +786,9 @@ export function getEmails(params: {
   search?: string;
 }): Email[] {
   if (!isNativeSqlite) {
+    const activeAccountIds = new Set(memStore.accounts.map(a => a.id));
     return memStore.emails.filter(e => {
+      if (!activeAccountIds.has(e.accountId)) return false;
       if (params.accountId && params.accountId !== 'all' && e.accountId !== params.accountId) return false;
       if (params.folder === 'TRASH') {
         if (e.folder !== 'TRASH' && !e.isDeleted) return false;
@@ -807,7 +834,7 @@ export function getEmails(params: {
       accounts.email AS acc_email,
       accounts.color AS acc_color
     FROM emails
-    LEFT JOIN accounts ON emails.accountId = accounts.id
+    INNER JOIN accounts ON emails.accountId = accounts.id
     WHERE 1=1
   `;
   const conditions: any[] = [];
@@ -859,7 +886,8 @@ export function getEmails(params: {
 export function getEmailById(id: string): Email | undefined {
   const rawId = decodeURIComponent(id);
   if (!isNativeSqlite) {
-    const found = memStore.emails.find(e => e.id === id || e.id === rawId || decodeURIComponent(e.id) === rawId || (e.messageId && (e.messageId === id || e.messageId === rawId)));
+    const activeAccountIds = new Set(memStore.accounts.map(a => a.id));
+    const found = memStore.emails.find(e => activeAccountIds.has(e.accountId) && (e.id === id || e.id === rawId || decodeURIComponent(e.id) === rawId || (e.messageId && (e.messageId === id || e.messageId === rawId))));
     if (!found) return undefined;
     const acc = memStore.accounts.find(a => a.id === found.accountId);
     return {
@@ -874,7 +902,7 @@ export function getEmailById(id: string): Email | undefined {
       accounts.email AS acc_email,
       accounts.color AS acc_color
     FROM emails
-    LEFT JOIN accounts ON emails.accountId = accounts.id
+    INNER JOIN accounts ON emails.accountId = accounts.id
     WHERE emails.id = ? OR emails.id = ? OR emails.messageId = ?
     LIMIT 1
   `;
@@ -889,7 +917,9 @@ export function getEmailByMessageId(messageId: string, accountId?: string): Emai
   if (!cleanMid) return undefined;
 
   if (!isNativeSqlite) {
+    const activeAccountIds = new Set(memStore.accounts.map(a => a.id));
     const found = memStore.emails.find(e => {
+      if (!activeAccountIds.has(e.accountId)) return false;
       if (!e.messageId) return false;
       if (accountId && e.accountId !== accountId) return false;
       const m = e.messageId.replace(/[<>]/g, '').trim();
@@ -911,7 +941,7 @@ export function getEmailByMessageId(messageId: string, accountId?: string): Emai
       accounts.email AS acc_email,
       accounts.color AS acc_color
     FROM emails
-    LEFT JOIN accounts ON emails.accountId = accounts.id
+    INNER JOIN accounts ON emails.accountId = accounts.id
     WHERE (emails.messageId = ? OR emails.messageId = ? OR emails.messageId = ?) AND emails.accountId = ?
     LIMIT 1
   `
@@ -922,7 +952,7 @@ export function getEmailByMessageId(messageId: string, accountId?: string): Emai
       accounts.email AS acc_email,
       accounts.color AS acc_color
     FROM emails
-    LEFT JOIN accounts ON emails.accountId = accounts.id
+    INNER JOIN accounts ON emails.accountId = accounts.id
     WHERE emails.messageId = ? OR emails.messageId = ? OR emails.messageId = ?
     LIMIT 1
   `;
@@ -934,8 +964,9 @@ export function getEmailByMessageId(messageId: string, accountId?: string): Emai
 
 export function getEmailThread(threadId: string): Email[] {
   if (!isNativeSqlite) {
+    const activeAccountIds = new Set(memStore.accounts.map(a => a.id));
     return memStore.emails
-      .filter(e => e.threadId === threadId)
+      .filter(e => activeAccountIds.has(e.accountId) && e.threadId === threadId)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
       .map(e => {
         const acc = memStore.accounts.find(a => a.id === e.accountId);
@@ -953,7 +984,7 @@ export function getEmailThread(threadId: string): Email[] {
       accounts.email AS acc_email,
       accounts.color AS acc_color
     FROM emails
-    LEFT JOIN accounts ON emails.accountId = accounts.id
+    INNER JOIN accounts ON emails.accountId = accounts.id
     WHERE emails.threadId = ?
     ORDER BY emails.date ASC
   `;
@@ -1714,9 +1745,11 @@ export function getFolderStats(accountId?: string): FolderStat[] {
   const discoveredNames = new Set(registeredCustomFolders.map(rf => rf.folderKey));
 
   if (!isNativeSqlite) {
+    const activeAccountIds = new Set(memStore.accounts.map(a => a.id));
     // Find all custom folders in memory
     const memoryCustomFolders = Array.from(new Set(
       memStore.emails
+        .filter(e => activeAccountIds.has(e.accountId))
         .map(e => e.folder)
         .filter(f => !baseFolders.some(b => b.folder === f))
     ));
@@ -1730,6 +1763,7 @@ export function getFolderStats(accountId?: string): FolderStat[] {
 
     return allFolders.map(f => {
       const filtered = memStore.emails.filter(e => {
+        if (!activeAccountIds.has(e.accountId)) return false;
         if (accountId && accountId !== 'all' && e.accountId !== accountId) return false;
         if (f.folder === 'STARRED') return e.isStarred && !e.isDeleted;
         if (f.folder === 'TRASH') return e.folder === 'TRASH' || e.isDeleted;
@@ -1751,13 +1785,14 @@ export function getFolderStats(accountId?: string): FolderStat[] {
   // Fast single aggregated query in SQLite with accurate isDeleted filtering
   const statsQuery = `
     SELECT 
-      folder,
+      emails.folder,
       COUNT(*) as totalCount,
-      SUM(CASE WHEN isRead = 0 THEN 1 ELSE 0 END) as unreadCount
+      SUM(CASE WHEN emails.isRead = 0 THEN 1 ELSE 0 END) as unreadCount
     FROM emails
-    WHERE isDeleted = 0
-    ${accountId && accountId !== 'all' ? 'AND accountId = ?' : ''}
-    GROUP BY folder
+    INNER JOIN accounts ON emails.accountId = accounts.id
+    WHERE emails.isDeleted = 0
+    ${accountId && accountId !== 'all' ? 'AND emails.accountId = ?' : ''}
+    GROUP BY emails.folder
   `;
   const statsParams = accountId && accountId !== 'all' ? [accountId] : [];
   const statsRows = db.prepare(statsQuery).all(...statsParams) as any[];
@@ -1770,10 +1805,11 @@ export function getFolderStats(accountId?: string): FolderStat[] {
   const trashQuery = `
     SELECT 
       COUNT(*) as totalCount,
-      SUM(CASE WHEN isRead = 0 THEN 1 ELSE 0 END) as unreadCount
+      SUM(CASE WHEN emails.isRead = 0 THEN 1 ELSE 0 END) as unreadCount
     FROM emails
-    WHERE (folder = 'TRASH' OR isDeleted = 1)
-    ${accountId && accountId !== 'all' ? 'AND accountId = ?' : ''}
+    INNER JOIN accounts ON emails.accountId = accounts.id
+    WHERE (emails.folder = 'TRASH' OR emails.isDeleted = 1)
+    ${accountId && accountId !== 'all' ? 'AND emails.accountId = ?' : ''}
   `;
   const trashRow = db.prepare(trashQuery).get(...statsParams) as any;
   statsMap.set('TRASH', { count: Number(trashRow?.totalCount) || 0, unreadCount: Number(trashRow?.unreadCount) || 0 });
@@ -1782,10 +1818,11 @@ export function getFolderStats(accountId?: string): FolderStat[] {
   const starredQuery = `
     SELECT 
       COUNT(*) as totalCount,
-      SUM(CASE WHEN isRead = 0 THEN 1 ELSE 0 END) as unreadCount
+      SUM(CASE WHEN emails.isRead = 0 THEN 1 ELSE 0 END) as unreadCount
     FROM emails
-    WHERE isStarred = 1 AND isDeleted = 0
-    ${accountId && accountId !== 'all' ? 'AND accountId = ?' : ''}
+    INNER JOIN accounts ON emails.accountId = accounts.id
+    WHERE emails.isStarred = 1 AND emails.isDeleted = 0
+    ${accountId && accountId !== 'all' ? 'AND emails.accountId = ?' : ''}
   `;
   const starredRow = db.prepare(starredQuery).get(...statsParams) as any;
   statsMap.set('STARRED', { count: Number(starredRow?.totalCount) || 0, unreadCount: Number(starredRow?.unreadCount) || 0 });

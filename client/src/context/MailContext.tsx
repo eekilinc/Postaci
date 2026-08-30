@@ -204,6 +204,8 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
   refreshAccountsRef.current = refreshAccounts;
   const setActiveAccountIdRef = useRef(setActiveAccountId);
   setActiveAccountIdRef.current = setActiveAccountId;
+  const activeAccountIdValRef = useRef(activeAccountId);
+  activeAccountIdValRef.current = activeAccountId;
   const infoRef = useRef(info);
   infoRef.current = info;
   const successRef = useRef(success);
@@ -329,8 +331,20 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!acc.deleted && acc.email) {
             successRef.current(`${acc.email} hesabı başarıyla bağlandı!`, 'Hesap Eklendi');
           }
-          await refreshAccountsRef.current();
-          if (!acc.deleted && acc.id) {
+          if (acc.deleted) {
+            setEmails(prev => prev.filter(e => e.accountId !== acc.id));
+          }
+          const remaining = await api.getAccounts();
+          setAccounts(remaining);
+          if (acc.deleted) {
+            if (remaining.length === 0) {
+              setActiveAccountIdRef.current('');
+              setEmails([]);
+              setSelectedEmailId(null);
+            } else if (!remaining.some(a => a.id === activeAccountIdValRef.current)) {
+              setActiveAccountIdRef.current(remaining[0].id);
+            }
+          } else if (acc.id) {
             setActiveAccountIdRef.current(acc.id);
           }
           debouncedRefresh();

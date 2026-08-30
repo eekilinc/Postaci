@@ -669,12 +669,12 @@ export const SettingsModal: React.FC = () => {
     const isLast = accounts.length <= 1;
     const confirmMsg = isLast
       ? `"${name}" mevcut tek hesabınızdır. Bu hesabı silerseniz e-postalarınız kaldırılacak ve yeni hesap ekleme ekranı açılacaktır. Devam etmek istiyor musunuz?`
-      : `"${name}" hesabını kaldırmak istediğinize emin misiniz?`;
+      : `"${name}" hesabını ve tüm ilişkili e-postalarını kaldırmak istediğinize emin misiniz?`;
 
     if (window.confirm(confirmMsg)) {
       try {
         await api.deleteAccount(id);
-        success('Hesap silindi.');
+        success('Hesap ve tüm e-postaları kaldırıldı.');
         await refreshAccounts();
         const remaining = await api.getAccounts();
         if (remaining.length > 0) {
@@ -684,8 +684,8 @@ export const SettingsModal: React.FC = () => {
           handleResetForm();
           setIsFormOpen(true);
         }
-        refreshEmails();
-        refreshStats();
+        await refreshEmails();
+        await refreshStats();
       } catch (err: any) {
         error(err.message || 'Hesap silinemedi.');
       }
