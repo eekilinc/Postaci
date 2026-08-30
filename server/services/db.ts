@@ -1418,7 +1418,16 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
       const existing = checkStmt.get(email.id, rawId, email.messageId || '', cleanMid, `<${cleanMid}>`, email.accountId) as any;
 
       if (isFromImapSync && existing) {
-        if (existing.folder === 'TRASH' || existing.isDeleted) continue;
+        if (existing.folder === 'TRASH' || existing.isDeleted) {
+          // If local record is in TRASH/deleted but sync email comes from a non-TRASH folder,
+          // skip entirely — do NOT overwrite with INSERT OR REPLACE (prevents ghost resurrection)
+          if (email.folder !== 'TRASH' && !email.isDeleted) {
+            continue;
+          }
+          // If sync email ALSO comes from TRASH folder, allow update but preserve TRASH status
+          email.folder = 'TRASH';
+          email.isDeleted = true;
+        }
         if (existing.folder === 'ARCHIVE' || existing.isArchived) {
           email.folder = 'ARCHIVE';
           email.isArchived = true;
@@ -1541,10 +1550,6 @@ export function updateEmailFlags(id: string, updates: Partial<{
     const idx = memStore.emails.findIndex(e => e.id === id || e.id === rawId || decodeURIComponent(e.id) === rawId || (e.messageId && (e.messageId === id || e.messageId === rawId)));
     if (idx === -1) return undefined;
     memStore.emails[idx] = { ...memStore.emails[idx], ...updates };
-    if (updates.isDeleted || updates.folder === 'TRASH') {
-      const e = memStore.emails[idx];
-      markDeletedLocally({ id: e.id, messageId: e.messageId, accountId: e.accountId, imapUid: e.imapUid, mailboxPath: e.mailboxPath });
-    }
     saveJsonStore();
     return memStore.emails[idx];
   }
@@ -1553,9 +1558,6 @@ export function updateEmailFlags(id: string, updates: Partial<{
   if (!current) return undefined;
 
   const targetId = current.id;
-  if (updates.isDeleted || updates.folder === 'TRASH') {
-    markDeletedLocally({ id: current.id, messageId: current.messageId, accountId: current.accountId, imapUid: current.imapUid, mailboxPath: current.mailboxPath });
-  }
 
   const sets: string[] = [];
   const params: any = { id: targetId };

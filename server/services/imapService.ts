@@ -33,6 +33,15 @@ export class ImapService {
   private static mailboxStates = new Map<string, MailboxState>();
   private static mailboxListCache = new Map<string, { mailboxes: any[]; cachedAt: number }>();
 
+  // Exponential backoff for failing accounts: accountId -> { failures, nextRetryAt }
+  private static failureBackoff = new Map<string, { consecutiveFailures: number; nextRetryAt: number }>();
+
+  // Socket error log throttling: accountEmail -> lastLoggedAt
+  private static socketErrorLogThrottle = new Map<string, number>();
+
+  // NONEXISTENT mailbox blacklist: "accountId:::path" -> true (cleared on full sync)
+  private static mailboxBlacklist = new Set<string>();
+
   public static async getOrCreateClient(account: Account): Promise<ImapFlow> {
     const pooled = this.clientPool.get(account.id);
     if (pooled && pooled.client && pooled.client.authenticated && pooled.client.usable) {
@@ -84,6 +93,16 @@ export class ImapService {
     this.closeAccountClient(accountId);
   }
 
+  // Throttled socket error logging: max 1 log per account per 60 seconds
+  private static logSocketError(identifier: string, err: any) {
+    const now = Date.now();
+    const lastLogged = this.socketErrorLogThrottle.get(identifier) || 0;
+    if (now - lastLogged > 60000) {
+      console.warn(`[IMAP Socket Error - ${identifier}]:`, err?.message || err);
+      this.socketErrorLogThrottle.set(identifier, now);
+    }
+  }
+
   public static async connectClient(account: Account): Promise<ImapFlow> {
     if (account.authType === 'oauth2') {
       const accessToken = await OAuthService.refreshGoogleToken(account);
@@ -110,7 +129,7 @@ export class ImapService {
         emitLogs: false,
       });
       client.on('error', (err) => {
-        console.warn(`[IMAP Socket Error - ${account.email}]:`, err?.message || err);
+        this.logSocketError(account.email, err);
       });
       await client.connect();
       return client;
@@ -152,7 +171,7 @@ export class ImapService {
         emitLogs: false,
       });
       directClient.on('error', (err) => {
-        console.warn(`[IMAP Direct Socket Error - ${email}]:`, err?.message || err);
+        this.logSocketError(email, err);
       });
 
       await directClient.connect();
@@ -206,7 +225,7 @@ export class ImapService {
             emitLogs: false,
           });
           client.on('error', (err) => {
-            console.warn(`[IMAP Fallback Socket Error - ${email}]:`, err?.message || err);
+            this.logSocketError(email, err);
           });
 
           await client.connect();
@@ -886,6 +905,13 @@ export class ImapService {
         mailboxes = await client.list();
         this.mailboxListCache.set(account.id, { mailboxes, cachedAt: Date.now() });
 
+        // Clear mailbox blacklist on full sync so we can re-detect NONEXISTENT folders
+        for (const key of this.mailboxBlacklist) {
+          if (key.startsWith(`${account.id}:::`)) {
+            this.mailboxBlacklist.delete(key);
+          }
+        }
+
         // Register all mailboxes in database for UI folders sidebar
         for (const mb of mailboxes) {
           const { folder: targetFolder, isCustom, cleanName } = this.mapMailboxToFolder(mb);
@@ -936,6 +962,10 @@ export class ImapService {
       for (const mb of sortedMailboxes) {
         const { folder: targetFolder, isCustom } = this.mapMailboxToFolder(mb);
         if (mb.flags && mb.flags.has('\\Noselect')) continue;
+
+        // Skip blacklisted mailboxes (NONEXISTENT or previously failed)
+        const blacklistKey = `${account.id}:::${mb.path}`;
+        if (this.mailboxBlacklist.has(blacklistKey)) continue;
 
         try {
           const lock = await Promise.race([
@@ -1338,8 +1368,16 @@ export class ImapService {
           } finally {
             lock.release();
           }
-        } catch (mbErr) {
-          console.warn(`Could not sync mailbox ${mb.path}:`, mbErr);
+        } catch (mbErr: any) {
+          // Blacklist NONEXISTENT mailboxes so we don't retry them every sync cycle
+          if (mbErr?.serverResponseCode === 'NONEXISTENT' || mbErr?.mailboxMissing ||
+              (mbErr?.message && mbErr.message.includes('NONEXISTENT'))) {
+            const blKey = `${account.id}:::${mb.path}`;
+            this.mailboxBlacklist.add(blKey);
+            // Don't log repeatedly — just note it once
+          } else {
+            console.warn(`Could not sync mailbox ${mb.path}:`, mbErr?.message || mbErr);
+          }
         }
       }
     } catch (err: any) {
@@ -1605,16 +1643,43 @@ export class ImapService {
       const accounts = getAccounts().filter(isSyncable);
       if (accounts.length === 0) return;
 
+      const now = Date.now();
+
       await Promise.allSettled(
         accounts.map(async acc => {
           if (this.syncingAccounts.has(acc.id)) return;
+
+          // Exponential backoff: skip accounts whose retry timer hasn't expired
+          const backoff = this.failureBackoff.get(acc.id);
+          if (backoff && now < backoff.nextRetryAt) {
+            return; // Still in backoff period, skip this cycle
+          }
+
           try {
             const result = await this.syncAccount(acc.id, { onlyInbox });
+
+            // Success: reset backoff
+            if (this.failureBackoff.has(acc.id)) {
+              this.failureBackoff.delete(acc.id);
+            }
+
             if (this.broadcastCb && result.syncedCount > 0) {
               this.broadcastCb('emails_synced', { accountId: acc.id, ...result });
             }
-          } catch (err) {
-            console.warn(`Background sync error for account ${acc.email}:`, err);
+          } catch (err: any) {
+            // Increase backoff: 15s, 30s, 60s, 120s, 300s max
+            const prev = this.failureBackoff.get(acc.id);
+            const failures = (prev?.consecutiveFailures || 0) + 1;
+            const delayMs = Math.min(Math.pow(2, failures) * 15000, 300000);
+            this.failureBackoff.set(acc.id, {
+              consecutiveFailures: failures,
+              nextRetryAt: Date.now() + delayMs
+            });
+
+            // Log at reduced frequency for repeated failures (every 5th failure)
+            if (failures <= 2 || failures % 5 === 0) {
+              console.warn(`Background sync error for ${acc.email} (attempt ${failures}, next retry in ${Math.round(delayMs / 1000)}s):`, err?.message || err);
+            }
           }
         })
       );
