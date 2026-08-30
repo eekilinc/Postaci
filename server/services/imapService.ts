@@ -409,6 +409,41 @@ export class ImapService {
     const p = mb.path.toLowerCase();
     const n = mb.name.toLowerCase();
 
+    // --- Gmail special folder path detection (e.g. [Gmail]/Trash, [Gmail]/Sent Mail) ---
+    // Gmail uses XLIST / RFC 6154 special-use flags but also has predictable paths
+    const isGmailPath = p.includes('[gmail]') || p.includes('[google mail]');
+    if (isGmailPath) {
+      if (/trash|çöp|bin/i.test(p) || /trash|çöp|bin/i.test(n)) {
+        return { folder: 'TRASH', isCustom: false, cleanName: 'Çöp Kutusu' };
+      }
+      if (/sent/i.test(p) || /sent/i.test(n)) {
+        return { folder: 'SENT', isCustom: false, cleanName: 'Gönderilenler' };
+      }
+      if (/draft/i.test(p) || /draft/i.test(n) || /taslak/i.test(n)) {
+        return { folder: 'DRAFTS', isCustom: false, cleanName: 'Taslaklar' };
+      }
+      if (/spam|junk/i.test(p) || /spam|junk/i.test(n)) {
+        return { folder: 'SPAM', isCustom: false, cleanName: 'İstenmeyen' };
+      }
+      if (/all mail|tüm|arsiv|archive/i.test(p) || /all mail|tüm|arsiv|archive/i.test(n)) {
+        // Gmail All Mail is the master archive — skip syncing it to avoid duplicates with INBOX
+        return { folder: 'ARCHIVE', isCustom: false, cleanName: 'Arşiv' };
+      }
+      if (/starred/i.test(p) || /starred/i.test(n)) {
+        // Skip Gmail Starred virtual folder (we manage stars locally)
+        let cleanName = mb.name || mb.path;
+        cleanName = cleanName.replace(/^\[.*?\][./\\]/i, '').trim() || cleanName;
+        return { folder: cleanName, isCustom: true, cleanName };
+      }
+      if (/important/i.test(p) || /important/i.test(n)) {
+        // Skip Gmail Important virtual folder
+        let cleanName = mb.name || mb.path;
+        cleanName = cleanName.replace(/^\[.*?\][./\\]/i, '').trim() || cleanName;
+        return { folder: cleanName, isCustom: true, cleanName };
+      }
+    }
+
+    // --- Standard IMAP special-use attribute mapping ---
     if (special === '\\Sent' || /sent|gönderilen|gonderilen/i.test(p) || /sent|gönderilen|gonderilen/i.test(n)) {
       return { folder: 'SENT', isCustom: false, cleanName: 'Gönderilenler' };
     }
@@ -557,9 +592,28 @@ export class ImapService {
         }
 
         if (uidToDelete) {
-          await client.messageFlagsAdd(String(uidToDelete), ['\\Deleted'], { uid: true });
-          await client.messageDelete(String(uidToDelete), { uid: true });
-          return true;
+          // Gmail requires moving to [Gmail]/Trash before expunging.
+          // Direct messageFlagsAdd(\Deleted) + messageDelete on Gmail only removes the INBOX label.
+          const isGmailAccount = account.authType === 'oauth2' || (account.imapHost || '').includes('gmail') || (account.imapHost || '').includes('google');
+          if (isGmailAccount && (email.folder !== 'TRASH' && !email.isDeleted)) {
+            // Move to Trash first (Gmail IMAP standard practice)
+            const trashPath = await this.resolveServerMailboxPath(client, account.id, 'TRASH');
+            try {
+              await client.messageMove(String(uidToDelete), trashPath, { uid: true });
+              return true;
+            } catch {
+              // Fallback: direct delete
+              try {
+                await client.messageFlagsAdd(String(uidToDelete), ['\\Deleted'], { uid: true });
+                await client.messageDelete(String(uidToDelete), { uid: true });
+                return true;
+              } catch {}
+            }
+          } else {
+            await client.messageFlagsAdd(String(uidToDelete), ['\\Deleted'], { uid: true });
+            await client.messageDelete(String(uidToDelete), { uid: true });
+            return true;
+          }
         }
       } finally {
         lock.release();
@@ -573,6 +627,8 @@ export class ImapService {
   public static async bulkDeleteMessagesOnServer(accountId: string, emails: Email[]): Promise<boolean> {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo' || emails.length === 0) return false;
+
+    const isGmailAccount = account.authType === 'oauth2' || (account.imapHost || '').includes('gmail') || (account.imapHost || '').includes('google');
 
     try {
       const client = await this.getOrCreateClient(account);
@@ -593,8 +649,26 @@ export class ImapService {
           ]);
           try {
             const uidStr = uids.join(',');
-            await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
-            await client.messageDelete(uidStr, { uid: true });
+            if (isGmailAccount) {
+              // Gmail: move to Trash (don't EXPUNGE — that permanently deletes, Gmail moves to Trash)
+              const trashPath = await this.resolveServerMailboxPath(client, account.id, 'TRASH');
+              if (sourcePath !== trashPath) {
+                try {
+                  await client.messageMove(uidStr, trashPath, { uid: true });
+                } catch {
+                  // Fallback to direct delete
+                  await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
+                  await client.messageDelete(uidStr, { uid: true });
+                }
+              } else {
+                // Already in Trash — permanently expunge
+                await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
+                await client.messageDelete(uidStr, { uid: true });
+              }
+            } else {
+              await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
+              await client.messageDelete(uidStr, { uid: true });
+            }
           } finally {
             lock.release();
           }
@@ -826,8 +900,19 @@ export class ImapService {
         }
       }
 
-      // Prioritize core standard mailboxes (INBOX first, then Sent, Trash, Drafts, Junk, Spam, All Mail)
+      // Skip Gmail virtual/aggregate folders that would cause duplicates or slowness:
+      // - [Gmail]/All Mail: contains ALL emails (already synced via INBOX/Trash/Sent) → massive duplicates
+      // - [Gmail]/Starred, [Gmail]/Important: virtual labels, not real mailboxes
+      // This is exactly what Thunderbird, eM Client, Outlook, and Mailbird do.
+      const isGmailVirtualSkip = (mb: any) => {
+        const p = mb.path.toLowerCase();
+        return (p.includes('[gmail]') || p.includes('[google mail]')) &&
+          (/all mail|tüm|starred|yildizli|important|önemli/i.test(p) || /all mail|tüm|starred|yildizli|important|önemli/i.test(mb.name || ''));
+      };
+
+      // Prioritize core standard mailboxes (INBOX first, then Sent, Trash, Drafts, Junk, Spam)
       const isCore = (mb: any) => {
+        if (isGmailVirtualSkip(mb)) return false;
         const p = mb.path.toUpperCase();
         const s = (mb.specialUse || '').toUpperCase();
         return p === 'INBOX' || s === '\\INBOX' || s === '\\SENT' || s === '\\TRASH' || s === '\\DRAFTS' || s === '\\JUNK' || s === '\\ALL' || s === '\\ARCHIVE' ||
@@ -913,12 +998,16 @@ export class ImapService {
                 console.warn(`UID search on mailbox ${mb.path} failed:`, searchErr);
               }
 
+              // Fetch limits per folder — Trash/Spam match full 500 like INBOX
+              // so large Gmail Trash folders (e.g. 500+ emails) are fully visible
               let fetchLimit = 300;
               if (mb.path.toUpperCase() === 'INBOX' || targetFolder === 'INBOX') {
                 fetchLimit = 500;
               } else if (targetFolder === 'SENT') {
-                fetchLimit = 200;
-              } else if (targetFolder === 'TRASH' || targetFolder === 'DRAFTS' || targetFolder === 'SPAM') {
+                fetchLimit = 300;
+              } else if (targetFolder === 'TRASH' || targetFolder === 'SPAM') {
+                fetchLimit = 500; // Show full trash like other clients (Thunderbird, eM Client)
+              } else if (targetFolder === 'DRAFTS') {
                 fetchLimit = 100;
               }
 
