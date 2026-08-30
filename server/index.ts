@@ -5,6 +5,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 
+process.on('uncaughtException', (err: any) => {
+  console.warn('⚠️ Process uncaughtException caught (server kept alive):', err?.message || err);
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  console.warn('⚠️ Process unhandledRejection caught (server kept alive):', reason?.message || reason);
+});
+
 const getDirname = () => {
   if (typeof __dirname !== 'undefined') return __dirname;
   try {

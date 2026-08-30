@@ -8,20 +8,27 @@ export const EVENTS_URL = (typeof window !== 'undefined' && (window.location.pro
   ? (window.location.port === '5173' ? '/events' : 'http://127.0.0.1:3001/events')
   : '/events';
 
-async function fetchSafe(url: string, options?: RequestInit, retries = 3, delay = 300): Promise<Response> {
+async function fetchSafe(url: string, options?: RequestInit, retries = 2, delay = 250): Promise<Response> {
   let lastError: any = null;
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res = await fetch(url, options);
-      return res;
-    } catch (err) {
-      lastError = err;
-      if (i < retries - 1) {
-        await new Promise(r => setTimeout(r, delay * (i + 1)));
+  const urlsToTry: string[] = [url];
+  if (url.startsWith('/api')) {
+    urlsToTry.push(`http://127.0.0.1:3001${url}`);
+  }
+
+  for (const targetUrl of urlsToTry) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const res = await fetch(targetUrl, options);
+        return res;
+      } catch (err) {
+        lastError = err;
+        if (i < retries - 1) {
+          await new Promise(r => setTimeout(r, delay * (i + 1)));
+        }
       }
     }
   }
-  throw lastError || new Error('Sunucuya bağlanılamadı.');
+  throw lastError || new Error('Sunucuya bağlanılamadı. Lütfen sunucunun aktif olduğundan emin olun.');
 }
 
 export const api = {

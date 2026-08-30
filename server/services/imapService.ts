@@ -27,13 +27,16 @@ export class ImapService {
         },
         clientInfo: {
           name: 'Postaci Mail Client',
-          version: '1.1.7',
+          version: '1.1.8',
         },
         connectionTimeout: 10000,
         greetingTimeout: 10000,
         socketTimeout: 30000,
         logger: false,
         emitLogs: false,
+      });
+      client.on('error', (err) => {
+        console.warn(`[IMAP Socket Error - ${account.email}]:`, err?.message || err);
       });
       await client.connect();
       return client;
@@ -65,7 +68,7 @@ export class ImapService {
         },
         clientInfo: {
           name: 'Postaci',
-          version: '1.1.7',
+          version: '1.1.8',
           vendor: 'Postaci Mail Client',
         },
         connectionTimeout: 8000,
@@ -73,6 +76,9 @@ export class ImapService {
         socketTimeout: 25000,
         logger: false,
         emitLogs: false,
+      });
+      directClient.on('error', (err) => {
+        console.warn(`[IMAP Direct Socket Error - ${email}]:`, err?.message || err);
       });
 
       await directClient.connect();
@@ -116,7 +122,7 @@ export class ImapService {
             },
             clientInfo: {
               name: 'Postaci',
-              version: '1.1.7',
+              version: '1.1.8',
               vendor: 'Postaci Mail Client',
             },
             connectionTimeout: 5000,
@@ -124,6 +130,9 @@ export class ImapService {
             socketTimeout: 20000,
             logger: false,
             emitLogs: false,
+          });
+          client.on('error', (err) => {
+            console.warn(`[IMAP Fallback Socket Error - ${email}]:`, err?.message || err);
           });
 
           await client.connect();
@@ -197,6 +206,9 @@ export class ImapService {
         },
         logger: false,
         emitLogs: false,
+      });
+      client.on('error', (err) => {
+        // Suppress unhandled error event during test probe
       });
 
       let timer: NodeJS.Timeout | undefined;
