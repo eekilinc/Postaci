@@ -15,7 +15,8 @@ import {
   Pin,
   Inbox,
   Filter,
-  Check
+  Check,
+  RotateCw
 } from 'lucide-react';
 import { useMail } from '../context/MailContext';
 import { Email } from '../types';
@@ -48,6 +49,7 @@ export const EmailList: React.FC = () => {
     isSyncing,
     activeFolder,
     activeLabel,
+    triggerSync,
   } = useMail();
 
   const [hoveredEmailId, setHoveredEmailId] = useState<string | null>(null);
@@ -254,11 +256,48 @@ export const EmailList: React.FC = () => {
                 title="Tümünü Seç (Ctrl+A veya * a)"
                 style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
               >
-                <Square size={15} />
+                {isAllSelected ? <CheckSquare size={15} color="var(--accent-primary)" /> : <Square size={15} />}
               </button>
-              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                {activeLabel ? `#${activeLabel}` : activeFolder.toUpperCase()}
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {activeLabel ? `#${activeLabel}` : (
+                  activeFolder === 'INBOX' ? 'Gelen Kutusu' :
+                  activeFolder === 'STARRED' ? 'Yıldızlılar' :
+                  activeFolder === 'SENT' ? 'Gönderilenler' :
+                  activeFolder === 'DRAFTS' ? 'Taslaklar' :
+                  activeFolder === 'ARCHIVE' ? 'Arşiv' :
+                  activeFolder === 'SPAM' ? 'İstenmeyen' :
+                  activeFolder === 'TRASH' ? 'Çöp Kutusu' : activeFolder
+                )}
               </span>
+
+              {/* Mailbird-style Live Sync Button */}
+              <button
+                onClick={() => triggerSync()}
+                disabled={isSyncing}
+                title={isSyncing ? 'E-postalar eşitleniyor...' : 'E-postaları Şimdi Senkronize Et (Mailbird Tarzı Anlık Çek)'}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: isSyncing ? 'rgba(59, 130, 246, 0.15)' : 'var(--bg-tertiary)',
+                  border: isSyncing ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid var(--border-subtle)',
+                  borderRadius: '6px',
+                  padding: '2px 7px',
+                  cursor: isSyncing ? 'default' : 'pointer',
+                  color: isSyncing ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  transition: 'all 0.15s ease',
+                  marginLeft: '4px'
+                }}
+              >
+                <RotateCw
+                  size={12}
+                  className={isSyncing ? 'animate-spin' : ''}
+                  style={{ color: isSyncing ? 'var(--accent-primary)' : 'inherit' }}
+                />
+                <span style={{ fontSize: '10.5px' }}>{isSyncing ? 'Eşitleniyor...' : 'Eşitle'}</span>
+              </button>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

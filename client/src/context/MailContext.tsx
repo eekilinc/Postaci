@@ -124,10 +124,30 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [activeAccountId]);
 
   const lastSyncedFolderRef = useRef<string | null>(null);
+  const folderCacheRef = useRef<Map<string, Email[]>>(new Map());
 
-  // Load Emails
+  const pruneFromCache = useCallback((emailIds: string[]) => {
+    const idSet = new Set(emailIds);
+    for (const [key, list] of folderCacheRef.current.entries()) {
+      folderCacheRef.current.set(key, list.filter(e => !idSet.has(e.id)));
+    }
+  }, []);
+
+  // Load Emails with SWR In-Memory Instant Cache
   const refreshEmails = useCallback(async (showLoading = false) => {
-    if (showLoading) setIsLoading(true);
+    const cacheKey = `${activeAccountId}-${activeFolder}-${filter}-${activeLabel || ''}-${searchQuery || ''}`;
+    
+    // If we have cached emails for this folder, show them instantly without wiping the screen
+    if (folderCacheRef.current.has(cacheKey)) {
+      const cached = folderCacheRef.current.get(cacheKey)!;
+      setEmails(cached);
+      if (showLoading && cached.length === 0) {
+        setIsLoading(true);
+      }
+    } else if (showLoading) {
+      setIsLoading(true);
+    }
+
     try {
       const data = await api.getEmails({
         accountId: activeAccountId !== 'all' ? activeAccountId : undefined,
@@ -148,6 +168,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return new Date(b.date).getTime() - new Date(a.date).getTime();
       });
 
+      folderCacheRef.current.set(cacheKey, sorted);
       setEmails(sorted);
 
       setSelectedEmailId(prevId => {
@@ -457,11 +478,18 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const srcFolder = cur?.folder || activeFolder;
 
     // Optimistic instant UI update (0ms)
-    setEmails(prev => prev.filter(e => e.id !== id));
+    const idx = emails.findIndex(e => e.id === id);
+    const remaining = emails.filter(e => e.id !== id);
+    setEmails(remaining);
     if (selectedEmailId === id) {
-      const remaining = emails.filter(e => e.id !== id);
-      setSelectedEmailId(remaining.length > 0 ? remaining[0].id : null);
+      if (remaining.length > 0) {
+        const nextTarget = remaining[Math.min(idx, remaining.length - 1)];
+        setSelectedEmailId(nextTarget.id);
+      } else {
+        setSelectedEmailId(null);
+      }
     }
+    pruneFromCache([id]);
     
     // 0ms instant sidebar stats update
     adjustFolderStats([
@@ -488,11 +516,18 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const srcFolder = cur?.folder || activeFolder;
 
     // Optimistic instant UI update (0ms)
-    setEmails(prev => prev.filter(e => e.id !== id));
+    const idx = emails.findIndex(e => e.id === id);
+    const remaining = emails.filter(e => e.id !== id);
+    setEmails(remaining);
     if (selectedEmailId === id) {
-      const remaining = emails.filter(e => e.id !== id);
-      setSelectedEmailId(remaining.length > 0 ? remaining[0].id : null);
+      if (remaining.length > 0) {
+        const nextTarget = remaining[Math.min(idx, remaining.length - 1)];
+        setSelectedEmailId(nextTarget.id);
+      } else {
+        setSelectedEmailId(null);
+      }
     }
+    pruneFromCache([id]);
 
     // 0ms instant sidebar stats update
     if (isAlreadyTrash) {
@@ -633,7 +668,9 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Optimistic removal
     setEmails(prev => prev.filter(e => !idSet.has(e.id)));
+    pruneFromCache(ids);
     clearCheckedEmails();
+    setSelectedEmailId(prevId => (prevId && idSet.has(prevId) ? null : prevId));
 
     // 0ms instant sidebar stats update
     adjustFolderStats([
@@ -662,7 +699,9 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Optimistic removal
     setEmails(prev => prev.filter(e => !idSet.has(e.id)));
+    pruneFromCache(ids);
     clearCheckedEmails();
+    setSelectedEmailId(prevId => (prevId && idSet.has(prevId) ? null : prevId));
 
     // 0ms instant sidebar stats update
     if (isTrash) {
@@ -697,6 +736,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setEmails([]);
     setSelectedEmailId(null);
     clearCheckedEmails();
+    folderCacheRef.current.clear();
 
     // 0ms instant stats adjustment
     adjustFolderStats([
@@ -913,12 +953,18 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         e.preventDefault();
         openComposer();
       } else if (e.key === 'e' || e.key === 'y') {
-        if (selectedEmailId) {
+        if (checkedEmailIds.size > 0) {
+          e.preventDefault();
+          bulkArchive();
+        } else if (selectedEmailId) {
           e.preventDefault();
           archiveEmail(selectedEmailId);
         }
-      } else if (e.key === '#' || e.key === 'Delete') {
-        if (selectedEmailId) {
+      } else if (e.key === '#' || e.key === 'Delete' || e.key === 'Backspace') {
+        if (checkedEmailIds.size > 0) {
+          e.preventDefault();
+          bulkDelete();
+        } else if (selectedEmailId) {
           e.preventDefault();
           deleteEmail(selectedEmailId);
         }
@@ -976,7 +1022,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedEmailId, emails, isComposerOpen, isSettingsOpen, isShortcutsOpen, isCommandPaletteOpen, nextEmail, prevEmail]);
+  }, [selectedEmailId, checkedEmailIds, emails, isComposerOpen, isSettingsOpen, isShortcutsOpen, isCommandPaletteOpen, nextEmail, prevEmail, deleteEmail, bulkDelete, archiveEmail, bulkArchive, selectAllEmails, clearCheckedEmails, toggleEmailCheck, openComposer, openReply, openForward, markAsSpam, togglePinned, toggleRead, toggleStarred]);
 
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
 
