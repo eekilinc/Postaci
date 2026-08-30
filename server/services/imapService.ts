@@ -804,10 +804,13 @@ export class ImapService {
           if (client.mailbox && client.mailbox.exists > 0) {
             const uids = await client.search({ all: true }, { uid: true });
             if (Array.isArray(uids) && uids.length > 0) {
-              for (const uid of uids) {
+              const CHUNK_SIZE = 100;
+              for (let i = 0; i < uids.length; i += CHUNK_SIZE) {
+                const chunk = uids.slice(i, i + CHUNK_SIZE);
+                const uidStr = chunk.join(',');
                 try {
-                  await client.messageFlagsAdd(String(uid), ['\\Deleted'], { uid: true });
-                  await client.messageDelete(String(uid), { uid: true });
+                  await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
+                  await client.messageDelete(uidStr, { uid: true });
                 } catch {}
               }
               anyEmptied = true;
@@ -1069,7 +1072,7 @@ export class ImapService {
                         ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
                         : `imap-${account.id}-${mb.path}-${message.uid || uuidv4()}`;
 
-                      if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
+                      if (isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
                         continue;
                       }
 
@@ -1192,7 +1195,7 @@ export class ImapService {
                       ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
                       : `imap-${account.id}-${mb.path}-${message.uid || uuidv4()}`;
 
-                    if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
+                    if (isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
                       continue;
                     }
 
@@ -1465,7 +1468,7 @@ export class ImapService {
                     ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
                     : `imap-${account.id}-${resolvedPath}-${message.uid || uuidv4()}`;
 
-                  if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, resolvedPath)) {
+                  if (isDeletedLocally(emailId, rawMid, account.id, message.uid, resolvedPath)) {
                     continue;
                   }
 
