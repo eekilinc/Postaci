@@ -811,6 +811,37 @@ export class ImapService {
     return anyEmptied;
   }
 
+  public static async resolveServerMailboxPath(client: ImapFlow, accountId: string, folderNameOrPath: string): Promise<string> {
+    const p = folderNameOrPath.toUpperCase();
+    if (p === 'INBOX') return 'INBOX';
+
+    // Check cached or fetched mailboxes
+    let mailboxes = this.mailboxListCache.get(accountId)?.mailboxes;
+    if (!mailboxes || mailboxes.length === 0) {
+      try {
+        mailboxes = await client.list();
+        this.mailboxListCache.set(accountId, { mailboxes, cachedAt: Date.now() });
+      } catch {
+        return folderNameOrPath;
+      }
+    }
+
+    // Direct match by path or name
+    const exact = mailboxes.find(m => m.path.toLowerCase() === folderNameOrPath.toLowerCase() || m.name.toLowerCase() === folderNameOrPath.toLowerCase());
+    if (exact) return exact.path;
+
+    // Semantic match
+    const targetFolder = folderNameOrPath.toUpperCase();
+    for (const mb of mailboxes) {
+      const mapped = this.mapMailboxToFolder(mb);
+      if (mapped.folder.toUpperCase() === targetFolder) {
+        return mb.path;
+      }
+    }
+
+    return folderNameOrPath;
+  }
+
   public static async syncAccount(accountId: string, options?: { onlyInbox?: boolean }): Promise<{ syncedCount: number }> {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo') return { syncedCount: 0 };
@@ -972,103 +1003,111 @@ export class ImapService {
             state.exists = currentExists;
             state.lastSyncedAt = Date.now();
 
-            // TIER 1: Lightning-fast Envelope & Metadata Fetch
+            // TIER 1: Lightning-fast Envelope & Metadata Fetch in safe chunks (50 UIDs per chunk to prevent Gmail throttling)
             const envelopeEmails: Email[] = [];
             const uidsToPreloadBody: number[] = [];
 
             if (targetUidsToFetch.length > 0) {
-              const messages = client.fetch(targetUidsToFetch, {
-                envelope: true,
-                flags: true,
-                bodyStructure: true,
-                internalDate: true,
-                uid: true,
-              }, { uid: true });
-
-              for await (const message of messages) {
+              const CHUNK_SIZE = 50;
+              for (let c = 0; c < targetUidsToFetch.length; c += CHUNK_SIZE) {
+                const uidChunk = targetUidsToFetch.slice(c, c + CHUNK_SIZE);
                 try {
-                  // Skip messages flagged as \Deleted on server
-                  if (message.flags && (message.flags.has('\\Deleted') || message.flags.has('\\deleted'))) {
-                    continue;
-                  }
+                  const messages = client.fetch(uidChunk, {
+                    envelope: true,
+                    flags: true,
+                    bodyStructure: true,
+                    internalDate: true,
+                    uid: true,
+                  }, { uid: true });
 
-                  const env = message.envelope;
-                  const rawMid = env?.messageId || undefined;
-                  const emailId = rawMid
-                    ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
-                    : `imap-${account.id}-${mb.path}-${message.uid || uuidv4()}`;
-
-                  if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
-                    continue;
-                  }
-
-                  const fromName = env?.from?.[0]?.name || env?.from?.[0]?.address || 'Bilinmeyen Gönderici';
-                  const fromEmail = env?.from?.[0]?.address || 'unknown@example.com';
-                  const subject = env?.subject || '(Konusuz)';
-                  const rawDate = env?.date || message.internalDate || new Date();
-                  const date = rawDate instanceof Date ? rawDate.toISOString() : new Date(rawDate).toISOString();
-                  const snippet = subject.substring(0, 150);
-
-                  const to = (env?.to || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
-                  const cc = (env?.cc || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
-
-                  // Extract attachment info from bodyStructure without downloading attachment payloads
-                  const attachments: Attachment[] = [];
-                  if (message.bodyStructure) {
-                    const extractAttachments = (struct: any) => {
-                      if (!struct) return;
-                      if (struct.disposition === 'attachment' || (struct.parameters && struct.parameters.name)) {
-                        attachments.push({
-                          id: uuidv4(),
-                          filename: struct.parameters?.name || struct.dispositionParameters?.filename || 'ek_dosya',
-                          contentType: struct.type ? `${struct.type}/${struct.subtype || 'octet-stream'}` : 'application/octet-stream',
-                          size: struct.size || 0,
-                          isInline: struct.disposition === 'inline'
-                        });
+                  for await (const message of messages) {
+                    try {
+                      // Skip messages flagged as \Deleted on server
+                      if (message.flags && (message.flags.has('\\Deleted') || message.flags.has('\\deleted'))) {
+                        continue;
                       }
-                      if (Array.isArray(struct.childNodes)) {
-                        for (const child of struct.childNodes) extractAttachments(child);
+
+                      const env = message.envelope;
+                      const rawMid = env?.messageId || undefined;
+                      const emailId = rawMid
+                        ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
+                        : `imap-${account.id}-${mb.path}-${message.uid || uuidv4()}`;
+
+                      if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
+                        continue;
                       }
-                    };
-                    extractAttachments(message.bodyStructure);
+
+                      const fromName = env?.from?.[0]?.name || env?.from?.[0]?.address || 'Bilinmeyen Gönderici';
+                      const fromEmail = env?.from?.[0]?.address || 'unknown@example.com';
+                      const subject = env?.subject || '(Konusuz)';
+                      const rawDate = env?.date || message.internalDate || new Date();
+                      const date = rawDate instanceof Date ? rawDate.toISOString() : new Date(rawDate).toISOString();
+                      const snippet = subject.substring(0, 150);
+
+                      const to = (env?.to || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
+                      const cc = (env?.cc || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
+
+                      // Extract attachment info from bodyStructure without downloading attachment payloads
+                      const attachments: Attachment[] = [];
+                      if (message.bodyStructure) {
+                        const extractAttachments = (struct: any) => {
+                          if (!struct) return;
+                          if (struct.disposition === 'attachment' || (struct.parameters && struct.parameters.name)) {
+                            attachments.push({
+                              id: uuidv4(),
+                              filename: struct.parameters?.name || struct.dispositionParameters?.filename || 'ek_dosya',
+                              contentType: struct.type ? `${struct.type}/${struct.subtype || 'octet-stream'}` : 'application/octet-stream',
+                              size: struct.size || 0,
+                              isInline: struct.disposition === 'inline'
+                            });
+                          }
+                          if (Array.isArray(struct.childNodes)) {
+                            for (const child of struct.childNodes) extractAttachments(child);
+                          }
+                        };
+                        extractAttachments(message.bodyStructure);
+                      }
+
+                      const email: Email = {
+                        id: emailId,
+                        accountId: account.id,
+                        threadId: rawMid ? `thread-${rawMid}` : `thread-${emailId}`,
+                        messageId: rawMid,
+                        inReplyTo: env?.inReplyTo || undefined,
+                        fromName,
+                        fromEmail,
+                        to,
+                        cc,
+                        bcc: [],
+                        subject,
+                        bodyText: snippet,
+                        bodyHtml: `<p>${snippet}</p>`,
+                        snippet,
+                        date,
+                        isRead: message.flags ? message.flags.has('\\Seen') : (targetFolder === 'SENT'),
+                        isStarred: message.flags ? message.flags.has('\\Flagged') : false,
+                        isArchived: targetFolder === 'ARCHIVE',
+                        isDeleted: targetFolder === 'TRASH',
+                        isDraft: targetFolder === 'DRAFTS',
+                        isSpam: targetFolder === 'SPAM',
+                        folder: targetFolder,
+                        labels: isCustom ? [targetFolder] : [targetFolder === 'INBOX' ? 'Gelen Kutusu' : targetFolder],
+                        priority: 'normal',
+                        attachments,
+                        imapUid: message.uid,
+                        mailboxPath: mb.path,
+                        hasFullBody: false,
+                        aiSummary: null,
+                        aiSmartReplies: null
+                      };
+
+                      envelopeEmails.push(email);
+                    } catch (itemErr) {
+                      console.warn('Failed to process message envelope:', itemErr);
+                    }
                   }
-
-                  const email: Email = {
-                    id: emailId,
-                    accountId: account.id,
-                    threadId: rawMid ? `thread-${rawMid}` : `thread-${emailId}`,
-                    messageId: rawMid,
-                    inReplyTo: env?.inReplyTo || undefined,
-                    fromName,
-                    fromEmail,
-                    to,
-                    cc,
-                    bcc: [],
-                    subject,
-                    bodyText: snippet,
-                    bodyHtml: `<p>${snippet}</p>`,
-                    snippet,
-                    date,
-                    isRead: message.flags ? message.flags.has('\\Seen') : (targetFolder === 'SENT'),
-                    isStarred: message.flags ? message.flags.has('\\Flagged') : false,
-                    isArchived: targetFolder === 'ARCHIVE',
-                    isDeleted: targetFolder === 'TRASH',
-                    isDraft: targetFolder === 'DRAFTS',
-                    isSpam: targetFolder === 'SPAM',
-                    folder: targetFolder,
-                    labels: isCustom ? [targetFolder] : [targetFolder === 'INBOX' ? 'Gelen Kutusu' : targetFolder],
-                    priority: 'normal',
-                    attachments,
-                    imapUid: message.uid,
-                    mailboxPath: mb.path,
-                    hasFullBody: false,
-                    aiSummary: null,
-                    aiSmartReplies: null
-                  };
-
-                  envelopeEmails.push(email);
-                } catch (itemErr) {
-                  console.warn('Failed to process message envelope:', itemErr);
+                } catch (chunkErr) {
+                  console.warn(`Failed to fetch chunk for ${account.email} on ${mb.path}:`, chunkErr);
                 }
               }
 
@@ -1098,6 +1137,7 @@ export class ImapService {
                   }
                 }
               }
+            }
 
               // TIER 2: Fast Pre-load of top 2 latest unseen email bodies
               if (uidsToPreloadBody.length > 0) {
@@ -1144,7 +1184,6 @@ export class ImapService {
                   console.warn('Preload full body fetch failed:', preloadErr);
                 }
               }
-            }
           } finally {
             lock.release();
           }
@@ -1224,7 +1263,11 @@ export class ImapService {
 
     try {
       const client = await this.getOrCreateClient(account);
-      const lock = await client.getMailboxLock(mailboxPath);
+      const resolvedPath = await this.resolveServerMailboxPath(client, account.id, mailboxPath);
+      const lock = await Promise.race([
+        client.getMailboxLock(resolvedPath),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${resolvedPath}`)), 8000))
+      ]);
       try {
         let uids: number[] = [];
         try {
@@ -1237,118 +1280,126 @@ export class ImapService {
           }
         } catch {}
 
-        const { folder: targetFolder, isCustom } = this.mapMailboxToFolder({ path: mailboxPath, name: mailboxPath });
+        const { folder: targetFolder, isCustom } = this.mapMailboxToFolder({ path: resolvedPath, name: resolvedPath });
 
         const latestUids = uids.slice(-100);
         const minUid = latestUids[0] || 1;
         if (latestUids.length > 0) {
-          pruneMissingServerUids(account.id, mailboxPath, latestUids, minUid, targetFolder);
+          pruneMissingServerUids(account.id, resolvedPath, latestUids, minUid, targetFolder);
         } else {
-          pruneMissingServerUids(account.id, mailboxPath, [], 1, targetFolder);
+          pruneMissingServerUids(account.id, resolvedPath, [], 1, targetFolder);
         }
 
         const envelopeEmails: Email[] = [];
-        const messages = latestUids.length > 0
-          ? client.fetch(latestUids, {
-              envelope: true,
-              flags: true,
-              bodyStructure: true,
-              internalDate: true,
-              uid: true,
-            }, { uid: true })
-          : [];
+        if (latestUids.length > 0) {
+          const CHUNK_SIZE = 50;
+          for (let c = 0; c < latestUids.length; c += CHUNK_SIZE) {
+            const chunk = latestUids.slice(c, c + CHUNK_SIZE);
+            try {
+              const messages = client.fetch(chunk, {
+                envelope: true,
+                flags: true,
+                bodyStructure: true,
+                internalDate: true,
+                uid: true,
+              }, { uid: true });
 
-        for await (const message of messages) {
-          try {
-            // Skip messages flagged as \Deleted on server
-            if (message.flags && (message.flags.has('\\Deleted') || message.flags.has('\\deleted'))) {
-              continue;
-            }
+              for await (const message of messages) {
+                try {
+                  // Skip messages flagged as \Deleted on server
+                  if (message.flags && (message.flags.has('\\Deleted') || message.flags.has('\\deleted'))) {
+                    continue;
+                  }
 
-            const env = message.envelope;
-            const rawMid = env?.messageId || undefined;
-            const emailId = rawMid
-              ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
-              : `imap-${account.id}-${mailboxPath}-${message.uid || uuidv4()}`;
+                  const env = message.envelope;
+                  const rawMid = env?.messageId || undefined;
+                  const emailId = rawMid
+                    ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
+                    : `imap-${account.id}-${resolvedPath}-${message.uid || uuidv4()}`;
 
-            if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, mailboxPath)) {
-              continue;
-            }
+                  if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, resolvedPath)) {
+                    continue;
+                  }
 
-            const fromName = env?.from?.[0]?.name || env?.from?.[0]?.address || 'Bilinmeyen Gönderici';
-            const fromEmail = env?.from?.[0]?.address || 'unknown@example.com';
-            const subject = env?.subject || '(Konusuz)';
-            const rawDate = env?.date || message.internalDate || new Date();
-            const date = rawDate instanceof Date ? rawDate.toISOString() : new Date(rawDate).toISOString();
-            const snippet = subject.substring(0, 150);
+                  const fromName = env?.from?.[0]?.name || env?.from?.[0]?.address || 'Bilinmeyen Gönderici';
+                  const fromEmail = env?.from?.[0]?.address || 'unknown@example.com';
+                  const subject = env?.subject || '(Konusuz)';
+                  const rawDate = env?.date || message.internalDate || new Date();
+                  const date = rawDate instanceof Date ? rawDate.toISOString() : new Date(rawDate).toISOString();
+                  const snippet = subject.substring(0, 150);
 
-            const to = (env?.to || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
-            const cc = (env?.cc || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
+                  const to = (env?.to || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
+                  const cc = (env?.cc || []).map((t: any) => ({ name: t.name || '', email: t.address || '' }));
 
-            const attachments: Attachment[] = [];
-            if (message.bodyStructure) {
-              const extractAttachments = (struct: any) => {
-                if (!struct) return;
-                if (struct.disposition === 'attachment' || (struct.parameters && struct.parameters.name)) {
-                  attachments.push({
-                    id: uuidv4(),
-                    filename: struct.parameters?.name || struct.dispositionParameters?.filename || 'ek_dosya',
-                    contentType: struct.type ? `${struct.type}/${struct.subtype || 'octet-stream'}` : 'application/octet-stream',
-                    size: struct.size || 0,
-                    isInline: struct.disposition === 'inline'
-                  });
+                  const attachments: Attachment[] = [];
+                  if (message.bodyStructure) {
+                    const extractAttachments = (struct: any) => {
+                      if (!struct) return;
+                      if (struct.disposition === 'attachment' || (struct.parameters && struct.parameters.name)) {
+                        attachments.push({
+                          id: uuidv4(),
+                          filename: struct.parameters?.name || struct.dispositionParameters?.filename || 'ek_dosya',
+                          contentType: struct.type ? `${struct.type}/${struct.subtype || 'octet-stream'}` : 'application/octet-stream',
+                          size: struct.size || 0,
+                          isInline: struct.disposition === 'inline'
+                        });
+                      }
+                      if (Array.isArray(struct.childNodes)) {
+                        for (const child of struct.childNodes) extractAttachments(child);
+                      }
+                    };
+                    extractAttachments(message.bodyStructure);
+                  }
+
+                  const email: Email = {
+                    id: emailId,
+                    accountId: account.id,
+                    threadId: rawMid ? `thread-${rawMid}` : `thread-${emailId}`,
+                    messageId: rawMid,
+                    inReplyTo: env?.inReplyTo || undefined,
+                    fromName,
+                    fromEmail,
+                    to,
+                    cc,
+                    bcc: [],
+                    subject,
+                    bodyText: snippet,
+                    bodyHtml: `<p>${snippet}</p>`,
+                    snippet,
+                    date,
+                    isRead: message.flags ? message.flags.has('\\Seen') : (targetFolder === 'SENT'),
+                    isStarred: message.flags ? message.flags.has('\\Flagged') : false,
+                    isArchived: targetFolder === 'ARCHIVE',
+                    isDeleted: targetFolder === 'TRASH',
+                    isDraft: targetFolder === 'DRAFTS',
+                    isSpam: targetFolder === 'SPAM',
+                    folder: targetFolder,
+                    labels: isCustom ? [targetFolder] : [targetFolder === 'INBOX' ? 'Gelen Kutusu' : targetFolder],
+                    priority: 'normal',
+                    attachments,
+                    imapUid: message.uid,
+                    mailboxPath: resolvedPath,
+                    hasFullBody: false,
+                    aiSummary: null,
+                    aiSmartReplies: null
+                  };
+
+                  envelopeEmails.push(email);
+                } catch (itemErr) {
+                  console.warn('Failed to process custom folder message:', itemErr);
                 }
-                if (Array.isArray(struct.childNodes)) {
-                  for (const child of struct.childNodes) extractAttachments(child);
-                }
-              };
-              extractAttachments(message.bodyStructure);
+              }
+            } catch (chunkErr) {
+              console.warn(`Failed to fetch chunk on ${resolvedPath}:`, chunkErr);
             }
-
-            const email: Email = {
-              id: emailId,
-              accountId: account.id,
-              threadId: rawMid ? `thread-${rawMid}` : `thread-${emailId}`,
-              messageId: rawMid,
-              inReplyTo: env?.inReplyTo || undefined,
-              fromName,
-              fromEmail,
-              to,
-              cc,
-              bcc: [],
-              subject,
-              bodyText: snippet,
-              bodyHtml: `<p>${snippet}</p>`,
-              snippet,
-              date,
-              isRead: message.flags ? message.flags.has('\\Seen') : (targetFolder === 'SENT'),
-              isStarred: message.flags ? message.flags.has('\\Flagged') : false,
-              isArchived: targetFolder === 'ARCHIVE',
-              isDeleted: targetFolder === 'TRASH',
-              isDraft: targetFolder === 'DRAFTS',
-              isSpam: targetFolder === 'SPAM',
-              folder: targetFolder,
-              labels: isCustom ? [targetFolder] : [targetFolder === 'INBOX' ? 'Gelen Kutusu' : targetFolder],
-              priority: 'normal',
-              attachments,
-              imapUid: message.uid,
-              mailboxPath,
-              hasFullBody: false,
-              aiSummary: null,
-              aiSmartReplies: null
-            };
-
-            envelopeEmails.push(email);
-          } catch (itemErr) {
-            console.warn('Failed to process custom folder message:', itemErr);
           }
         }
 
         if (envelopeEmails.length > 0) {
           const { savedCount, newEmails } = saveEmailsBatch(envelopeEmails, true);
-          syncedCount += savedCount;
-          if (this.broadcastCb) {
-            this.broadcastCb('emails_synced', { accountId: account.id, folder: targetFolder, mailboxPath });
+          syncedCount = savedCount;
+          if (this.broadcastCb && newEmails.length > 0) {
+            this.broadcastCb('emails_synced', { accountId: account.id, folder: targetFolder, mailboxPath: resolvedPath });
           }
         }
       } finally {

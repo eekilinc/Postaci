@@ -204,17 +204,18 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const key = `${activeAccountId}-${activeFolder}`;
       if (lastSyncedFolderRef.current !== key) {
         lastSyncedFolderRef.current = key;
-        const targetAcc = (activeAccountId && activeAccountId !== 'all') ? activeAccountId : accounts[0]?.id;
+        const targetAcc = (activeAccountId && activeAccountId !== 'all')
+          ? accounts.find(a => a.id === activeAccountId && a.provider !== 'demo')
+          : accounts.find(a => a.provider !== 'demo');
         if (targetAcc) {
-          const mailboxToSync = activeFolder === 'TRASH' ? 'Trash' : (activeFolder === 'SENT' ? 'Sent' : (activeFolder === 'SPAM' ? 'Junk' : activeFolder));
-          api.syncFolder(targetAcc, mailboxToSync).then(() => {
-            refreshEmails(false);
-            refreshStats();
+          api.syncFolder(targetAcc.id, activeFolder).then(() => {
+            refreshEmailsRef.current(false);
+            refreshStatsRef.current();
           }).catch(() => {});
         }
       }
     }
-  }, [activeAccountId, activeFolder, accounts, refreshEmails, refreshStats]);
+  }, [activeAccountId, activeFolder, accounts]);
 
   // Refs to avoid closing and re-opening SSE connection on every filter/search/folder state change
   const refreshEmailsRef = useRef(refreshEmails);
