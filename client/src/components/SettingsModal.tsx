@@ -363,7 +363,7 @@ export const SettingsModal: React.FC = () => {
   };
 
   // OAuth credentials state
-  const [googleAuthMode, setGoogleAuthMode] = useState<'oauth' | 'app_password'>('oauth');
+  const [googleAuthMode, setGoogleAuthMode] = useState<'app_password' | 'oauth'>('app_password');
   const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('postaci_google_client_id') || '');
   const [googleClientSecret, setGoogleClientSecret] = useState(() => localStorage.getItem('postaci_google_client_secret') || '');
   const [isSavingOAuth, setIsSavingOAuth] = useState(false);
@@ -559,7 +559,7 @@ export const SettingsModal: React.FC = () => {
     setSelectedProviderKey(null);
     setIsWaitingOAuth(false);
     setShowAdvancedSettings(false);
-    setGoogleAuthMode('oauth');
+    setGoogleAuthMode('app_password');
     setUseSameCredentials(true);
     setAccName('');
     setAccEmail('');
