@@ -234,7 +234,9 @@ app.post('/api/auth/oauth-config', (req: Request, res: Response) => {
 app.get('/api/auth/google/url', (req: Request, res: Response) => {
   try {
     const clientId = (req.query.clientId as string) || undefined;
-    const url = OAuthService.getGoogleAuthUrl('http://127.0.0.1:3001/api/auth/google/callback', clientId);
+    const host = req.get('host') || '127.0.0.1:3001';
+    const redirectUri = `${req.protocol}://${host}/api/auth/google/callback`;
+    const url = OAuthService.getGoogleAuthUrl(redirectUri, clientId);
     res.json({ url });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -244,11 +246,18 @@ app.get('/api/auth/google/url', (req: Request, res: Response) => {
 app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
   try {
     const code = req.query.code as string;
+    const errorQuery = req.query.error as string;
+    if (errorQuery) {
+      throw new Error(`Google yetkilendirmesi reddedildi veya iptal edildi (${errorQuery}).`);
+    }
     if (!code) {
       return res.status(400).send('Yetkilendirme kodu (Authorization code) bulunamadı.');
     }
 
-    const account = await OAuthService.handleGoogleCallback(code);
+    const host = req.get('host') || '127.0.0.1:3001';
+    const redirectUri = `${req.protocol}://${host}/api/auth/google/callback`;
+
+    const account = await OAuthService.handleGoogleCallback(code, redirectUri);
     broadcastSSE('accounts_updated', account);
     
     // Auto-sync the new Google account in background
@@ -262,11 +271,12 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>Google Girişi Başarılı — Postacı</title>
           <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-            .card { background: #131e3a; border: 1px solid #3b82f6; border-radius: 16px; padding: 40px; text-align: center; max-width: 440px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+            .card { background: #131e3a; border: 1px solid #3b82f6; border-radius: 16px; padding: 40px; text-align: center; max-width: 460px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
             h2 { color: #38bdf8; margin-top: 0; }
             p { color: #94a3b8; line-height: 1.6; font-size: 14px; }
             .badge { display: inline-block; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 6px 16px; border-radius: 20px; font-weight: 600; margin-bottom: 16px; }
+            .btn { display: inline-block; background: #3b82f6; color: white; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 20px; cursor: pointer; border: none; }
           </style>
         </head>
         <body>
@@ -274,8 +284,9 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
             <div class="badge">✓ Yetkilendirme Başarılı</div>
             <h2>Postacı'ya Bağlandı!</h2>
             <p><strong>${account.email}</strong> Google hesabınız başarıyla eklendi ve senkronizasyon başlatıldı.</p>
-            <p style="font-size: 12px; color: #64748b;">Bu sekme otomatik kapanacaktır. Postacı masaüstü uygulamasına dönebilirsiniz.</p>
-            <script>setTimeout(() => window.close(), 2500);</script>
+            <p style="font-size: 13px; color: #64748b;">Postacı masaüstü uygulamasına dönebilirsiniz.</p>
+            <button class="btn" onclick="window.close()">Pencereyi Kapat</button>
+            <script>setTimeout(() => window.close(), 3000);</script>
           </div>
         </body>
       </html>
@@ -284,10 +295,30 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
     console.error('Google OAuth callback error:', err);
     res.status(500).send(`
       <!DOCTYPE html>
-      <html>
-        <body style="font-family: system-ui; background: #0f172a; color: white; text-align: center; padding: 40px;">
-          <h2 style="color: #ef4444;">Google Giriş Hatası</h2>
-          <p>${err.message}</p>
+      <html lang="tr">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Google Giriş Durumu — Postacı</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+            .card { background: #131e3a; border: 1px solid #ef4444; border-radius: 16px; padding: 36px; text-align: center; max-width: 500px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+            h2 { color: #f87171; margin-top: 0; }
+            p { color: #cbd5e1; line-height: 1.6; font-size: 14px; }
+            .alert-box { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 12px; margin: 16px 0; font-family: monospace; font-size: 13px; color: #fca5a5; word-break: break-all; }
+            .solution { background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 14px; margin-top: 16px; text-align: left; font-size: 13px; color: #93c5fd; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>Google Yetkilendirme Bildirimi</h2>
+            <div class="alert-box">${err.message || 'Yetkilendirme tamamlanamadı.'}</div>
+            <div class="solution">
+              <strong>💡 En Hızlı ve Sorunsuz Çözüm:</strong><br>
+              Postacı uygulamasında <strong>Hesap Ekle &gt; Gmail</strong> ekranında <strong>"Uygulama Şifresi Kullan"</strong> seçeneğini seçip 16 haneli Google Uygulama Şifrenizle tek tıkla ve şartsız bağlanabilirsiniz.
+            </div>
+            <p style="margin-top: 20px; font-size: 12px; color: #64748b;">Postacı uygulamasına dönüp işlemi tamamlayabilirsiniz.</p>
+          </div>
         </body>
       </html>
     `);

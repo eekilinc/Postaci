@@ -277,6 +277,12 @@ function createWindow() {
     }
   });
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.focus();
+    }
+  });
+
   mainWindow.once('ready-to-show', () => {
     if (!desktopSettings.startMinimized) {
       mainWindow.show();
@@ -284,6 +290,12 @@ function createWindow() {
       if (mainWindow.webContents) {
         mainWindow.webContents.focus();
       }
+    }
+  });
+
+  mainWindow.on('show', () => {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+      mainWindow.webContents.focus();
     }
   });
 

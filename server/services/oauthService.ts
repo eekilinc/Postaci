@@ -86,7 +86,7 @@ export class OAuthService {
     const id = (clientId || creds.googleClientId || DEFAULT_GOOGLE_CLIENT_ID).trim();
     const secret = (clientSecret || creds.googleClientSecret || DEFAULT_GOOGLE_CLIENT_SECRET).trim();
 
-    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    let tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -98,9 +98,38 @@ export class OAuthService {
       }).toString()
     });
 
-    const tokenData = await tokenRes.json();
+    let tokenData = await tokenRes.json();
+
+    // If redirect_uri_mismatch, automatically attempt with alternate localhost / 127.0.0.1 URI
+    if (!tokenRes.ok && (tokenData.error === 'redirect_uri_mismatch' || String(tokenData.error_description).includes('mismatch'))) {
+      const altUri = redirectUri.includes('127.0.0.1')
+        ? redirectUri.replace('127.0.0.1', 'localhost')
+        : redirectUri.replace('localhost', '127.0.0.1');
+
+      try {
+        const altRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            code,
+            client_id: id,
+            client_secret: secret,
+            redirect_uri: altUri,
+            grant_type: 'authorization_code'
+          }).toString()
+        });
+        const altData = await altRes.json();
+        if (altRes.ok && altData.access_token) {
+          tokenRes = altRes;
+          tokenData = altData;
+        }
+      } catch {}
+    }
+
     if (!tokenRes.ok || !tokenData.access_token) {
-      throw new Error(tokenData.error_description || tokenData.error || 'Google yetkilendirme jetonu alınamadı.');
+      const errMsg = tokenData.error_description || tokenData.error || 'Google yetkilendirme jetonu alınamadı.';
+      console.error('Google OAuth token exchange failed:', tokenData);
+      throw new Error(errMsg);
     }
 
     const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {

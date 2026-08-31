@@ -284,8 +284,6 @@ body {
   overflow: hidden;
   height: 100vh;
   width: 100vw;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 /* Ensure all input, textarea, select, and editable areas are completely selectable and interactable */
@@ -293,6 +291,12 @@ input, textarea, select, [contenteditable="true"], [contenteditable], .selectabl
   user-select: text !important;
   -webkit-user-select: text !important;
   pointer-events: auto !important;
+  -webkit-app-region: no-drag !important;
+  cursor: text;
+}
+
+input[type="button"], input[type="submit"], input[type="reset"], button {
+  cursor: pointer;
 }
 
 /* Typography Headings */

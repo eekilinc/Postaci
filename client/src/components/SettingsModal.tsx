@@ -1209,45 +1209,100 @@ export const SettingsModal: React.FC = () => {
                         />
                       </div>
 
-                      {!editingAccountId && selectedProviderKey === 'google' && googleAuthMode === 'oauth' ? (
-                        <div style={{ marginTop: '4px', padding: '16px', borderRadius: 'var(--radius-md)', background: 'rgba(66, 133, 244, 0.08)', border: '1px solid rgba(66, 133, 244, 0.2)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ color: '#4285F4' }}><ShieldCheck size={28} /></div>
-                            <div>
-                              <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Google OAuth ile Güvenli Giriş</div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>Parolanızı girmeden tek tıkla yetkilendirme yapabilirsiniz.</div>
-                            </div>
-                          </div>
-                          <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+                      {!editingAccountId && selectedProviderKey === 'google' ? (
+                        <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <div style={{ display: 'flex', background: 'var(--bg-primary)', padding: '4px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                            <button
+                              type="button"
+                              onClick={() => setGoogleAuthMode('oauth')}
+                              style={{
+                                flex: 1,
+                                padding: '8px 12px',
+                                border: 'none',
+                                borderRadius: 'var(--radius-sm)',
+                                background: googleAuthMode === 'oauth' ? 'var(--accent-primary)' : 'transparent',
+                                color: googleAuthMode === 'oauth' ? '#fff' : 'var(--text-secondary)',
+                                fontWeight: googleAuthMode === 'oauth' ? 600 : 500,
+                                fontSize: '13px',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              ⚡ Google ile Giriş (OAuth)
+                            </button>
                             <button
                               type="button"
                               onClick={() => setGoogleAuthMode('app_password')}
-                              style={{ background: 'none', border: 'none', color: '#4285F4', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
+                              style={{
+                                flex: 1,
+                                padding: '8px 12px',
+                                border: 'none',
+                                borderRadius: 'var(--radius-sm)',
+                                background: googleAuthMode === 'app_password' ? 'var(--accent-primary)' : 'transparent',
+                                color: googleAuthMode === 'app_password' ? '#fff' : 'var(--text-secondary)',
+                                fontWeight: googleAuthMode === 'app_password' ? 600 : 500,
+                                fontSize: '13px',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease'
+                              }}
                             >
-                              Bunun yerine Uygulama Şifresi kullan
+                              🔑 Uygulama Şifresi (16 Haneli)
                             </button>
                           </div>
+
+                          {googleAuthMode === 'oauth' ? (
+                            <div style={{ padding: '14px 16px', borderRadius: 'var(--radius-md)', background: 'rgba(66, 133, 244, 0.08)', border: '1px solid rgba(66, 133, 244, 0.2)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ color: '#4285F4' }}><ShieldCheck size={28} /></div>
+                                <div>
+                                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Google OAuth ile Yetkilendirme</div>
+                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>Parolanızı girmeden tarayıcınız üzerinden tek tıkla güvenli giriş yapın.</div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                  16 Haneli Google Uygulama Şifresi *
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenExternal('https://myaccount.google.com/apppasswords')}
+                                  style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                >
+                                  Şifre Oluştur <ExternalLink size={12} />
+                                </button>
+                              </div>
+                              <input
+                                type="password"
+                                required={!isWaitingOAuth}
+                                placeholder="xxxx xxxx xxxx xxxx"
+                                value={accImapPass}
+                                onChange={e => {
+                                  setAccImapPass(e.target.value);
+                                  if (useSameCredentials) setAccSmtpPass(e.target.value);
+                                  if (testResult) setTestResult(null);
+                                }}
+                                style={{ width: '100%', padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)', border: '1px solid var(--border-medium)', color: 'var(--text-primary)', fontSize: '14px', letterSpacing: accImapPass ? '0.2em' : 'normal', fontWeight: 600 }}
+                              />
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                                💡 Google Hesabınızda 2 Adımlı Doğrulama açık ise <strong style={{ color: 'var(--text-secondary)' }}>myaccount.google.com/apppasswords</strong> adresinden aldığınız 16 haneli şifreyi giriniz.
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div style={{ marginTop: '4px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
                             <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                              {selectedProviderKey !== 'custom' && selectedProviderKey !== 'google' ? 'Uygulama Şifresi (App Password) *' : 'Parola *'}
+                              {selectedProviderKey !== 'custom' ? 'Uygulama Şifresi (App Password) *' : 'Parola *'}
                             </label>
-                            {selectedProviderKey === 'google' && (
-                              <button
-                                type="button"
-                                onClick={() => setGoogleAuthMode('oauth')}
-                                style={{ background: 'none', border: 'none', color: '#4285F4', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
-                              >
-                                Google OAuth'a Dön
-                              </button>
-                            )}
                           </div>
                           <input
                             type="password"
-                            required={!isWaitingOAuth && !(selectedProviderKey === 'google' && googleAuthMode === 'oauth')}
-                            placeholder={selectedProviderKey !== 'custom' && selectedProviderKey !== 'google' ? '16 haneli uygulama şifreniz' : 'Hesap parolanız'}
+                            required
+                            placeholder={selectedProviderKey !== 'custom' ? '16 haneli uygulama şifreniz' : 'Hesap parolanız'}
                             value={accImapPass}
                             onChange={e => {
                               setAccImapPass(e.target.value);
