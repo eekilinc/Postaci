@@ -1,38 +1,37 @@
 import { Account, Email, Contact, CalendarEvent, FolderStat, Attachment } from '../types';
-
-export const API_BASE = (typeof window !== 'undefined' && (window.location.protocol === 'file:' || !window.location.port || window.location.port === '5173'))
-  ? (window.location.port === '5173' ? '/api' : 'http://127.0.0.1:3001/api')
-  : '/api';
-
-export const EVENTS_URL = (typeof window !== 'undefined' && (window.location.protocol === 'file:' || !window.location.port || window.location.port === '5173'))
-  ? (window.location.port === '5173' ? '/events' : 'http://127.0.0.1:3001/events')
-  : '/events';
-
-async function fetchSafe(url: string, options?: RequestInit, retries = 5, delay = 300): Promise<Response> {
-  let lastError: any = null;
-  const urlsToTry: string[] = [url];
-  if (url.startsWith('/api') && !urlsToTry.includes(`http://127.0.0.1:3001${url}`)) {
-    urlsToTry.push(`http://127.0.0.1:3001${url}`);
-  }
-
+export interface EmailQuery {
+  accountId?: string; folder?: string; isStarred?: boolean; isUnread?: boolean;
+  label?: string; search?: string; limit?: number; offset?: number; sort?: string; hasAttachment?: boolean;
+}
+export const API_BASE = '/api';
+export const EVENTS_URL = '/events';
+let sessionPromise: Promise<void> | undefined;
+export function ensureSession(): Promise<void> {
+  if (!sessionPromise) sessionPromise = fetch(API_BASE + '/session', {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  }).then(res => { if (!res.ok) throw new Error('Yerel oturum başlatılamadı. Uygulamayı localhost adresinden açın.'); })
+    .catch(err => { sessionPromise = undefined; throw err; });
+  return sessionPromise;
+}
+export async function fetchSafe(url: string, options: RequestInit = {}): Promise<Response> {
+  await ensureSession();
+  const method = options.method || 'GET';
+  const retries = method === 'GET' ? 3 : 1;
   for (let attempt = 0; attempt < retries; attempt++) {
-    for (const targetUrl of urlsToTry) {
-      try {
-        const res = await fetch(targetUrl, options);
-        return res;
-      } catch (err) {
-        lastError = err;
+    try {
+      let res = await fetch(url, { ...options, credentials: 'include' });
+      if (res.status === 401) {
+        sessionPromise = undefined;
+        await ensureSession();
+        res = await fetch(url, { ...options, credentials: 'include' });
       }
-    }
-    if (attempt < retries - 1) {
-      await new Promise(r => setTimeout(r, delay * Math.min(attempt + 1, 3)));
+      return res;
+    } catch (err: any) {
+      if (err.name === 'AbortError' || attempt === retries - 1) throw err;
+      await new Promise(resolve => setTimeout(resolve, 300 * (attempt + 1)));
     }
   }
-  if (lastError instanceof TypeError && (lastError.message === 'Failed to fetch' || lastError.message?.includes('fetch'))) {
-    throw new Error('Sunucuya bağlanılamadı ("Failed to fetch"). Lütfen uygulamanın arka plan servisinin çalıştığından emin olun (port 3001).');
-  }
-  
-  throw lastError || new Error('Sunucuya bağlanılamadı. Lütfen sunucunun aktif olduğundan emin olun.');
+  throw new Error('Yerel sunucuya ulaşılamadı.');
 }
 
 export const api = {
@@ -43,7 +42,7 @@ export const api = {
     return res.json();
   },
 
-  async getOAuthConfig(): Promise<{ googleClientId?: string; googleClientSecret?: string; microsoftClientId?: string }> {
+  async getOAuthConfig(): Promise<{ googleClientId?: string; hasGoogleClientSecret?: boolean; microsoftClientId?: string }> {
     const res = await fetchSafe(`${API_BASE}/auth/oauth-config`);
     if (!res.ok) throw new Error('OAuth ayarları alınamadı.');
     return res.json();
@@ -157,6 +156,12 @@ export const api = {
     return res.json();
   },
 
+  async loadOlderEmails(accountId: string, mailboxPath: string): Promise<{ syncedCount: number; hasMoreOlder?: boolean }> {
+    const res = await fetchSafe(API_BASE + '/folders/older', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountId, mailboxPath }) });
+    if (!res.ok) throw new Error((await res.json()).error || 'Eski iletiler yüklenemedi.');
+    return res.json();
+  },
+
   async resetDatabase(): Promise<{ success: boolean }> {
     const res = await fetchSafe(`${API_BASE}/settings/reset-database`, { method: 'POST' });
     if (!res.ok) {
@@ -167,23 +172,13 @@ export const api = {
   },
 
   // Emails
-  async getEmails(params: {
-    accountId?: string;
-    folder?: string;
-    isStarred?: boolean;
-    isUnread?: boolean;
-    label?: string;
-    search?: string;
-  }): Promise<Email[]> {
+  async getEmails(params: EmailQuery): Promise<Email[]> {
+    return (await api.getEmailPage(params)).items;
+  },
+  async getEmailPage(params: EmailQuery, signal?: AbortSignal): Promise<{ items: Email[]; hasMore: boolean; nextOffset: number }> {
     const query = new URLSearchParams();
-    if (params.accountId) query.append('accountId', params.accountId);
-    if (params.folder) query.append('folder', params.folder);
-    if (params.isStarred !== undefined) query.append('isStarred', String(params.isStarred));
-    if (params.isUnread !== undefined) query.append('isUnread', String(params.isUnread));
-    if (params.label) query.append('label', params.label);
-    if (params.search) query.append('search', params.search);
-
-    const res = await fetchSafe(`${API_BASE}/emails?${query.toString()}`);
+    for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== '') query.set(key, String(value));
+    const res = await fetchSafe(API_BASE + '/emails?' + query, { signal });
     if (!res.ok) throw new Error('E-postalar alınamadı.');
     return res.json();
   },
@@ -285,7 +280,7 @@ export const api = {
   }): Promise<Email> {
     const res = await fetchSafe(`${API_BASE}/send`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -467,17 +462,17 @@ export const api = {
   },
 
   // Backup & Restore
-  async exportBackup(): Promise<any> {
-    const res = await fetchSafe(`${API_BASE}/backup/export`);
+  async exportBackup(passphrase: string, preferences: Record<string, string>): Promise<any> {
+    const res = await fetchSafe(`${API_BASE}/backup/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passphrase, preferences }) });
     if (!res.ok) throw new Error('Yedekleme verisi alınamadı.');
     return res.json();
   },
 
-  async importBackup(backup: any, mode: 'merge' | 'replace' = 'merge'): Promise<{ success: boolean; restoredAccounts: number; message: string }> {
+  async importBackup(backup: any, mode: 'merge' = 'merge', passphrase = ''): Promise<{ success: boolean; restoredAccounts: number; message: string; preferences: Record<string, string> }> {
     const res = await fetchSafe(`${API_BASE}/backup/import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ backup, mode }),
+      body: JSON.stringify({ backup, mode, passphrase }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

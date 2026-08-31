@@ -49,7 +49,7 @@ export const EmailList: React.FC = () => {
     bulkDelete,
     bulkMarkRead,
     emptyTrashFolder,
-    isLoading,
+    isLoading, hasMoreEmails, isLoadingMore, loadMoreEmails, loadOlderEmails, listError, accounts,
     isSyncing,
     activeFolder,
     activeLabel,
@@ -772,6 +772,11 @@ export const EmailList: React.FC = () => {
             </div>
           );
         })}
+        {!hasMoreEmails && !['STARRED','UNREAD','DRAFTS'].includes(activeFolder) && accounts.some(a => a.provider !== 'demo') && <button disabled={isSyncing} onClick={() => loadOlderEmails()} style={{ display: 'block', margin: '12px auto', padding: 10, color: 'var(--accent-primary)', background: 'transparent', border: '1px solid var(--border-medium)', borderRadius: 8 }}>Sunucudan daha eski iletileri getir</button>}
+        {listError && <p role="alert" style={{ padding: 12, color: 'var(--accent-danger)' }}>{listError}</p>}
+        {hasMoreEmails && <button onClick={() => loadMoreEmails()} disabled={isLoadingMore} style={{ display: 'block', margin: '16px auto', padding: '10px 20px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-medium)', borderRadius: 8 }}>
+          {isLoadingMore ? 'Yükleniyor…' : 'Daha fazla ileti yükle'}
+        </button>}
       </div>
     </section>
   );

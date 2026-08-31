@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { validateSendPayload } from './sendValidation.js';
 import { Account, Email, Attachment, EmailAddress } from '../types.js';
 import { getAccountById, getAccounts, saveEmail } from './db.js';
 import { OAuthService } from './oauthService.js';
@@ -28,24 +29,19 @@ export class SmtpService {
     if (account.authType === 'oauth2' || account.oauthRefreshToken || account.oauthAccessToken) {
       const fullAcc = account as Account;
       const accessToken = await OAuthService.refreshGoogleToken(fullAcc);
-      const creds = OAuthService.getCredentials();
-      const clientId = fullAcc.oauthClientId || creds.googleClientId;
-      const clientSecret = fullAcc.oauthClientSecret || creds.googleClientSecret;
 
       return nodemailer.createTransport({
+      requireTLS: true,
         host: 'smtp.gmail.com',
         port: 465,
         secure: true,
         auth: {
           type: 'OAuth2',
           user: fullAcc.email,
-          clientId,
-          clientSecret,
-          refreshToken: fullAcc.oauthRefreshToken,
           accessToken,
         },
         tls: {
-          rejectUnauthorized: false,
+          rejectUnauthorized: true,
           minVersion: 'TLSv1.2'
         }
       });
@@ -58,6 +54,7 @@ export class SmtpService {
       : (port === 465);
 
     return nodemailer.createTransport({
+      requireTLS: true,
       host: account.smtpHost || (account.provider === 'gmail' ? 'smtp.gmail.com' : account.imapHost),
       port,
       secure: isDirectSsl,
@@ -66,7 +63,7 @@ export class SmtpService {
         pass: account.smtpPassword || account.imapPassword || '',
       },
       tls: {
-        rejectUnauthorized: false,
+        rejectUnauthorized: true,
         minVersion: 'TLSv1.2'
       },
     });
@@ -116,6 +113,7 @@ export class SmtpService {
 
     const attemptVerify = async (host: string, port: number, secure: boolean, u: string, timeoutMs = 3500) => {
       const transporter = nodemailer.createTransport({
+      requireTLS: true,
         host,
         port,
         secure,
@@ -124,7 +122,7 @@ export class SmtpService {
           pass: password,
         },
         tls: {
-          rejectUnauthorized: false,
+          rejectUnauthorized: true,
           minVersion: 'TLSv1.2'
         },
         connectionTimeout: timeoutMs,
@@ -225,10 +223,10 @@ export class SmtpService {
   }
 
   public static async sendMail(params: SendMailParams): Promise<Email> {
+    validateSendPayload(params);
     let account = params.accountId ? getAccountById(params.accountId) : undefined;
     if (!account) {
-      const allAccounts = getAccounts();
-      account = allAccounts.find(a => a.isDefault) || allAccounts[0];
+      throw new Error('Seçilen gönderici hesabı bulunamadı.');
     }
     if (!account) {
       throw new Error('Gönderici hesabı bulunamadı. Lütfen Ayarlar bölümünden bir e-posta hesabı ekleyin.');
@@ -237,6 +235,7 @@ export class SmtpService {
     const emailId = `sent-${uuidv4()}`;
     const threadId = params.threadId || `thread-${emailId}`;
     const now = new Date().toISOString();
+    const messageId = '<' + uuidv4() + '@' + (account.email.split('@')[1] || 'postaci.local') + '>';
 
     const host = account.smtpHost || (account.provider === 'gmail' ? 'smtp.gmail.com' : account.imapHost);
     const password = account.smtpPassword || account.imapPassword;
@@ -247,10 +246,11 @@ export class SmtpService {
     // If it's a real account (OAuth2 or standard SMTP), send via Nodemailer
     if (account.provider !== 'demo') {
       const mailOptions: nodemailer.SendMailOptions = {
-        from: `"${account.name}" <${account.email}>`,
-        to: params.to.map(t => (t.name ? `"${t.name}" <${t.email}>` : t.email)).join(', '),
-        cc: params.cc?.map(c => (c.name ? `"${c.name}" <${c.email}>` : c.email)).join(', '),
-        bcc: params.bcc?.map(b => (b.name ? `"${b.name}" <${b.email}>` : b.email)).join(', '),
+        messageId, disableFileAccess: true, disableUrlAccess: true,
+        from: { name: account.name, address: account.email },
+        to: params.to.map(t => ({ name: t.name, address: t.email })),
+        cc: params.cc?.map(t => ({ name: t.name, address: t.email })),
+        bcc: params.bcc?.map(t => ({ name: t.name, address: t.email })),
         subject: params.subject,
         text: params.bodyText,
         html: params.bodyHtml,
@@ -281,50 +281,11 @@ export class SmtpService {
           smtpPassword: password,
         };
 
-        const primaryPort = account.smtpPort || (account.smtpSecure ? 465 : 587);
-        const primarySecure = primaryPort === 465;
-
-        const userCandidates = [
-          user,
-          ...(email && email !== user ? [email] : []),
-          ...(prefix && prefix !== user && prefix !== email ? [prefix] : [])
-        ];
-
-        const portCandidates = [
-          { port: primaryPort, secure: primarySecure },
-          { port: 587, secure: false },
-          { port: 465, secure: true },
-          { port: 25, secure: false },
-        ];
-
-        const uniquePorts = portCandidates.filter((v, i, a) => a.findIndex(t => t.port === v.port && t.secure === v.secure) === i);
-
-        let sendSucceeded = false;
-        let lastSendErr: any = null;
-
-        for (const u of userCandidates) {
-          if (sendSucceeded) break;
-          for (const p of uniquePorts) {
-            try {
-              const transporter = await this.createTransporter(accountWithFallback, p.port, p.secure, u);
-              await transporter.sendMail(mailOptions);
-              sendSucceeded = true;
-              break;
-            } catch (err: any) {
-              lastSendErr = err;
-              console.warn(`SMTP send attempt on Port ${p.port} (${p.secure ? 'SSL' : 'STARTTLS'}) with user ${u} failed:`, err.message);
-            }
-          }
-        }
-
-        if (!sendSucceeded && lastSendErr) {
-          console.error('SMTP Send completely failed after all fallbacks:', lastSendErr);
-          let msg = lastSendErr.message || String(lastSendErr);
-          if (msg.includes('535') || msg.includes('Invalid login') || msg.includes('BadCredentials')) {
-            msg = 'SMTP Gönderim Hatası: Kullanıcı adı veya şifre reddedildi. Lütfen Uygulama Şifresi kullanın.';
-          }
-          throw new Error(msg);
-        }
+        // Connection discovery happens during account setup. Never retry SMTP DATA on another port.
+        const transporter = await this.createTransporter(accountWithFallback);
+        try { await transporter.sendMail(mailOptions); }
+        catch (err: any) { throw new Error('SMTP gönderimi tamamlanamadı: ' + (err.message || 'Bağlantı hatası') + '. Yeniden göndermeden önce Gönderilenler klasörünü kontrol edin.'); }
+        finally { transporter.close(); }
       } else {
         throw new Error('Gönderici hesabında SMTP sunucu adresi veya şifre eksik.');
       }
@@ -335,6 +296,7 @@ export class SmtpService {
       id: emailId,
       accountId: account.id,
       threadId,
+      messageId, inReplyTo: params.inReplyTo, references: params.references,
       fromName: account.name,
       fromEmail: account.email,
       to: params.to,

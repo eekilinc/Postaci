@@ -28,16 +28,17 @@ const MainLayout: React.FC = () => {
   } = useMail();
 
   React.useEffect(() => {
+    const unsubscribe: Array<() => void> = [];
     if ((window as any).electronAPI?.onAppAction) {
-      (window as any).electronAPI.onAppAction((action: string) => {
+      unsubscribe.push((window as any).electronAPI.onAppAction((action: string) => {
         if (action === 'compose') openComposer();
         else if (action === 'sync') triggerSync();
         else if (action === 'settings') setIsSettingsOpen(true);
-      });
+      }));
     }
 
     if ((window as any).electronAPI?.onOpenEmail) {
-      (window as any).electronAPI.onOpenEmail((data: { emailId: string; accountId?: string }) => {
+      unsubscribe.push((window as any).electronAPI.onOpenEmail((data: { emailId: string; accountId?: string }) => {
         if (data && data.emailId) {
           setMainTab('mail');
           setActiveFolder('INBOX');
@@ -46,8 +47,9 @@ const MainLayout: React.FC = () => {
           }
           selectEmail(data.emailId);
         }
-      });
+      }));
     }
+    return () => unsubscribe.forEach(stop => stop?.());
   }, [openComposer, triggerSync, setIsSettingsOpen, setMainTab, setActiveFolder, setActiveAccountId, selectEmail]);
 
   return (

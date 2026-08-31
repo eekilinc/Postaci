@@ -12,5 +12,10 @@
     "jsx": "react-jsx",
     "noEmit": true
   },
-  "include": ["server/**/*", "client/src/**/*"]
+  "include": [
+    "server/**/*",
+    "client/src/**/*",
+    "shared/**/*",
+    "tests/**/*"
+  ]
 }

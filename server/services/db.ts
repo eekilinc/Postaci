@@ -11,7 +11,9 @@ try {
   nativeRequire = createRequire(`file://${process.cwd()}/index.js`);
 }
 
-export const dataDir = process.env.POSTACI_DATA_DIR || path.resolve(process.cwd(), 'data');
+import { dataDir } from './storagePaths.js';
+import { encodeAccount, decodeAccount, encryptSecret, atomicWrite, CredentialError } from './secrets.js';
+export { dataDir };
 if (!fs.existsSync(dataDir)) {
   try {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -27,31 +29,25 @@ export function loadAccountsBackup(): Account[] {
     try {
       const data = fs.readFileSync(accountsJsonPath, 'utf-8');
       const parsed = JSON.parse(data);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      if (!Array.isArray(parsed)) throw new Error('Hesap yedeği bir dizi olmalı.');
+      if (parsed.length > 0) {
+        return parsed.map(decodeAccount);
       }
     } catch (e) {
-      console.warn('Failed to read accounts.json backup:', e);
+      if (e instanceof CredentialError) throw e;
+      throw new Error('Hesap yedeği okunamadı; dosya değiştirilmedi.', { cause: e });
     }
   }
   return [];
 }
 
 export function saveAccountsBackup(accounts: Account[]) {
-  if (!Array.isArray(accounts)) return;
-  const tmpPath = `${accountsJsonPath}.tmp`;
-  try {
-    fs.writeFileSync(tmpPath, JSON.stringify(accounts, null, 2), 'utf-8');
-    fs.renameSync(tmpPath, accountsJsonPath);
-  } catch (e) {
-    try {
-      fs.writeFileSync(accountsJsonPath, JSON.stringify(accounts, null, 2), 'utf-8');
-    } catch (err) {
-      console.warn('Failed to write accounts.json backup:', err);
-    }
-  }
+  if (!Array.isArray(accounts) || restoring) return;
+  atomicWrite(accountsJsonPath, JSON.stringify(accounts.map(encodeAccount), null, 2));
 }
 
+let restoring = false;
+const serverFoldersMap = new Map<string, ServerFolderRecord>();
 let isNativeSqlite = false;
 let db: any = null;
 
@@ -61,6 +57,7 @@ interface MemoryStore {
   emails: Email[];
   contacts: Contact[];
   calendar_events: CalendarEvent[];
+  serverFolders?: ServerFolderRecord[];
   deletedRecords?: Array<{ id: string; messageId?: string; accountId?: string; imapUid?: number; mailboxPath?: string; deletedAt: string }>;
 }
 
@@ -78,21 +75,24 @@ function loadJsonStore() {
     try {
       const content = fs.readFileSync(jsonDbPath, 'utf-8');
       const parsed = JSON.parse(content);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Geçersiz veri dosyası.');
+      for (const field of ['accounts', 'emails', 'contacts', 'calendar_events']) {
+        if (parsed[field] !== undefined && !Array.isArray(parsed[field])) throw new Error('Geçersiz veri alanı: ' + field);
+      }
       if (parsed && typeof parsed === 'object') {
         memStore = {
-          accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
+          accounts: Array.isArray(parsed.accounts) ? parsed.accounts.map(decodeAccount) : [],
           emails: Array.isArray(parsed.emails) ? parsed.emails : [],
           contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
           calendar_events: Array.isArray(parsed.calendar_events) ? parsed.calendar_events : [],
+          serverFolders: Array.isArray(parsed.serverFolders) ? parsed.serverFolders : [],
           deletedRecords: Array.isArray(parsed.deletedRecords) ? parsed.deletedRecords : []
         };
         loaded = true;
       }
     } catch (err) {
-      console.warn('postaci_store.json parse error, attempting backup:', err);
-      try {
-        fs.copyFileSync(jsonDbPath, `${jsonDbPath}.corrupted.${Date.now()}.bak`);
-      } catch {}
+      if (err instanceof CredentialError) throw err;
+      throw new Error('JSON veri dosyası okunamadı; dosya değiştirilmedi.', { cause: err });
     }
   }
 
@@ -105,89 +105,48 @@ function loadJsonStore() {
 
   if (!loaded && memStore.accounts.length === 0) {
     memStore = {
-      accounts: [...initialAccounts],
-      emails: [...initialEmails],
-      contacts: [...initialContacts],
-      calendar_events: [...initialCalendarEvents],
+      accounts: process.env.POSTACI_SEED_DEMO === '0' ? [] : [...initialAccounts],
+      emails: process.env.POSTACI_SEED_DEMO === '0' ? [] : [...initialEmails],
+      contacts: process.env.POSTACI_SEED_DEMO === '0' ? [] : [...initialContacts],
+      calendar_events: process.env.POSTACI_SEED_DEMO === '0' ? [] : [...initialCalendarEvents],
       deletedRecords: []
     };
   }
+  for (const folder of memStore.serverFolders || []) serverFoldersMap.set(folder.accountId + ':::' + folder.path, folder);
   saveJsonStore(true);
 }
 
 let saveTimer: NodeJS.Timeout | null = null;
-let isSaving = false;
-let needsSaveAgain = false;
-
 export function saveJsonStore(forceSync = false) {
-  if (isNativeSqlite) {
-    saveAccountsBackup(getAccounts());
-    return;
-  }
-
+  if (restoring) return;
+  if (isNativeSqlite) { saveAccountsBackup(getAccounts()); return; }
   saveAccountsBackup(memStore.accounts);
-
-  if (forceSync) {
-    if (saveTimer) {
-      clearTimeout(saveTimer);
-      saveTimer = null;
-    }
-    const tmpPath = `${jsonDbPath}.tmp`;
-    try {
-      fs.writeFileSync(tmpPath, JSON.stringify(memStore), 'utf-8');
-      fs.renameSync(tmpPath, jsonDbPath);
-    } catch (e) {
-      try {
-        fs.writeFileSync(jsonDbPath, JSON.stringify(memStore), 'utf-8');
-      } catch (err) {
-        console.warn('Sync JSON store save error:', err);
-      }
-    }
-    return;
-  }
-
-  if (saveTimer) return;
-
-  saveTimer = setTimeout(async () => {
+  const flush = () => {
     saveTimer = null;
-    if (isSaving) {
-      needsSaveAgain = true;
-      return;
-    }
-    isSaving = true;
-    try {
-      const data = JSON.stringify(memStore);
-      const tmpPath = `${jsonDbPath}.tmp`;
-      await fs.promises.writeFile(tmpPath, data, 'utf-8');
-      await fs.promises.rename(tmpPath, jsonDbPath);
-    } catch (e) {
-      try {
-        await fs.promises.writeFile(jsonDbPath, JSON.stringify(memStore), 'utf-8');
-      } catch (err) {
-        console.warn('Debounced JSON store save error:', err);
-      }
-    } finally {
-      isSaving = false;
-      if (needsSaveAgain) {
-        needsSaveAgain = false;
-        saveJsonStore();
-      }
-    }
-  }, 200);
+    atomicWrite(jsonDbPath, JSON.stringify({ ...memStore, accounts: memStore.accounts.map(encodeAccount) }));
+  };
+  if (forceSync) { if (saveTimer) clearTimeout(saveTimer); flush(); }
+  else if (!saveTimer) saveTimer = setTimeout(flush, 200);
 }
 
 try {
+  if (process.env.POSTACI_STORAGE === 'json') throw new Error('JSON storage selected');
   const Database = nativeRequire('better-sqlite3');
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
+  db.pragma('secure_delete = ON');
   isNativeSqlite = true;
 } catch (err: any) {
+  if (process.env.POSTACI_STORAGE !== 'json' && (db || fs.existsSync(dbPath))) {
+    throw new Error('Mevcut SQLite veritabanı açılamadı; farklı bir depoya geçilmedi ve veriler değiştirilmedi.', { cause: err });
+  }
   console.warn('⚠️ Native SQLite not available, using JSON/In-Memory fallback store:', err.message || err);
   isNativeSqlite = false;
   loadJsonStore();
 }
 
 export function resetDatabase(seedDemo: boolean = false) {
+  serverFoldersMap.clear();
   if (!isNativeSqlite) {
     memStore = {
       accounts: seedDemo ? [...initialAccounts] : [],
@@ -334,6 +293,8 @@ export function initDatabase() {
         emailId TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS server_folders (id TEXT PRIMARY KEY, record_json TEXT NOT NULL);
+
       CREATE TABLE IF NOT EXISTS deleted_records (
         id TEXT PRIMARY KEY,
         accountId TEXT,
@@ -358,9 +319,16 @@ export function initDatabase() {
     try { db.prepare('ALTER TABLE accounts ADD COLUMN oauthClientId TEXT').run(); } catch (_) {}
     try { db.prepare('ALTER TABLE accounts ADD COLUMN oauthClientSecret TEXT').run(); } catch (_) {}
 
+    for (const row of db.prepare('SELECT record_json FROM server_folders').all()) {
+      const folder = JSON.parse(row.record_json);
+      serverFoldersMap.set(folder.accountId + ':::' + folder.path, folder);
+    }
+
     // Dynamic schema migrations for emails table
     try { db.prepare('ALTER TABLE emails ADD COLUMN imapUid INTEGER').run(); } catch (_) {}
     try { db.prepare('ALTER TABLE emails ADD COLUMN mailboxPath TEXT').run(); } catch (_) {}
+    try { db.prepare('ALTER TABLE emails ADD COLUMN isPinned INTEGER DEFAULT 0').run(); } catch {}
+    try { db.prepare('ALTER TABLE emails ADD COLUMN snoozedUntil TEXT').run(); } catch {}
     try { db.prepare('ALTER TABLE emails ADD COLUMN hasFullBody INTEGER DEFAULT 1').run(); } catch (_) {}
 
     try {
@@ -372,6 +340,25 @@ export function initDatabase() {
       `);
     } catch (_) {}
 
+    // Migrate only secret columns; preserve all mail and account IDs.
+    const secretColumns = ['imapPassword', 'smtpPassword', 'oauthAccessToken', 'oauthRefreshToken', 'oauthClientSecret'];
+    const legacyRows = db.prepare('SELECT * FROM accounts').all().filter((r: any) =>
+      secretColumns.some(k => r[k] && !r[k].startsWith('postaci:v1:')));
+    if (legacyRows.length) {
+      db.transaction(() => {
+        const stmt = db.prepare('UPDATE accounts SET ' + secretColumns.map(k => k + ' = @' + k).join(', ') + ' WHERE id = @id');
+        for (const row of legacyRows) stmt.run(encodeAccount(decodeAccount(row)));
+      })();
+      db.pragma('wal_checkpoint(TRUNCATE)');
+      db.exec('VACUUM');
+      db.pragma('wal_checkpoint(TRUNCATE)');
+    }
+    // Also encrypt a legacy JSON fallback store, without discarding its other data.
+    if (fs.existsSync(jsonDbPath)) {
+      const legacy = JSON.parse(fs.readFileSync(jsonDbPath, 'utf8'));
+      if (Array.isArray(legacy.accounts)) atomicWrite(jsonDbPath, JSON.stringify({ ...legacy, accounts: legacy.accounts.map((a: Account) => encodeAccount(decodeAccount(a))) }));
+    }
+
     const accountCount = (db.prepare('SELECT COUNT(*) as count FROM accounts').get() as { count: number })?.count || 0;
     if (accountCount === 0) {
       const backedUp = loadAccountsBackup();
@@ -382,7 +369,7 @@ export function initDatabase() {
         }
       } else {
         console.log('🌱 Seeding initial demo accounts, emails, contacts and calendar events...');
-        seedDemoData();
+        if (process.env.POSTACI_SEED_DEMO !== '0') seedDemoData();
       }
     } else {
       saveAccountsBackup(getAccounts());
@@ -400,9 +387,8 @@ export function initDatabase() {
 
     console.log(`📦 SQLite database initialized. ${currentAccCount} accounts active.`);
   } catch (err: any) {
-    console.warn('SQLite init failed, falling back to JSON storage:', err.message);
-    isNativeSqlite = false;
-    loadJsonStore();
+    if (err instanceof CredentialError) throw err;
+    throw new Error('SQLite başlatılamadı; mevcut veriler değiştirilmedi.', { cause: err });
   }
 }
 
@@ -426,12 +412,12 @@ function seedDemoData() {
       imapHost: acc.imapHost || null,
       imapPort: acc.imapPort || null,
       imapUser: acc.imapUser || null,
-      imapPassword: acc.imapPassword || null,
+      imapPassword: encryptSecret(acc.imapPassword),
       imapSecure: acc.imapSecure ? 1 : 0,
       smtpHost: acc.smtpHost || null,
       smtpPort: acc.smtpPort || null,
       smtpUser: acc.smtpUser || null,
-      smtpPassword: acc.smtpPassword || null,
+      smtpPassword: encryptSecret(acc.smtpPassword),
       smtpSecure: acc.smtpSecure ? 1 : 0,
       color: acc.color,
       avatar: acc.avatar || null,
@@ -564,7 +550,7 @@ export function getAccounts(): Account[] {
   return rows.map(r => {
     const unread = (db.prepare("SELECT COUNT(*) as c FROM emails WHERE accountId = ? AND isRead = 0 AND (folder = 'INBOX' OR UPPER(folder) = 'INBOX') AND isDeleted = 0").get(r.id) as any)?.c || 0;
     return {
-      ...r,
+      ...decodeAccount(r),
       isDefault: Boolean(r.isDefault),
       imapSecure: Boolean(r.imapSecure),
       smtpSecure: Boolean(r.smtpSecure),
@@ -589,7 +575,7 @@ export function getAccountById(id: string): Account | undefined {
   if (!r) return undefined;
   const unread = (db.prepare("SELECT COUNT(*) as c FROM emails WHERE accountId = ? AND isRead = 0 AND (folder = 'INBOX' OR UPPER(folder) = 'INBOX') AND isDeleted = 0").get(r.id) as any)?.c || 0;
   return {
-    ...r,
+    ...decodeAccount(r),
     isDefault: Boolean(r.isDefault),
     imapSecure: Boolean(r.imapSecure),
     smtpSecure: Boolean(r.smtpSecure),
@@ -604,7 +590,7 @@ export function getAccountByEmail(email: string): Account | undefined {
   const r = db.prepare('SELECT * FROM accounts WHERE LOWER(email) = LOWER(?)').get(email) as any;
   if (!r) return undefined;
   return {
-    ...r,
+    ...decodeAccount(r),
     isDefault: Boolean(r.isDefault),
     imapSecure: Boolean(r.imapSecure),
     smtpSecure: Boolean(r.smtpSecure)
@@ -652,20 +638,20 @@ export function createAccount(acc: Account): Account {
     email: acc.email,
     provider: acc.provider,
     authType: acc.authType || 'password',
-    oauthAccessToken: acc.oauthAccessToken || null,
-    oauthRefreshToken: acc.oauthRefreshToken || null,
+    oauthAccessToken: encryptSecret(acc.oauthAccessToken),
+    oauthRefreshToken: encryptSecret(acc.oauthRefreshToken),
     oauthExpiresAt: acc.oauthExpiresAt || null,
     oauthClientId: acc.oauthClientId || null,
-    oauthClientSecret: acc.oauthClientSecret || null,
+    oauthClientSecret: encryptSecret(acc.oauthClientSecret),
     imapHost: acc.imapHost || null,
     imapPort: acc.imapPort || null,
     imapUser: acc.imapUser || null,
-    imapPassword: acc.imapPassword || null,
+    imapPassword: encryptSecret(acc.imapPassword),
     imapSecure: acc.imapSecure ? 1 : 0,
     smtpHost: acc.smtpHost || null,
     smtpPort: acc.smtpPort || null,
     smtpUser: acc.smtpUser || null,
-    smtpPassword: acc.smtpPassword || null,
+    smtpPassword: encryptSecret(acc.smtpPassword),
     smtpSecure: acc.smtpSecure ? 1 : 0,
     color: acc.color,
     avatar: acc.avatar || null,
@@ -685,7 +671,7 @@ export function updateAccount(id: string, acc: Partial<Account>): Account | unde
     if (acc.isDefault) {
       memStore.accounts.forEach(a => a.isDefault = false);
     }
-    memStore.accounts[idx] = { ...memStore.accounts[idx], ...acc };
+    memStore.accounts[idx] = { ...memStore.accounts[idx], ...acc, id };
     saveJsonStore();
     saveAccountsBackup(memStore.accounts);
     return memStore.accounts[idx];
@@ -698,7 +684,7 @@ export function updateAccount(id: string, acc: Partial<Account>): Account | unde
     db.prepare('UPDATE accounts SET isDefault = 0').run();
   }
 
-  const updated: Account = { ...existing, ...acc };
+  const updated: Account = { ...existing, ...acc, id };
   const stmt = db.prepare(`
     UPDATE accounts SET
       name = @name,
@@ -735,20 +721,20 @@ export function updateAccount(id: string, acc: Partial<Account>): Account | unde
     email: updated.email,
     provider: updated.provider,
     authType: updated.authType || 'password',
-    oauthAccessToken: updated.oauthAccessToken || null,
-    oauthRefreshToken: updated.oauthRefreshToken || null,
+    oauthAccessToken: encryptSecret(updated.oauthAccessToken),
+    oauthRefreshToken: encryptSecret(updated.oauthRefreshToken),
     oauthExpiresAt: updated.oauthExpiresAt || null,
     oauthClientId: updated.oauthClientId || null,
-    oauthClientSecret: updated.oauthClientSecret || null,
+    oauthClientSecret: encryptSecret(updated.oauthClientSecret),
     imapHost: updated.imapHost || null,
     imapPort: updated.imapPort || null,
     imapUser: updated.imapUser || null,
-    imapPassword: updated.imapPassword || null,
+    imapPassword: encryptSecret(updated.imapPassword),
     imapSecure: updated.imapSecure ? 1 : 0,
     smtpHost: updated.smtpHost || null,
     smtpPort: updated.smtpPort || null,
     smtpUser: updated.smtpUser || null,
-    smtpPassword: updated.smtpPassword || null,
+    smtpPassword: encryptSecret(updated.smtpPassword),
     smtpSecure: updated.smtpSecure ? 1 : 0,
     color: updated.color,
     avatar: updated.avatar || null,
@@ -884,6 +870,8 @@ function parseEmailRow(r: any, isListView = false): Email {
     aiCategory: r.aiCategory,
     imapUid: r.imapUid !== null && r.imapUid !== undefined ? Number(r.imapUid) : undefined,
     mailboxPath: r.mailboxPath || undefined,
+    isPinned: Boolean(r.isPinned),
+    snoozedUntil: r.snoozedUntil || null,
     hasFullBody: r.hasFullBody !== undefined ? Boolean(r.hasFullBody) : true,
     account: account || { name: 'Bilinmeyen', email: '', color: '#94a3b8' }
   };
@@ -896,11 +884,18 @@ export function getEmails(params: {
   isUnread?: boolean;
   label?: string;
   search?: string;
+  limit?: number;
+  offset?: number;
+  sort?: string;
+  hasAttachment?: boolean;
 }): Email[] {
+  const limit = Math.max(1, Math.min(501, Math.floor(params.limit || 100)));
+  const offset = Math.max(0, Math.floor(params.offset || 0));
   if (!isNativeSqlite) {
     const activeAccountIds = new Set(memStore.accounts.map(a => a.id));
     return memStore.emails.filter(e => {
       if (!activeAccountIds.has(e.accountId)) return false;
+      if (params.hasAttachment && !e.attachments?.length) return false;
       if (params.accountId && params.accountId !== 'all' && e.accountId !== params.accountId) return false;
       if (params.folder === 'TRASH') {
         if (e.folder !== 'TRASH' && !e.isDeleted) return false;
@@ -925,10 +920,19 @@ export function getEmails(params: {
     }).sort((a, b) => {
       const ta = !a.date ? 0 : (isNaN(new Date(a.date).getTime()) ? 0 : new Date(a.date).getTime());
       const tb = !b.date ? 0 : (isNaN(new Date(b.date).getTime()) ? 0 : new Date(b.date).getTime());
+      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+      if (params.sort === 'oldest') return ta - tb || a.id.localeCompare(b.id);
+      if (params.sort === 'from-asc' || params.sort === 'from-desc') {
+        const order = (a.fromName || a.fromEmail).localeCompare(b.fromName || b.fromEmail);
+        if (order) return params.sort === 'from-desc' ? -order : order;
+      }
+      if (params.sort === 'subject-asc') { const order = a.subject.localeCompare(b.subject); if (order) return order; }
+      if (params.sort === 'unread-first' && a.isRead !== b.isRead) return a.isRead ? 1 : -1;
+      if (params.sort === 'starred-first' && a.isStarred !== b.isStarred) return a.isStarred ? -1 : 1;
       const diff = tb - ta;
       if (diff !== 0) return diff;
-      return (b.imapUid || 0) - (a.imapUid || 0);
-    }).slice(0, 500).map(e => {
+      return (b.imapUid || 0) - (a.imapUid || 0) || a.id.localeCompare(b.id);
+    }).slice(offset, offset + limit).map(e => {
       const acc = memStore.accounts.find(a => a.id === e.accountId);
       return {
         ...e,
@@ -995,7 +999,16 @@ export function getEmails(params: {
     conditions.push(s, s, s, s, s);
   }
 
-  query += ' ORDER BY emails.date DESC, emails.imapUid DESC LIMIT 500';
+  if (params.hasAttachment) query += " AND emails.attachments_json IS NOT NULL AND emails.attachments_json != '[]'";
+  const orders: Record<string, string> = {
+    newest: 'emails.date DESC', oldest: 'emails.date ASC',
+    'from-asc': 'emails.fromName COLLATE NOCASE ASC, emails.date DESC',
+    'from-desc': 'emails.fromName COLLATE NOCASE DESC, emails.date DESC',
+    'subject-asc': 'emails.subject COLLATE NOCASE ASC, emails.date DESC',
+    'unread-first': 'emails.isRead ASC, emails.date DESC', 'starred-first': 'emails.isStarred DESC, emails.date DESC',
+  };
+  query += ' ORDER BY emails.isPinned DESC, ' + (orders[params.sort || 'newest'] || orders.newest) + ', emails.imapUid DESC, emails.id ASC LIMIT ? OFFSET ?';
+  conditions.push(limit, offset);
 
   const rows = db.prepare(query).all(...conditions) as any[];
   return rows.map(r => parseEmailRow(r, true));
@@ -1361,7 +1374,18 @@ export function saveEmailWithStatus(email: Email, isFromImapSync = false): { ema
   return { email: saved, isNew };
 }
 
+function preserveLocalEmail(incoming: Email, existing: Email): Email {
+  const result = { ...incoming, id: existing.id, isPinned: existing.isPinned, snoozedUntil: existing.snoozedUntil };
+  if (incoming.hasFullBody === false && existing.hasFullBody) {
+    result.bodyText = existing.bodyText; result.bodyHtml = existing.bodyHtml; result.snippet = existing.snippet;
+    result.attachments = existing.attachments; result.hasFullBody = true; result.meetingInvite = existing.meetingInvite;
+  }
+  result.aiSummary = existing.aiSummary; result.aiSmartReplies = existing.aiSmartReplies;
+  return result;
+}
+
 export function saveEmail(email: Email, isFromImapSync = false): Email {
+  if (isFromImapSync) { const existing = getEmailById(email.id); if (existing) email = preserveLocalEmail(email, existing); }
   // Reject completely blank/phantom emails
   const isBlank = (!email.fromEmail || email.fromEmail === 'unknown@example.com') &&
     (!email.fromName || email.fromName === 'Bilinmeyen Gönderici') &&
@@ -1408,14 +1432,14 @@ export function saveEmail(email: Email, isFromImapSync = false): Email {
       subject, bodyText, bodyHtml, snippet, date, isRead, isStarred,
       isArchived, isDeleted, isDraft, isSpam, folder, labels_json,
       priority, attachments_json, meetingInvite_json, aiSummary,
-      aiSmartReplies_json, aiCategory, imapUid, mailboxPath, hasFullBody
+      aiSmartReplies_json, aiCategory, imapUid, mailboxPath, hasFullBody, isPinned, snoozedUntil
     ) VALUES (
       @id, @accountId, @threadId, @messageId, @inReplyTo, @references_header,
       @fromName, @fromEmail, @to_json, @cc_json, @bcc_json, @replyTo_json,
       @subject, @bodyText, @bodyHtml, @snippet, @date, @isRead, @isStarred,
       @isArchived, @isDeleted, @isDraft, @isSpam, @folder, @labels_json,
       @priority, @attachments_json, @meetingInvite_json, @aiSummary,
-      @aiSmartReplies_json, @aiCategory, @imapUid, @mailboxPath, @hasFullBody
+      @aiSmartReplies_json, @aiCategory, @imapUid, @mailboxPath, @hasFullBody, @isPinned, @snoozedUntil
     )
   `);
 
@@ -1453,7 +1477,9 @@ export function saveEmail(email: Email, isFromImapSync = false): Email {
     aiCategory: email.aiCategory || null,
     imapUid: email.imapUid !== undefined ? email.imapUid : null,
     mailboxPath: email.mailboxPath || null,
-    hasFullBody: email.hasFullBody !== undefined ? (email.hasFullBody ? 1 : 0) : 1
+    isPinned: email.isPinned ? 1 : 0,
+      snoozedUntil: email.snoozedUntil || null,
+      hasFullBody: email.hasFullBody !== undefined ? (email.hasFullBody ? 1 : 0) : 1
   });
 
   return getEmailById(email.id)!;
@@ -1486,6 +1512,7 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
       if (idx !== -1) {
         const existing = memStore.emails[idx];
         if (isFromImapSync) {
+          Object.assign(email, preserveLocalEmail(email, existing));
           if (existing.folder === 'TRASH' || existing.isDeleted) {
             if (email.folder !== 'TRASH' && !email.isDeleted) {
               continue;
@@ -1518,19 +1545,19 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
       subject, bodyText, bodyHtml, snippet, date, isRead, isStarred,
       isArchived, isDeleted, isDraft, isSpam, folder, labels_json,
       priority, attachments_json, meetingInvite_json, aiSummary,
-      aiSmartReplies_json, aiCategory, imapUid, mailboxPath, hasFullBody
+      aiSmartReplies_json, aiCategory, imapUid, mailboxPath, hasFullBody, isPinned, snoozedUntil
     ) VALUES (
       @id, @accountId, @threadId, @messageId, @inReplyTo, @references_header,
       @fromName, @fromEmail, @to_json, @cc_json, @bcc_json, @replyTo_json,
       @subject, @bodyText, @bodyHtml, @snippet, @date, @isRead, @isStarred,
       @isArchived, @isDeleted, @isDraft, @isSpam, @folder, @labels_json,
       @priority, @attachments_json, @meetingInvite_json, @aiSummary,
-      @aiSmartReplies_json, @aiCategory, @imapUid, @mailboxPath, @hasFullBody
+      @aiSmartReplies_json, @aiCategory, @imapUid, @mailboxPath, @hasFullBody, @isPinned, @snoozedUntil
     )
   `);
 
   const checkStmt = db.prepare(`
-    SELECT id, folder, isDeleted, isArchived, isSpam 
+    SELECT *
     FROM emails 
     WHERE id = ? OR id = ? OR (messageId IS NOT NULL AND length(messageId) > 3 AND (messageId = ? OR messageId = ? OR messageId = ?) AND accountId = ?)
     LIMIT 1
@@ -1548,6 +1575,7 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
       const existing = checkStmt.get(email.id, rawId, email.messageId || '', cleanMid, `<${cleanMid}>`, email.accountId) as any;
 
       if (isFromImapSync && existing) {
+        Object.assign(email, preserveLocalEmail(email, parseEmailRow(existing)));
         if (existing.folder === 'TRASH' || existing.isDeleted) {
           // If local record is in TRASH/deleted but sync email comes from a non-TRASH folder,
           // skip entirely — do NOT overwrite with INSERT OR REPLACE (prevents ghost resurrection)
@@ -1603,7 +1631,9 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
         aiCategory: email.aiCategory || null,
         imapUid: email.imapUid !== undefined ? email.imapUid : null,
         mailboxPath: email.mailboxPath || null,
-        hasFullBody: email.hasFullBody !== undefined ? (email.hasFullBody ? 1 : 0) : 1
+        isPinned: email.isPinned ? 1 : 0,
+      snoozedUntil: email.snoozedUntil || null,
+      hasFullBody: email.hasFullBody !== undefined ? (email.hasFullBody ? 1 : 0) : 1
       });
     }
   });
@@ -1664,6 +1694,8 @@ export function updateEmailFlags(id: string, updates: Partial<{
   folder: string;
   labels: string[];
   mailboxPath?: string;
+  isPinned?: boolean;
+  snoozedUntil?: string | null;
   imapUid?: number;
 }>): Email | undefined {
   // Normalize folder and isDeleted flags
@@ -1716,6 +1748,8 @@ export function updateEmailFlags(id: string, updates: Partial<{
     sets.push('folder = @folder');
     params.folder = updates.folder;
   }
+  if (updates.isPinned !== undefined) { sets.push('isPinned = @isPinned'); params.isPinned = updates.isPinned ? 1 : 0; }
+  if (updates.snoozedUntil !== undefined) { sets.push('snoozedUntil = @snoozedUntil'); params.snoozedUntil = updates.snoozedUntil; }
   if (updates.labels !== undefined) {
     sets.push('labels_json = @labels_json');
     params.labels_json = JSON.stringify(updates.labels);
@@ -1764,11 +1798,11 @@ export interface ServerFolderRecord {
   specialUse?: string;
 }
 
-const serverFoldersMap = new Map<string, ServerFolderRecord>();
-
 export function registerServerFolder(record: ServerFolderRecord) {
   const key = `${record.accountId}:::${record.path}`;
   serverFoldersMap.set(key, record);
+  if (isNativeSqlite) db.prepare('INSERT OR REPLACE INTO server_folders(id, record_json) VALUES (?, ?)').run(record.id, JSON.stringify(record));
+  else { memStore.serverFolders = Array.from(serverFoldersMap.values()); saveJsonStore(); }
 }
 
 export function getServerFolders(accountId?: string): ServerFolderRecord[] {
@@ -2254,4 +2288,97 @@ export function deleteCalendarEvent(id: string): boolean {
   }
   const res = db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id);
   return res.changes > 0;
+}
+
+export interface DataSnapshot {
+  accounts: Account[];
+  emails?: Email[];
+  contacts?: Contact[];
+  calendarEvents?: CalendarEvent[];
+  customFolders?: ServerFolderRecord[];
+}
+export function exportData(): DataSnapshot {
+  return {
+    accounts: getAccounts(),
+    emails: isNativeSqlite ? db.prepare('SELECT * FROM emails').all().map((r: any) => parseEmailRow(r)) : structuredClone(memStore.emails),
+    contacts: getContacts(), calendarEvents: getCalendarEvents(), customFolders: getServerFolders(),
+  };
+}
+export function restoreData(payload: DataSnapshot) {
+  for (const key of ['accounts','emails','contacts','calendarEvents','customFolders'] as const) {
+    if (payload[key] !== undefined && !Array.isArray(payload[key])) throw new Error('Yedekte geçersiz alan: ' + key);
+    if ((payload[key]?.length || 0) > 200000) throw new Error('Yedek boyutu sınırı aşıldı.');
+  }
+  const accountIds = new Set<string>();
+  const accountEmails = new Set<string>();
+  for (const a of payload.accounts) {
+    if (!a || typeof a.id !== 'string' || !a.id || typeof a.email !== 'string' || !/^[^\s@]+@[^\s@]+$/.test(a.email) ||
+      typeof a.name !== 'string' || !['demo','custom','gmail','outlook','yahoo','icloud'].includes(a.provider)) throw new Error('Yedekte geçersiz hesap var.');
+    if (accountIds.has(a.id) || accountEmails.has(a.email.toLowerCase())) throw new Error('Yedekte yinelenen hesap var.');
+    accountIds.add(a.id); accountEmails.add(a.email.toLowerCase());
+  }
+  const emailIds = new Set<string>();
+  for (const e of payload.emails || []) {
+    if (!e || typeof e.id !== 'string' || !e.id || emailIds.has(e.id) || !accountIds.has(e.accountId) ||
+      typeof e.subject !== 'string' || typeof e.bodyText !== 'string' || typeof e.bodyHtml !== 'string' ||
+      !Array.isArray(e.to) || !Array.isArray(e.attachments) || !e.threadId || !e.date) throw new Error('Yedekte geçersiz ileti var.');
+    emailIds.add(e.id);
+  }
+  for (const c of payload.contacts || []) if (!c?.id || typeof c.name !== 'string' || typeof c.email !== 'string') throw new Error('Yedekte geçersiz kişi var.');
+  for (const e of payload.calendarEvents || []) if (!e?.id || typeof e.title !== 'string' || !Number.isFinite(Date.parse(e.startTime)) || !Number.isFinite(Date.parse(e.endTime)) || (e.accountId && !accountIds.has(e.accountId))) throw new Error('Yedekte geçersiz takvim kaydı var.');
+  for (const f of payload.customFolders || []) if (!f?.id || !accountIds.has(f.accountId) || typeof f.path !== 'string' || typeof f.folderKey !== 'string' || typeof f.name !== 'string') throw new Error('Yedekte geçersiz klasör var.');
+  const before = structuredClone(memStore);
+  const beforeFolders = new Map(serverFoldersMap);
+  const apply = () => {
+    const ids = new Map<string, string>();
+    for (const input of payload.accounts) {
+      const existing = getAccountByEmail(input.email);
+      const idCollision = getAccountById(input.id);
+      if (idCollision && idCollision.email.toLowerCase() !== input.email.toLowerCase()) throw new Error('Hesap kimliği başka bir hesaba ait.');
+      const account = { ...input, color: input.color || '#3b82f6', syncInterval: input.syncInterval || 60, id: existing?.id || input.id };
+      ids.set(input.id, account.id);
+      saveAccount(account);
+    }
+    for (const e of payload.emails || []) {
+      const accountId = ids.get(e.accountId)!;
+      const existing = getEmailById(e.id);
+      if (existing && existing.accountId !== accountId) throw new Error('İleti kimliği başka bir hesaba ait.');
+      saveEmail({ ...e, accountId });
+    }
+    const contacts = getContacts();
+    for (const c of payload.contacts || []) {
+      const existing = contacts.find(p => p.id === c.id || p.email.toLowerCase() === c.email.toLowerCase());
+      if (existing) updateContact(existing.id, { ...c, id: existing.id }); else createContact(c);
+    }
+    const events = getCalendarEvents();
+    for (const e of payload.calendarEvents || []) {
+      const event = { ...e, accountId: e.accountId ? ids.get(e.accountId) : undefined };
+      if (events.some(c => c.id === e.id)) updateCalendarEvent(e.id, event); else createCalendarEvent(event);
+    }
+    for (const f of payload.customFolders || []) registerServerFolder({ ...f, accountId: ids.get(f.accountId)! });
+  };
+  restoring = true;
+  try {
+    if (isNativeSqlite) db.transaction(apply)(); else apply();
+  } catch (err) {
+    memStore = before; serverFoldersMap.clear();
+    for (const [key, folder] of beforeFolders) serverFoldersMap.set(key, folder);
+    throw err;
+  } finally { restoring = false; }
+  saveJsonStore(true);
+  return { restoredAccounts: payload.accounts.length, restoredEmails: payload.emails?.length || 0 };
+}
+export function getStorageStatus() { return { engine: isNativeSqlite ? 'sqlite' : 'json', accountCount: getAccounts().length }; }
+
+export function getEmailMinUid(accountId: string, mailboxPath: string): number {
+  if (isNativeSqlite) return db.prepare('SELECT MIN(imapUid) AS uid FROM emails WHERE accountId = ? AND mailboxPath = ? AND imapUid > 0').get(accountId, mailboxPath)?.uid || 0;
+  let min = Infinity;
+  for (const e of memStore.emails) if (e.accountId === accountId && e.mailboxPath === mailboxPath && e.imapUid && e.imapUid > 0) min = Math.min(min, e.imapUid);
+  return Number.isFinite(min) ? min : 0;
+}
+
+export function closeDatabase() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  saveJsonStore(true);
+  if (db) db.close();
 }

@@ -1,3 +1,5 @@
+import { BackupPanel } from './BackupPanel';
+import { persistPreferences } from '../services/preferences';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
@@ -249,8 +251,10 @@ export const SettingsModal: React.FC = () => {
   const [undoSendDelay, setUndoSendDelay] = useState(() => Number(localStorage.getItem('postaci_undo_send') || '5'));
   const [autoSyncInterval, setAutoSyncInterval] = useState(() => Number(localStorage.getItem('postaci_auto_sync') || '15'));
   const [blockTrackingPixels, setBlockTrackingPixels] = useState(() => localStorage.getItem('postaci_block_tracking') !== 'false');
-  const [blockExternalImages, setBlockExternalImages] = useState(() => localStorage.getItem('postaci_block_images') === 'true');
+  const [blockExternalImages, setBlockExternalImages] = useState(() => localStorage.getItem('postaci_block_images') !== 'false');
   const [desktopNotifications, setDesktopNotifications] = useState(() => localStorage.getItem('postaci_desktop_notifs') !== 'false');
+  const [aiMode, setAiMode] = useState(localStorage.getItem('postaci_ai_mode') || 'rules');
+  const [aiModel, setAiModel] = useState(localStorage.getItem('postaci_ai_model') || '');
   const [notificationSound, setNotificationSound] = useState(() => localStorage.getItem('postaci_notif_sound') || 'subtle');
 
   // Desktop & System Tray Preferences
@@ -267,8 +271,6 @@ export const SettingsModal: React.FC = () => {
   const [updateResult, setUpdateResult] = useState<any>(null);
 
   // Backup file input ref
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     if ((window as any).electronAPI?.getDesktopSettings) {
@@ -330,28 +332,6 @@ export const SettingsModal: React.FC = () => {
     }
   };
 
-  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        setIsImporting(true);
-        const parsed = JSON.parse(evt.target?.result as string);
-        const res = await api.importBackup(parsed, 'merge');
-        success(res.message || 'Yedek başarıyla geri yüklendi.');
-        refreshAccounts();
-      } catch (err: any) {
-        error(err.message || 'Yedek dosyası okunamadı veya biçimi geçersiz.');
-      } finally {
-        setIsImporting(false);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    };
-    reader.readAsText(file);
-  };
-
   const handleOpenExternal = (url: string) => {
     if ((window as any).electronAPI?.openExternal) {
       (window as any).electronAPI.openExternal(url);
@@ -365,7 +345,19 @@ export const SettingsModal: React.FC = () => {
   // OAuth credentials state
   const [googleAuthMode, setGoogleAuthMode] = useState<'app_password' | 'oauth'>('app_password');
   const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('postaci_google_client_id') || '');
-  const [googleClientSecret, setGoogleClientSecret] = useState(() => localStorage.getItem('postaci_google_client_secret') || '');
+  const [googleClientSecret, setGoogleClientSecret] = useState('');
+  useEffect(() => {
+    const update = () => {
+      setUndoSendDelay(Number(localStorage.getItem('postaci_undo_send') || '5'));
+      setAutoSyncInterval(Number(localStorage.getItem('postaci_auto_sync') || '60'));
+      setBlockTrackingPixels(localStorage.getItem('postaci_block_tracking') !== 'false');
+      setBlockExternalImages(localStorage.getItem('postaci_block_images') !== 'false');
+      setAiMode(localStorage.getItem('postaci_ai_mode') || 'rules');
+      setAiModel(localStorage.getItem('postaci_ai_model') || '');
+    };
+    window.addEventListener('postaci-preferences-changed', update);
+    return () => window.removeEventListener('postaci-preferences-changed', update);
+  }, []);
   const [isSavingOAuth, setIsSavingOAuth] = useState(false);
 
   useEffect(() => {
@@ -373,10 +365,6 @@ export const SettingsModal: React.FC = () => {
       if (cfg.googleClientId) {
         setGoogleClientId(cfg.googleClientId);
         localStorage.setItem('postaci_google_client_id', cfg.googleClientId);
-      }
-      if (cfg.googleClientSecret) {
-        setGoogleClientSecret(cfg.googleClientSecret);
-        localStorage.setItem('postaci_google_client_secret', cfg.googleClientSecret);
       }
     }).catch(() => {});
   }, []);
@@ -428,7 +416,6 @@ export const SettingsModal: React.FC = () => {
     try {
       if (googleClientId.trim()) {
         localStorage.setItem('postaci_google_client_id', googleClientId.trim());
-        localStorage.setItem('postaci_google_client_secret', googleClientSecret.trim());
         await api.saveOAuthConfig({
           googleClientId: googleClientId.trim(),
           googleClientSecret: googleClientSecret.trim()
@@ -456,7 +443,6 @@ export const SettingsModal: React.FC = () => {
     setIsSavingOAuth(true);
     try {
       localStorage.setItem('postaci_google_client_id', googleClientId.trim());
-      localStorage.setItem('postaci_google_client_secret', googleClientSecret.trim());
       await api.saveOAuthConfig({
         googleClientId: googleClientId.trim(),
         googleClientSecret: googleClientSecret.trim()
@@ -593,7 +579,7 @@ export const SettingsModal: React.FC = () => {
     const cleanSmtpUser = (useSameCredentials ? accImapUser : accSmtpUser).trim();
     const cleanEmail = accEmail.trim();
 
-    if (!cleanImapHost || !cleanImapUser || !accImapPass) {
+    if (!cleanImapHost || !cleanImapUser || (!editingAccountId && !accImapPass)) {
       error('Lütfen IMAP sunucu, kullanıcı adı ve parola alanlarını doldurun.');
       return;
     }
@@ -603,6 +589,7 @@ export const SettingsModal: React.FC = () => {
 
     try {
       const payload = {
+        id: editingAccountId || undefined,
         email: cleanEmail,
         imapHost: cleanImapHost,
         imapPort: Number(accImapPort) || 993,
@@ -666,7 +653,7 @@ export const SettingsModal: React.FC = () => {
     const cleanSmtpUser = (useSameCredentials ? accImapUser : accSmtpUser).trim() || accEmail.trim();
     const cleanEmail = accEmail.trim();
 
-    if (!cleanEmail || !cleanImapHost || !accImapPass) {
+    if (!cleanEmail || !cleanImapHost || (!editingAccountId && !accImapPass)) {
       error('Lütfen e-posta adresi, IMAP sunucu ve parola alanlarını doldurun.');
       return;
     }
@@ -766,7 +753,7 @@ export const SettingsModal: React.FC = () => {
     const cleanSmtpUser = (useSameCredentials ? accImapUser : accSmtpUser).trim() || accEmail.trim();
     const cleanEmail = accEmail.trim();
 
-    if (!cleanEmail || !cleanImapHost || !accImapPass) {
+    if (!cleanEmail || !cleanImapHost || (!editingAccountId && !accImapPass)) {
       error('Lütfen e-posta adresi, IMAP sunucu ve parola alanlarını doldurun.');
       return;
     }
@@ -845,14 +832,16 @@ export const SettingsModal: React.FC = () => {
     }
   };
 
-  const handleSavePreferences = () => {
+  const handleSavePreferences = async () => {
+    localStorage.setItem('postaci_ai_mode', aiMode);
+    localStorage.setItem('postaci_ai_model', aiModel);
     localStorage.setItem('postaci_undo_send', String(undoSendDelay));
     localStorage.setItem('postaci_auto_sync', String(autoSyncInterval));
     localStorage.setItem('postaci_block_tracking', String(blockTrackingPixels));
     localStorage.setItem('postaci_block_images', String(blockExternalImages));
     localStorage.setItem('postaci_desktop_notifs', String(desktopNotifications));
     localStorage.setItem('postaci_notif_sound', notificationSound);
-    success('Tercihler kaydedildi.');
+    try { await persistPreferences(); success('Tercihler kaydedildi.'); } catch (err: any) { error(err.message); }
   };
 
   if (!isSettingsOpen) return null;
@@ -1280,9 +1269,8 @@ export const SettingsModal: React.FC = () => {
                               </div>
                               <input
                                 type="password"
-                                required={!isWaitingOAuth}
-                                placeholder="xxxx xxxx xxxx xxxx"
-                                value={accImapPass}
+                                required={!isWaitingOAuth && !editingAccountId}
+                                placeholder={editingAccountId ? "Değiştirmek için yeni parola girin; boş bırakılırsa korunur" : "Parola"} value={accImapPass}
                                 onChange={e => {
                                   setAccImapPass(e.target.value);
                                   if (useSameCredentials) setAccSmtpPass(e.target.value);
@@ -1305,9 +1293,8 @@ export const SettingsModal: React.FC = () => {
                           </div>
                           <input
                             type="password"
-                            required
-                            placeholder={selectedProviderKey !== 'custom' ? '16 haneli uygulama şifreniz' : 'Hesap parolanız'}
-                            value={accImapPass}
+                            required={!editingAccountId}
+                            placeholder={editingAccountId ? "Değiştirmek için yeni parola girin; boş bırakılırsa korunur" : "Parola"} value={accImapPass}
                             onChange={e => {
                               setAccImapPass(e.target.value);
                               if (useSameCredentials) setAccSmtpPass(e.target.value);
@@ -1761,6 +1748,14 @@ export const SettingsModal: React.FC = () => {
             {/* TAB: GENERAL */}
             {activeTab === 'general' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '640px' }}>
+                <div style={{ padding: 16, background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                  <label>Asistan motoru <select aria-label="Asistan motoru" value={aiMode} onChange={e => setAiMode(e.target.value)}>
+                    <option value="rules">Kural tabanlı (model gerektirmez)</option><option value="ollama">Yerel Ollama modeli</option>
+                  </select></label>
+                  {aiMode === 'ollama' && <label style={{ display: 'block', marginTop: 8 }}>Kurulu model adı <input aria-label="Yerel model adı" value={aiModel} onChange={e => setAiModel(e.target.value)} placeholder="Ollama içindeki model adı" /></label>}
+                  <p style={{ fontSize: 12, marginTop: 8 }}>Ollama seçildiğinde ileti metni yalnızca 127.0.0.1:11434 adresindeki modele iletilir. Bulut model adları kabul edilmez. Model çalışmıyorsa kural tabanlı sonuç kullanılır.</p>
+                </div>
+
                 <div style={{ backgroundColor: 'var(--bg-tertiary)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
                   <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
                     ⏱️ Göndermeyi Geri Alma Süresi (Undo Send)
@@ -1785,7 +1780,7 @@ export const SettingsModal: React.FC = () => {
                     ⚡ Arka Plan Otomatik Senkronizasyon Sıklığı
                   </label>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                    Yeni gelen postaların otomatik taranma periyodu.
+                    Genel en kısa tarama aralığı. Hesaba özel daha uzun aralıklar korunur; diğer klasörler en az 90 saniyede bir taranır.
                   </p>
                   <select
                     value={autoSyncInterval}
@@ -1971,7 +1966,7 @@ export const SettingsModal: React.FC = () => {
                     </label>
                     <input
                       type="password"
-                      placeholder="Örn: GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxx"
+                      placeholder="Google Cloud istemci gizli anahtarı"
                       value={googleClientSecret}
                       onChange={e => setGoogleClientSecret(e.target.value)}
                       style={{
@@ -2110,84 +2105,7 @@ export const SettingsModal: React.FC = () => {
             {/* TAB: BACKUP & DATA */}
             {activeTab === 'backup' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '640px' }}>
-                <div style={{ backgroundColor: 'var(--bg-tertiary)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-                  <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                    📦 Hesapları ve Ayarları Dışa Aktar (JSON Yedek)
-                  </div>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                    Tüm e-posta hesaplarınızı, imzalarınızı ve ayarlarınızı güvenli bir JSON yedeği olarak indirin.
-                  </p>
-                  <button
-                    onClick={async () => {
-                      try {
-                        const backup = await api.exportBackup();
-                        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backup, null, 2));
-                        const downloadAnchor = document.createElement('a');
-                        downloadAnchor.setAttribute("href", dataStr);
-                        downloadAnchor.setAttribute("download", `postaci_backup_${new Date().toISOString().split('T')[0]}.json`);
-                        document.body.appendChild(downloadAnchor);
-                        downloadAnchor.click();
-                        downloadAnchor.remove();
-                        success('Tam yedek dosyası indirildi!');
-                      } catch (err: any) {
-                        error(err.message || 'Yedek oluşturulamadı.');
-                      }
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '8px 16px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'var(--bg-secondary)',
-                      border: '1px solid var(--border-medium)',
-                      color: 'var(--text-primary)',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <Download size={14} />
-                    <span>Yedeği İndir (.json)</span>
-                  </button>
-                </div>
-
-                <div style={{ backgroundColor: 'var(--bg-tertiary)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-                  <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                    📥 Yedekten Geri Yükle (Import JSON)
-                  </div>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                    Daha önce aldığınız bir `.json` yedek dosyasını yükleyerek hesaplarınızı tek tıkla geri getirin.
-                  </p>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept=".json"
-                    style={{ display: 'none' }}
-                    onChange={handleFileImport}
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isImporting}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '8px 16px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'var(--accent-primary)',
-                      border: 'none',
-                      color: 'white',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <UploadCloud size={14} />
-                    <span>{isImporting ? 'Geri Yükleniyor...' : 'Yedek Dosyası Seç & Yükle'}</span>
-                  </button>
-                </div>
-
+                <BackupPanel onRestored={() => { refreshAccounts(); refreshEmails(); refreshStats(); }} />
                 <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.08)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(239, 68, 68, 0.25)' }}>
                   <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--accent-danger)', marginBottom: '4px' }}>
                     ⚠️ Veritabanını Sıfırla & Fabrika Ayarları

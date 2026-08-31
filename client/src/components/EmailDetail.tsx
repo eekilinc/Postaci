@@ -31,11 +31,11 @@ import {
   ChevronDown,
   ChevronRight
 } from 'lucide-react';
-import DOMPurify from 'dompurify';
+import { sanitizeEmailHtml, emailDocument } from '../utils/emailHtml';
 import { useMail } from '../context/MailContext';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
-import { api } from '../services/api';
+import { api, fetchSafe } from '../services/api';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 
@@ -58,6 +58,12 @@ export const EmailDetail: React.FC = () => {
   const { theme } = useTheme();
   const { success, info, error } = useToast();
 
+  const [aiEngine, setAiEngine] = useState('Kural tabanlı');
+  useEffect(() => {
+    const update = () => fetchSafe('/api/ai/status').then(r => r.json()).then(s => setAiEngine(s.lastError || (s.engine === 'ollama' ? 'Yerel model: ' + s.model : 'Kural tabanlı'))).catch(() => {});
+    update(); window.addEventListener('postaci-preferences-changed', update);
+    return () => window.removeEventListener('postaci-preferences-changed', update);
+  }, []);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [extractedTasks, setExtractedTasks] = useState<Array<{
@@ -70,6 +76,12 @@ export const EmailDetail: React.FC = () => {
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
   const [securityStatus, setSecurityStatus] = useState<any>(null);
   const [loadRemoteImages, setLoadRemoteImages] = useState(false);
+  const [privacy, setPrivacy] = useState(() => ({ blockExternalImages: localStorage.getItem('postaci_block_images') !== 'false', blockTrackingPixels: localStorage.getItem('postaci_block_tracking') !== 'false' }));
+  useEffect(() => {
+    const update = () => setPrivacy({ blockExternalImages: localStorage.getItem('postaci_block_images') !== 'false', blockTrackingPixels: localStorage.getItem('postaci_block_tracking') !== 'false' });
+    window.addEventListener('postaci-preferences-changed', update);
+    return () => window.removeEventListener('postaci-preferences-changed', update);
+  }, []);
   const [quickReplyText, setQuickReplyText] = useState('');
   const [isSendingQuickReply, setIsSendingQuickReply] = useState(false);
   const [emailViewMode, setEmailViewMode] = useState<'smart_dark' | 'light_card' | 'original'>('smart_dark');
@@ -95,6 +107,7 @@ export const EmailDetail: React.FC = () => {
       return;
     }
 
+    let cancelled = false;
     // Set pre-computed AI summary & smart replies if available
     setAiSummary(selectedEmail.aiSummary || null);
     setExtractedTasks([]);
@@ -102,14 +115,16 @@ export const EmailDetail: React.FC = () => {
       setSmartReplies(selectedEmail.aiSmartReplies);
     } else {
       // Auto fetch smart replies
-      api.getSmartReplies(selectedEmail).then(replies => setSmartReplies(replies)).catch(() => {});
+      api.getSmartReplies(selectedEmail).then(replies => { if (!cancelled) setSmartReplies(replies); }).catch(() => {});
     }
 
     // Check security status
-    api.checkSecurity(selectedEmail).then(res => setSecurityStatus(res)).catch(() => {});
+    api.checkSecurity(selectedEmail).then(res => { if (!cancelled) setSecurityStatus(res); }).catch(() => {});
     setLoadRemoteImages(false);
-    setQuickReplyText('');
-  }, [selectedEmail]);
+    return () => { cancelled = true; };
+  }, [selectedEmail?.id, selectedEmail?.hasFullBody]);
+
+  useEffect(() => { setLoadRemoteImages(false); setQuickReplyText(''); }, [selectedEmail?.id]);
 
   if (!selectedEmail) {
     if (viewLayout === 'split-2-column') return null;
@@ -142,7 +157,7 @@ export const EmailDetail: React.FC = () => {
     try {
       const summary = await api.summarizeEmail(selectedEmail);
       setAiSummary(summary);
-      success('Yapay zeka özeti oluşturuldu.');
+      success('Özet oluşturuldu.');
     } catch (err: any) {
       error('Özet oluşturulurken bir hata oluştu.');
     } finally {
@@ -207,64 +222,10 @@ export const EmailDetail: React.FC = () => {
     }
   };
 
-  const sanitizeHtml = (html: string) => {
-    if (!html) return '';
-
-    let raw = html;
-
-    // Check if plain text without HTML formatting
-    const hasHtmlTags = /<[a-z][\s\S]*>/i.test(raw);
-    if (!hasHtmlTags) {
-      return `<div style="white-space: pre-wrap; font-family: inherit; font-size: 14px; line-height: 1.6; color: inherit;">${DOMPurify.sanitize(raw)}</div>`;
-    }
-
-    let processed = raw;
-
-    // 1. Resolve inline CID images from email attachments (e.g. cid:image001.png)
-    if (selectedEmail.attachments && selectedEmail.attachments.length > 0) {
-      for (const att of selectedEmail.attachments) {
-        if (att.contentBase64 && (att.contentId || att.filename)) {
-          const mime = att.contentType || 'image/png';
-          const dataUri = `data:${mime};base64,${att.contentBase64}`;
-
-          if (att.contentId) {
-            const cleanCid = att.contentId.replace(/[<>]/g, '');
-            processed = processed.split(`cid:${cleanCid}`).join(dataUri);
-            processed = processed.split(`cid:${att.contentId}`).join(dataUri);
-          }
-          if (att.filename) {
-            processed = processed.split(`cid:${att.filename}`).join(dataUri);
-          }
-        }
-      }
-    }
-
-    // 2. Intelligent Dark Mode Normalization
-    const isDark = theme !== 'light';
-    if (isDark && emailViewMode === 'smart_dark') {
-      // Replace hardcoded dark text colors with inherit/light text
-      processed = processed.replace(/color\s*:\s*(#000000|#000|#111111|#111|#1a1a1a|#222222|#222|#333333|#333|#444444|#444|#555555|#555|black|rgb\(0,\s*0,\s*0\)|rgb\(34,\s*34,\s*34\)|rgb\(51,\s*51,\s*51\))/gi, 'color: inherit');
-      // Normalize harsh white/light background inline styles & attributes
-      processed = processed.replace(/background(-color)?\s*:\s*(#ffffff|#fff|#f8f9fa|#f1f5f9|#fafafa|#f4f4f4|white|rgb\(255,\s*255,\s*255\))/gi, 'background-color: transparent');
-      processed = processed.replace(/bgcolor\s*=\s*["']?(#ffffff|#fff|white|#f8f9fa|#fafafa)["']?/gi, 'bgcolor="transparent"');
-    }
-
-    // 3. DOMPurify sanitize with email HTML and table attributes allowed
-    const clean = DOMPurify.sanitize(processed, {
-      ADD_TAGS: ['style', 'center', 'font'],
-      ALLOWED_TAGS: [
-        'b', 'i', 'em', 'strong', 'a', 'p', 'br', 'ul', 'ol', 'li', 'div', 'span',
-        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'code', 'pre',
-        'table', 'tr', 'td', 'th', 'tbody', 'thead', 'tfoot', 'img', 'hr', 'center', 'font', 'style'
-      ],
-      ALLOWED_ATTR: [
-        'href', 'src', 'alt', 'title', 'style', 'class', 'id', 'target', 'width', 'height',
-        'align', 'valign', 'bgcolor', 'color', 'cellpadding', 'cellspacing', 'border', 'colspan', 'rowspan'
-      ]
-    });
-
-    return clean;
-  };
+  const sanitizedBody = sanitizeEmailHtml(selectedEmail.bodyHtml || selectedEmail.bodyText.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]!)).replace(/\n/g, '<br>'), selectedEmail.attachments || [], {
+    blockExternalImages: privacy.blockExternalImages && !loadRemoteImages,
+    blockTrackingPixels: privacy.blockTrackingPixels,
+  });
 
   const formatFullDate = (dateStr: string) => {
     try {
@@ -672,7 +633,7 @@ export const EmailDetail: React.FC = () => {
         )}
 
         {/* External Images Privacy Banner */}
-        {securityStatus?.hasBlockedImages && !loadRemoteImages && (
+        {privacy.blockExternalImages && /<img/i.test(selectedEmail.bodyHtml) && !loadRemoteImages && (
           <div style={{
             backgroundColor: 'var(--bg-tertiary)',
             border: '1px solid var(--border-subtle)',
@@ -729,7 +690,7 @@ export const EmailDetail: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Sparkles size={16} color="var(--accent-purple)" />
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                Postacı AI Asistanı
+                Postacı Asistanı · {aiEngine}
               </span>
               {!isAiWidgetExpanded && (
                 <span style={{
@@ -1041,9 +1002,12 @@ export const EmailDetail: React.FC = () => {
         )}
 
         {/* Email Body Content */}
-        <div
-          className={`email-rendered-body email-${emailViewMode} ${isLightCardMode ? 'email-light-mode-card' : ''}`}
-          dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedEmail.bodyHtml || selectedEmail.bodyText) }}
+        <iframe
+          title="E-posta içeriği"
+          sandbox="allow-popups allow-popups-to-escape-sandbox"
+          referrerPolicy="no-referrer"
+          srcDoc={emailDocument(sanitizedBody, !['light', 'warm-paper', 'rose-gold'].includes(theme) && !isLightCardMode, !privacy.blockExternalImages || loadRemoteImages)}
+          style={{ width: '100%', minHeight: '420px', height: '60vh', border: 0, borderRadius: '8px', background: 'var(--bg-secondary)' }}
         />
 
         {/* Attachments Section */}

@@ -1,3 +1,4 @@
+import { persistPreferences } from '../services/preferences';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Theme, AccentColor, Density } from '../types';
 
@@ -45,6 +46,20 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     document.documentElement.setAttribute('data-density', density);
     localStorage.setItem('postaci_density', density);
   }, [density]);
+
+  useEffect(() => {
+    const update = () => {
+      setThemeState((localStorage.getItem('postaci_theme') || 'dark') as Theme);
+      setAccentColorState((localStorage.getItem('postaci_accent') || 'blue') as AccentColor);
+      setDensityState((localStorage.getItem('postaci_density') || 'comfortable') as Density);
+    };
+    window.addEventListener('postaci-preferences-changed', update);
+    return () => window.removeEventListener('postaci-preferences-changed', update);
+  }, []);
+  useEffect(() => {
+    const timer = setTimeout(() => { persistPreferences().catch(() => {}); }, 300);
+    return () => clearTimeout(timer);
+  }, [theme, accentColor, density]);
 
   const setTheme = (t: Theme) => {
     setThemeState(t);

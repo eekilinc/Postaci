@@ -21,12 +21,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('set-desktop-settings', settings);
   },
   onAppAction: (callback) => {
-    ipcRenderer.on('app-action', (_event, action) => callback(action));
+    const listener = (_event, action) => callback(action);
+    ipcRenderer.on('app-action', listener);
+    return () => ipcRenderer.removeListener('app-action', listener);
   },
   onAppUpdate: (callback) => {
-    ipcRenderer.on('app-update', (_event, value) => callback(value));
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('app-update', listener);
+    return () => ipcRenderer.removeListener('app-update', listener);
   },
   onOpenEmail: (callback) => {
-    ipcRenderer.on('open-email', (_event, data) => callback(data));
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('open-email', listener);
+    return () => ipcRenderer.removeListener('open-email', listener);
   }
 });

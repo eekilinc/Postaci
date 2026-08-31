@@ -1,90 +1,24 @@
-import { getAccounts, createAccount, updateAccount, getEmails, getFolderStats, getServerFolders, jsonDbPath } from './db.js';
-import fs from 'fs';
-import path from 'path';
-
-export interface FullBackupPayload {
-  version: string;
-  timestamp: string;
-  app: string;
-  accounts: any[];
-  customFolders?: any[];
-  preferences?: Record<string, any>;
-  stats?: any[];
-}
+import { exportData, restoreData } from './db.js';
+import { encryptBackup, decryptBackup } from './secrets.js';
+import { getPreferences, savePreferences } from './preferences.js';
+import { filterPreferences } from '../../shared/preferences.js';
 
 export class BackupService {
-  public static createBackup(): FullBackupPayload {
-    const accounts = getAccounts();
-    const customFolders = getServerFolders();
-    const stats = getFolderStats();
-
-    // Read stored preferences from JSON store if exists
-    let preferences: any = {};
-    try {
-      if (fs.existsSync(jsonDbPath)) {
-        const raw = JSON.parse(fs.readFileSync(jsonDbPath, 'utf-8'));
-        preferences = raw.settings || {};
-      }
-    } catch {}
-
-    return {
-      version: '1.0.0',
-      timestamp: new Date().toISOString(),
-      app: 'Postacı',
-      accounts: accounts.map(a => ({
-        id: a.id,
-        name: a.name,
-        email: a.email,
-        provider: a.provider,
-        imapHost: a.imapHost,
-        imapPort: a.imapPort,
-        imapUser: a.imapUser,
-        imapPassword: a.imapPassword,
-        imapSecure: a.imapSecure,
-        smtpHost: a.smtpHost,
-        smtpPort: a.smtpPort,
-        smtpUser: a.smtpUser,
-        smtpPassword: a.smtpPassword,
-        smtpSecure: a.smtpSecure,
-        isDefault: a.isDefault,
-        color: a.color,
-        signature: a.signature,
-        syncInterval: a.syncInterval
-      })),
-      customFolders,
-      preferences,
-      stats
+  public static createBackup(passphrase: string, preferences?: unknown) {
+    const payload = {
+      app: 'Postacı', version: 2, timestamp: new Date().toISOString(),
+      ...exportData(), preferences: { ...getPreferences(), ...filterPreferences(preferences) },
     };
+    if (Buffer.byteLength(JSON.stringify(payload), 'utf8') > 32 * 1024 * 1024) throw new Error('Tam yedek 32 MB içerik sınırını aşıyor. Bu sürüm büyük arşivleri tek dosyada dışa aktarmıyor.');
+    return encryptBackup(payload, passphrase);
   }
-
-  public static restoreBackup(payload: FullBackupPayload, mode: 'merge' | 'replace' = 'merge'): {
-    success: boolean;
-    restoredAccounts: number;
-    message: string;
-  } {
-    if (!payload || !Array.isArray(payload.accounts)) {
-      throw new Error('Geçersiz yedek dosyası formatı.');
-    }
-
-    let restoredAccounts = 0;
-    const existingAccounts = getAccounts();
-
-    for (const acc of payload.accounts) {
-      if (!acc.email) continue;
-      
-      const exists = existingAccounts.find(e => e.id === acc.id || e.email.toLowerCase() === acc.email.toLowerCase());
-      if (exists && mode === 'merge') {
-        updateAccount(exists.id, acc);
-      } else {
-        createAccount(acc);
-      }
-      restoredAccounts++;
-    }
-
-    return {
-      success: true,
-      restoredAccounts,
-      message: `${restoredAccounts} e-posta hesabı ve sistem ayarları başarıyla geri yüklendi.`
-    };
+  public static restoreBackup(input: any, mode: string = 'merge', passphrase = '') {
+    if (mode !== 'merge') throw new Error('Yalnızca mevcut verileri koruyan birleştirme desteklenir.');
+    const payload = input?.format === 'postaci-encrypted' ? decryptBackup(input, passphrase) : input;
+    if (!payload || typeof payload !== 'object' || !Array.isArray(payload.accounts)) throw new Error('Geçersiz yedek dosyası.');
+    if (payload.version !== undefined && ![2, '1.0.0'].includes(payload.version)) throw new Error('Bu yedek sürümü desteklenmiyor.');
+    const result = restoreData(payload);
+    const preferences = savePreferences(payload.preferences || {});
+    return { success: true, ...result, preferences, message: result.restoredAccounts + ' hesap ve ' + result.restoredEmails + ' ileti; kişiler, takvim ve klasörlerle birlikte geri yüklendi.' };
   }
 }

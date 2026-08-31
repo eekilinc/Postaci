@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, dialog, Tray, Menu, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, dialog, Tray, Menu, nativeImage, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -9,6 +9,9 @@ let isQuitting = false;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const PORT = process.env.PORT || 3001;
+const ownsInstance = app.requestSingleInstanceLock();
+if (!ownsInstance) app.quit();
+app.on('second-instance', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });
 
 // Default Desktop Preferences
 const defaultSettings = {
@@ -65,6 +68,16 @@ function startBackend() {
         }
       }
       process.env.POSTACI_DATA_DIR = userDataDir;
+      process.env.POSTACI_DESKTOP = '1';
+      process.env.NODE_ENV = 'production';
+      if (safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text')) {
+        globalThis.__postaciKeychain = {
+          encrypt: value => safeStorage.encryptString(value).toString('base64'),
+          decrypt: value => safeStorage.decryptString(Buffer.from(value, 'base64')),
+        };
+      } else {
+        console.warn('OS keychain unavailable; credentials use a local key protected by filesystem permissions.');
+      }
 
       const candidates = [
         path.join(__dirname, '../dist/server/index.cjs'),
@@ -79,8 +92,10 @@ function startBackend() {
     } catch (err) {
       console.error('Failed to start internal server:', err);
       dialog.showErrorBox('Sunucu Başlatma Hatası', 'Postacı sunucusu başlatılamadı:\n' + (err.stack || err.message));
+      return false;
     }
   }
+  return true;
 }
 
 function waitForServer(url = 'http://127.0.0.1:3001/api/system/health', timeoutMs = 8000) {
@@ -88,6 +103,7 @@ function waitForServer(url = 'http://127.0.0.1:3001/api/system/health', timeoutM
     const start = Date.now();
     const check = () => {
       const req = http.get(url, (res) => {
+        res.resume();
         if (res.statusCode === 200) {
           resolve(true);
         } else if (Date.now() - start < timeoutMs) {
@@ -222,33 +238,39 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
-      webSecurity: false,
+      sandbox: true,
+      webSecurity: true,
     },
   });
 
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:|^mailto:/i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const allowed = ['http://127.0.0.1:' + PORT, ...(isDev ? ['http://127.0.0.1:5173'] : [])];
+    if (!allowed.includes(new URL(url).origin)) event.preventDefault();
+  });
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   const indexPath = path.join(__dirname, '../dist/client/index.html');
 
   if (isDev) {
     mainWindow.loadURL('http://127.0.0.1:5173').catch(() => {
       if (fs.existsSync(indexPath)) {
-        mainWindow.loadFile(indexPath);
+        mainWindow.loadURL('http://127.0.0.1:' + PORT);
       }
     });
   } else {
     // In production desktop: Load the local bundled HTML immediately
-    mainWindow.loadFile(indexPath).catch((err) => {
+    mainWindow.loadURL('http://127.0.0.1:' + PORT).catch((err) => {
       console.warn('Failed to load local HTML, trying HTTP fallback:', err);
-      mainWindow.loadURL('http://127.0.0.1:3001');
+      mainWindow.loadURL('http://127.0.0.1:' + PORT);
     });
   }
 
-  // Handle any failed loads gracefully
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    console.warn(`Page load failed: ${validatedURL} (${errorCode}: ${errorDescription}), reloading local bundle...`);
-    if (fs.existsSync(indexPath)) {
-      mainWindow.loadFile(indexPath);
-    }
+  // A subframe/resource failure must never trigger a full-window reload loop.
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _url, isMainFrame) => {
+    if (isMainFrame && errorCode !== -3) console.error('Uygulama sayfası yüklenemedi:', errorDescription);
   });
 
   // Handle renderer crash / white screen auto-recovery
@@ -261,9 +283,9 @@ function createWindow() {
           if (isDev) {
             mainWindow.loadURL('http://127.0.0.1:5173');
           } else if (fs.existsSync(indexPath)) {
-            mainWindow.loadFile(indexPath);
+            mainWindow.loadURL('http://127.0.0.1:' + PORT);
           } else {
-            mainWindow.loadURL('http://127.0.0.1:3001');
+            mainWindow.loadURL('http://127.0.0.1:' + PORT);
           }
         }
       }, 600);
@@ -335,17 +357,18 @@ function createWindow() {
   });
 }
 
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-});
-
 app.whenReady().then(async () => {
+  if (!ownsInstance) return;
   desktopSettings = loadDesktopSettings();
-  startBackend();
+  if (!startBackend()) { app.quit(); return; }
 
   if (!isDev) {
     // Wait for the internal backend server to be healthy before displaying the UI
-    await waitForServer(`http://127.0.0.1:${PORT}/api/system/health`, 8000);
+    if (!await waitForServer(`http://127.0.0.1:${PORT}/api/system/health`, 8000)) {
+      dialog.showErrorBox('Postacı', 'Yerel sunucu başlatılamadı.');
+      app.quit();
+      return;
+    }
   }
 
   createWindow();
@@ -371,20 +394,31 @@ app.on('window-all-closed', () => {
   }
 });
 
+function isTrustedSender(event) {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) return false;
+  try {
+    return ['http://127.0.0.1:' + PORT, ...(isDev ? ['http://127.0.0.1:5173'] : [])].includes(new URL(event.senderFrame.url).origin);
+  } catch { return false; }
+}
+
 // IPC: Settings
-ipcMain.handle('get-desktop-settings', () => {
+ipcMain.handle('get-desktop-settings', (event) => {
+  if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
   desktopSettings = loadDesktopSettings();
   return desktopSettings;
 });
 
-ipcMain.handle('set-desktop-settings', (_event, newSettings) => {
+ipcMain.handle('set-desktop-settings', (event, newSettings) => {
+  if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+  newSettings = Object.fromEntries(Object.keys(defaultSettings).filter(k => typeof newSettings?.[k] === 'boolean').map(k => [k, newSettings[k]]));
   desktopSettings = { ...desktopSettings, ...newSettings };
   saveDesktopSettings(desktopSettings);
   return desktopSettings;
 });
 
 // IPC: Notifications
-ipcMain.on('notify', (_event, { title, body, emailId, accountId }) => {
+ipcMain.on('notify', (event, { title, body, emailId, accountId }) => {
+  if (!isTrustedSender(event)) return;
   if (Notification.isSupported()) {
     const notif = new Notification({
       title: title || 'Postacı',
@@ -407,56 +441,26 @@ ipcMain.on('notify', (_event, { title, body, emailId, accountId }) => {
   }
 });
 
-ipcMain.on('set-badge', (_event, count) => {
+ipcMain.on('set-badge', (event, count) => {
+  if (!isTrustedSender(event)) return;
   if (app.setBadgeCount) {
     app.setBadgeCount(count || 0);
   }
 });
 
 // IPC: External Link
-ipcMain.on('open-external', (_event, url) => {
+ipcMain.on('open-external', (event, url) => {
+  if (!isTrustedSender(event)) return;
   if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:'))) {
     shell.openExternal(url);
   }
 });
 
-// IPC: OAuth Popup Window (Embedded Dialog with Clean Chrome User-Agent)
-ipcMain.handle('open-oauth-window', async (_event, url) => {
-  return new Promise((resolve) => {
-    const authWindow = new BrowserWindow({
-      width: 540,
-      height: 700,
-      parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
-      modal: true,
-      show: true,
-      title: 'Google Girişi — Postacı',
-      autoHideMenuBar: true,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-      }
-    });
-
-    const chromeUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-    authWindow.webContents.setUserAgent(chromeUserAgent);
-
-    authWindow.loadURL(url, { userAgent: chromeUserAgent });
-
-    authWindow.webContents.on('did-finish-load', () => {
-      const currentUrl = authWindow.webContents.getURL();
-      if (currentUrl.includes('/api/auth/google/callback') && !currentUrl.includes('error=')) {
-        setTimeout(() => {
-          if (!authWindow.isDestroyed()) {
-            authWindow.close();
-          }
-          resolve({ success: true });
-        }, 1500);
-      }
-    });
-
-    authWindow.on('closed', () => {
-      resolve({ closed: true });
-    });
-  });
+// OAuth uses the system browser; embedded user agents are not supported by Google.
+ipcMain.handle('open-oauth-window', async (event, url) => {
+  if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
+  const parsed = new URL(url);
+  if (parsed.origin !== 'https://accounts.google.com' || parsed.pathname !== '/o/oauth2/v2/auth') throw new Error('Invalid OAuth URL');
+  await shell.openExternal(parsed.href);
+  return { opened: true };
 });

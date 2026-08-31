@@ -17,17 +17,23 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '22'
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Typecheck, lint and test
+        run: npm run check
 
       - name: Build Web Client & Backend
         run: npm run build
+
+      - name: Test Production Backend
+        run: npm run test:bundle
 
       - name: Build Windows Executable & Installer
         run: npx electron-builder --win nsis zip --publish never
@@ -38,10 +44,11 @@ jobs:
         with:
           files: |
             dist-desktop/Postaci-Setup-*.exe
-            dist-desktop/Postaci-*-win.zip
+            dist-desktop/Postaci-Setup-*.zip
           draft: false
           prerelease: false
           generate_release_notes: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -52,17 +59,23 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '22'
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Typecheck, lint and test
+        run: npm run check
 
       - name: Build Web Client & Backend
         run: npm run build
+
+      - name: Test Production Backend
+        run: npm run test:bundle
 
       - name: Build Linux Packages
         run: npx electron-builder --linux AppImage deb --publish never
@@ -77,5 +90,6 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

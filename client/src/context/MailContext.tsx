@@ -1,6 +1,7 @@
+import { useEmailCollection } from '../hooks/useEmailCollection';
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Account, Email, FolderStat, ViewLayout, MainTab, SortOption } from '../types';
-import { api, EVENTS_URL } from '../services/api';
+import { api, EVENTS_URL, ensureSession } from '../services/api';
 import { useToast } from './ToastContext';
 import { playNotificationChime } from '../utils/sound';
 
@@ -46,6 +47,11 @@ interface MailContextType {
   isShortcutsOpen: boolean;
   setIsShortcutsOpen: (open: boolean) => void;
   isLoading: boolean;
+  hasMoreEmails: boolean;
+  isLoadingMore: boolean;
+  loadMoreEmails: () => Promise<void>;
+  loadOlderEmails: () => Promise<void>;
+  listError: string;
   isSyncing: boolean;
   refreshEmails: () => Promise<void>;
   refreshAccounts: () => Promise<void>;
@@ -137,7 +143,6 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeFolder, setActiveFolder] = useState<string>('INBOX');
   const [activeLabel, setActiveLabel] = useState<string | null>(null);
 
-  const [emails, setEmails] = useState<Email[]>([]);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [threadEmails, setThreadEmails] = useState<Email[]>([]);
   const [checkedEmailIds, setCheckedEmailIds] = useState<Set<string>>(new Set());
@@ -165,8 +170,26 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
 
-  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const { emails, setEmails, isLoading, isLoadingMore, hasMoreEmails, loadMoreEmails, listError, folderCacheRef, refreshEmails } = useEmailCollection({
+    accountId: activeAccountId !== 'all' ? activeAccountId : undefined,
+    folder: activeFolder, isStarred: filter === 'starred' ? true : undefined,
+    isUnread: filter === 'unread' ? true : undefined, label: activeLabel || undefined,
+    search: searchQuery || undefined, sort: sortBy, hasAttachment: filter === 'has_attachment' ? true : undefined,
+  }, setSelectedEmailId);
+
+  const loadOlderEmails = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const targets = accounts.filter(a => a.provider !== 'demo' && (activeAccountId === 'all' || a.id === activeAccountId));
+      let loaded = 0;
+      for (const account of targets) loaded += (await api.loadOlderEmails(account.id, activeFolder)).syncedCount;
+      await refreshEmails();
+      info(loaded ? loaded + ' eski ileti önbelleğe eklendi.' : 'Bu klasörde yüklenecek daha eski ileti bulunamadı.');
+    } catch (err: any) { error(err.message); }
+    finally { setIsSyncing(false); }
+  };
 
   // Key combo state (for "g i", "* a", etc.)
   const pendingKeyComboRef = useRef<string | null>(null);
@@ -202,7 +225,6 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [activeAccountId]);
 
   const lastSyncedFolderRef = useRef<string | null>(null);
-  const folderCacheRef = useRef<Map<string, Email[]>>(new Map());
 
   const pruneFromCache = useCallback((emailIds: string[]) => {
     const idSet = new Set(emailIds);
@@ -210,55 +232,6 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       folderCacheRef.current.set(key, list.filter(e => !idSet.has(e.id)));
     }
   }, []);
-
-  // Load Emails with SWR In-Memory Instant Cache
-  const refreshEmails = useCallback(async (showLoading = false) => {
-    const cacheKey = `${activeAccountId}-${activeFolder}-${filter}-${activeLabel || ''}-${searchQuery || ''}`;
-    
-    // If we have cached emails for this folder, show them instantly without wiping the screen
-    if (folderCacheRef.current.has(cacheKey)) {
-      const cached = folderCacheRef.current.get(cacheKey)!;
-      setEmails(cached);
-      if (showLoading && cached.length === 0) {
-        setIsLoading(true);
-      }
-    } else if (showLoading) {
-      setIsLoading(true);
-    }
-
-    try {
-      const data = await api.getEmails({
-        accountId: activeAccountId !== 'all' ? activeAccountId : undefined,
-        folder: activeFolder,
-        isStarred: filter === 'starred' ? true : undefined,
-        isUnread: filter === 'unread' ? true : undefined,
-        label: activeLabel || undefined,
-        search: searchQuery || undefined,
-      });
-
-      // Filter by attachment if requested
-      const filtered = filter === 'has_attachment' ? data.filter(e => e.attachments && e.attachments.length > 0) : data;
-      
-      const sorted = sortEmailsList(filtered, sortBy);
-
-      folderCacheRef.current.set(cacheKey, sorted);
-      setEmails(sorted);
-
-      setSelectedEmailId(prevId => {
-        if (sorted.length > 0) {
-          if (prevId && sorted.some(e => e.id === prevId)) {
-            return prevId;
-          }
-          return sorted[0].id;
-        }
-        return null;
-      });
-    } catch (err) {
-      console.error('Error fetching emails:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeAccountId, activeFolder, filter, activeLabel, searchQuery, sortBy]);
 
   // Initial load
   useEffect(() => {
@@ -338,21 +311,14 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // Fetch latest email detail from API (triggers on-demand full body fetch if needed)
-    api.getEmailById(selectedEmailId).then((fetched: Email) => {
-      if (fetched) {
-        setEmails(prev => prev.map(e => e.id === fetched.id ? { ...e, ...fetched } : e));
-      }
-    }).catch(() => {});
-
-    const currentEmail = emails.find(e => e.id === selectedEmailId);
-    if (currentEmail?.threadId) {
-      api.getEmailThread(currentEmail.threadId)
-        .then(res => setThreadEmails(res))
-        .catch(() => setThreadEmails(currentEmail ? [currentEmail] : []));
-    } else if (currentEmail) {
-      setThreadEmails([currentEmail]);
-    }
+    let cancelled = false;
+    api.getEmailById(selectedEmailId).then(async fetched => {
+      if (cancelled) return;
+      setEmails(prev => prev.map(e => e.id === fetched.id ? { ...e, ...fetched } : e));
+      const thread = fetched.threadId ? await api.getEmailThread(fetched.threadId) : [fetched];
+      if (!cancelled) setThreadEmails(thread);
+    }).catch(() => { if (!cancelled) setThreadEmails([]); });
+    return () => { cancelled = true; };
   }, [selectedEmailId]);
 
   // Request notification permissions on mount
@@ -378,8 +344,10 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let lastChimeTime = 0;
     let lastToastTime = 0;
 
-    try {
-      eventSource = new EventSource(EVENTS_URL);
+    let disposed = false;
+    ensureSession().then(() => {
+      if (disposed) return;
+      eventSource = new EventSource(EVENTS_URL, { withCredentials: true });
 
       eventSource.addEventListener('new_email', (event: MessageEvent) => {
         try {
@@ -467,14 +435,15 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         debouncedRefresh();
       });
 
+      eventSource.addEventListener('email_sent', () => debouncedRefresh());
+
       eventSource.addEventListener('email_deleted', () => {
         debouncedRefresh();
       });
-    } catch (err) {
-      console.warn('SSE connection failed (local polling fallback):', err);
-    }
+    }).catch(err => console.warn('SSE bağlantısı kurulamadı:', err));
 
     return () => {
+      disposed = true;
       if (refreshDebounceTimer) clearTimeout(refreshDebounceTimer);
       if (eventSource) eventSource.close();
     };
@@ -1226,7 +1195,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsSettingsOpen,
         isShortcutsOpen,
         setIsShortcutsOpen,
-        isLoading,
+        isLoading, hasMoreEmails, isLoadingMore, loadMoreEmails, loadOlderEmails, listError,
         isSyncing,
         refreshEmails,
         refreshAccounts,

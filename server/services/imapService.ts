@@ -1,3 +1,5 @@
+import { getEmailMinUid } from './db.js';
+import { getPreferences } from './preferences.js';
 import { ImapFlow } from 'imapflow';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { Account, Email, Attachment } from '../types.js';
@@ -116,12 +118,14 @@ export class ImapService {
         host: account.imapHost || 'imap.gmail.com',
         port: account.imapPort || 993,
         secure: account.imapSecure !== false,
+        doSTARTTLS: !(account.imapSecure !== false),
         auth: {
           user: account.email,
           accessToken,
         },
         tls: {
-          rejectUnauthorized: false,
+          rejectUnauthorized: true,
+          minVersion: 'TLSv1.2',
           servername: account.imapHost || 'imap.gmail.com',
         },
         clientInfo: {
@@ -157,12 +161,14 @@ export class ImapService {
         host: account.imapHost,
         port: configuredPort,
         secure: configuredSecure,
+        doSTARTTLS: !(configuredSecure),
         auth: {
           user: configuredUser,
           pass: password,
         },
         tls: {
-          rejectUnauthorized: false,
+          rejectUnauthorized: true,
+          minVersion: 'TLSv1.2',
           servername: account.imapHost,
         },
         clientInfo: {
@@ -211,12 +217,14 @@ export class ImapService {
             host: account.imapHost,
             port: p.port,
             secure: p.secure,
+            doSTARTTLS: !(p.secure),
             auth: {
               user: u,
               pass: password,
             },
             tls: {
-              rejectUnauthorized: false,
+              rejectUnauthorized: true,
+          minVersion: 'TLSv1.2',
               servername: account.imapHost,
             },
             clientInfo: {
@@ -298,9 +306,11 @@ export class ImapService {
         host,
         port,
         secure,
+        doSTARTTLS: !secure,
         auth: { user, pass },
         tls: {
-          rejectUnauthorized: false,
+          rejectUnauthorized: true,
+          minVersion: 'TLSv1.2',
           servername: host,
         },
         logger: false,
@@ -1457,11 +1467,12 @@ export class ImapService {
     }
   }
 
-  public static async syncMailbox(accountId: string, mailboxPath: string): Promise<{ syncedCount: number }> {
+  public static async syncMailbox(accountId: string, mailboxPath: string, older = false): Promise<{ syncedCount: number; hasMoreOlder?: boolean }> {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo') return { syncedCount: 0 };
 
     let syncedCount = 0;
+    let hasMoreOlder = false;
 
     try {
       const client = await this.getOrCreateClient(account);
@@ -1484,9 +1495,13 @@ export class ImapService {
 
         const { folder: targetFolder, isCustom } = this.mapMailboxToFolder({ path: resolvedPath, name: resolvedPath });
 
-        const latestUids = uids.slice(-100);
+        uids.sort((a, b) => a - b);
+        const oldest = getEmailMinUid(accountId, resolvedPath);
+        const candidates = older && oldest ? uids.filter(uid => uid < oldest) : uids;
+        const latestUids = candidates.slice(-100);
+        hasMoreOlder = candidates.length > latestUids.length;
         const minUid = latestUids[0] || 1;
-        if (latestUids.length > 0) {
+        if (!older && latestUids.length > 0) {
           pruneMissingServerUids(account.id, resolvedPath, latestUids, minUid, targetFolder);
           try {
             const unseenUids = await client.search({ seen: false }, { uid: true });
@@ -1494,7 +1509,7 @@ export class ImapService {
               syncFolderReadFlags(account.id, targetFolder, unseenUids, latestUids, minUid);
             }
           } catch {}
-        } else {
+        } else if (!older && uids.length === 0) {
           pruneMissingServerUids(account.id, resolvedPath, [], 1, targetFolder);
         }
 
@@ -1613,13 +1628,14 @@ export class ImapService {
         lock.release();
       }
     } catch (err) {
-      console.warn(`Could not sync mailbox ${mailboxPath}:`, err);
+      throw err;
     }
 
-    return { syncedCount };
+    return { syncedCount, hasMoreOlder };
   }
 
   private static syncingAccounts = new Set<string>();
+  private static lastBackgroundSync = new Map<string, number>();
   private static autoSyncTimer: NodeJS.Timeout | null = null;
   private static fullSyncTimer: NodeJS.Timeout | null = null;
   private static broadcastCb: ((event: string, data: any) => void) | null = null;
@@ -1663,10 +1679,14 @@ export class ImapService {
       if (accounts.length === 0) return;
 
       const now = Date.now();
+      const globalSeconds = Number(getPreferences().postaci_auto_sync || 15);
 
       await Promise.allSettled(
         accounts.map(async acc => {
           if (this.syncingAccounts.has(acc.id)) return;
+          const syncKey = acc.id + (onlyInbox ? ':inbox' : ':full');
+          const seconds = Math.max(globalSeconds, acc.syncInterval || 60, onlyInbox ? 15 : 90);
+          if (now - (this.lastBackgroundSync.get(syncKey) || 0) < seconds * 1000) return;
 
           // Exponential backoff: skip accounts whose retry timer hasn't expired
           const backoff = this.failureBackoff.get(acc.id);
@@ -1676,6 +1696,7 @@ export class ImapService {
 
           try {
             const result = await this.syncAccount(acc.id, { onlyInbox });
+            this.lastBackgroundSync.set(syncKey, Date.now());
 
             // Success: reset backoff
             if (this.failureBackoff.has(acc.id)) {

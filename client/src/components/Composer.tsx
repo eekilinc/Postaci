@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useComposeInitialization } from '../hooks/useComposeInitialization';
+import { useUndoSend } from '../hooks/useUndoSend';
+import { sanitizeEmailHtml } from '../utils/emailHtml';
+import React, { useState, useRef } from 'react';
 import {
   X,
   Minus,
@@ -65,6 +68,8 @@ export const Composer: React.FC = () => {
   const [priority, setPriority] = useState<'normal' | 'high'>('normal');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const sendingRef = useRef(false);
+  const { secondsLeft, wait: waitToSend, cancel: cancelSend } = useUndoSend(isComposerOpen);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -109,7 +114,7 @@ export const Composer: React.FC = () => {
     success(`"${tmpl.title}" şablonu eklendi.`);
   };
 
-  useEffect(() => {
+  useComposeInitialization(isComposerOpen, composerData, () => {
     if (isComposerOpen) {
       const targetAccId = composerData?.accountId 
         || (activeAccountId !== 'all' && accounts.some(a => a.id === activeAccountId) ? activeAccountId : accounts[0]?.id || '');
@@ -124,13 +129,13 @@ export const Composer: React.FC = () => {
         setSubject(composerData.subject || '');
         setAttachments(composerData.attachments || []);
         if (editorRef.current) {
-          editorRef.current.innerHTML = composerData.bodyHtml || composerData.bodyText || '';
+          editorRef.current.innerHTML = sanitizeEmailHtml(composerData.bodyHtml || composerData.bodyText || '', composerData.attachments || [], { blockExternalImages: true, blockTrackingPixels: true });
         }
       } else {
         const defaultAcc = accounts.find(a => a.id === targetAccId) || accounts[0];
         const signatureHtml = defaultAcc?.signature ? `<br><br><div class="signature" style="color:var(--text-muted); font-size:12px;">--<br>${defaultAcc.signature.replace(/\n/g, '<br>')}</div>` : '';
         if (editorRef.current) {
-          editorRef.current.innerHTML = `<p><br></p>${signatureHtml}`;
+          editorRef.current.innerHTML = sanitizeEmailHtml(`<p><br></p>${signatureHtml}`, [], { blockExternalImages: true, blockTrackingPixels: true });
         }
         setToRecipients([]);
         setCcRecipients([]);
@@ -142,7 +147,7 @@ export const Composer: React.FC = () => {
         setAttachments([]);
       }
     }
-  }, [isComposerOpen, composerData, accounts, activeAccountId]);
+  });
 
   if (!isComposerOpen) return null;
 
@@ -231,7 +236,7 @@ export const Composer: React.FC = () => {
 
     for (const part of parts) {
       const emailMatch = part.match(/<([^>]+)>/) || part.match(/([^\s@]+@[^\s@]+\.[^\s@]+)/);
-      const email = emailMatch ? emailMatch[1] : (part.includes('@') ? part : `${part}@domain.com`);
+      const email = emailMatch ? emailMatch[1] : part;
       let name = part.replace(/<[^>]+>/, '').trim();
       if (!name) name = email.split('@')[0];
 
@@ -306,7 +311,7 @@ export const Composer: React.FC = () => {
     try {
       const polished = await api.polishText(currentText, style);
       if (editorRef.current) {
-        editorRef.current.innerHTML = `<p>${polished.replace(/\n/g, '<br>')}</p>`;
+        editorRef.current.innerText = polished;
       }
       success('Metin AI ile uyarlandı.');
     } catch {
@@ -334,7 +339,7 @@ export const Composer: React.FC = () => {
         setSubject(res.subject);
       }
       if (editorRef.current) {
-        editorRef.current.innerHTML = res.bodyHtml;
+        editorRef.current.innerHTML = sanitizeEmailHtml(res.bodyHtml, [], { blockExternalImages: true, blockTrackingPixels: true });
       }
 
       setShowAiModal(false);
@@ -348,12 +353,13 @@ export const Composer: React.FC = () => {
   };
 
   const handleSend = async () => {
+    if (sendingRef.current) return;
     let finalTo = [...toRecipients];
     if (toInput.trim()) {
       const parts = toInput.split(/[,;\n\r]+/).map(p => p.trim()).filter(Boolean);
       for (const part of parts) {
         const emailMatch = part.match(/<([^>]+)>/) || part.match(/([^\s@]+@[^\s@]+\.[^\s@]+)/);
-        const email = emailMatch ? emailMatch[1] : (part.includes('@') ? part : `${part}@domain.com`);
+        const email = emailMatch ? emailMatch[1] : (part.includes('@') ? part : part);
         let name = part.replace(/<[^>]+>/, '').trim() || email.split('@')[0];
         finalTo.push({ name, email });
       }
@@ -365,7 +371,7 @@ export const Composer: React.FC = () => {
       const parts = ccInput.split(/[,;\n\r]+/).map(p => p.trim()).filter(Boolean);
       for (const part of parts) {
         const emailMatch = part.match(/<([^>]+)>/) || part.match(/([^\s@]+@[^\s@]+\.[^\s@]+)/);
-        const email = emailMatch ? emailMatch[1] : (part.includes('@') ? part : `${part}@domain.com`);
+        const email = emailMatch ? emailMatch[1] : (part.includes('@') ? part : part);
         let name = part.replace(/<[^>]+>/, '').trim() || email.split('@')[0];
         finalCc.push({ name, email });
       }
@@ -377,7 +383,7 @@ export const Composer: React.FC = () => {
       const parts = bccInput.split(/[,;\n\r]+/).map(p => p.trim()).filter(Boolean);
       for (const part of parts) {
         const emailMatch = part.match(/<([^>]+)>/) || part.match(/([^\s@]+@[^\s@]+\.[^\s@]+)/);
-        const email = emailMatch ? emailMatch[1] : (part.includes('@') ? part : `${part}@domain.com`);
+        const email = emailMatch ? emailMatch[1] : (part.includes('@') ? part : part);
         let name = part.replace(/<[^>]+>/, '').trim() || email.split('@')[0];
         finalBcc.push({ name, email });
       }
@@ -397,11 +403,18 @@ export const Composer: React.FC = () => {
       return;
     }
 
+    if ([...finalTo, ...finalCc, ...finalBcc].some(a => !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(a.email))) {
+      error('Alıcı adreslerini kontrol edin. Eksik adresler otomatik tamamlanmaz.'); return;
+    }
     const bodyHtml = editorRef.current?.innerHTML || '';
     const bodyText = editorRef.current?.innerText || '';
-
+    if (/\bekte\b|\bekli\b|attachment|attached/i.test(bodyText) && !attachments.length &&
+        !window.confirm('İletide ekten söz ediliyor ancak dosya eklenmemiş. Yine de gönderilsin mi?')) return;
+    setToRecipients(finalTo); setCcRecipients(finalCc); setBccRecipients(finalBcc);
+    sendingRef.current = true;
     setIsSending(true);
     try {
+      await waitToSend(Number(localStorage.getItem('postaci_undo_send') || '5'));
       info('E-posta gönderiliyor...');
       await api.sendMail({
         accountId: effectiveAccountId,
@@ -423,8 +436,10 @@ export const Composer: React.FC = () => {
       refreshEmails();
       refreshStats();
     } catch (err: any) {
-      error(err.message || 'E-posta gönderilirken bir hata oluştu.');
+      if (err.name === 'AbortError') info('Gönderim geri alındı. İleti düzenleyicide korundu.');
+      else error(err.message || 'E-posta gönderilirken bir hata oluştu.');
     } finally {
+      sendingRef.current = false;
       setIsSending(false);
     }
   };
@@ -952,7 +967,7 @@ export const Composer: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Wand2 size={14} />
-                  Postacı AI Akıllı E-Posta Yazarı
+                  Postacı Yerel Yazım Asistanı
                 </span>
                 <X size={14} style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowAiModal(false)} />
               </div>
@@ -1125,7 +1140,7 @@ export const Composer: React.FC = () => {
           {/* Editable Email Body with drag and drop */}
           <div
             ref={editorRef}
-            contentEditable
+            contentEditable={!isSending}
             onDragOver={e => { e.preventDefault(); setIsDraggingOver(true); }}
             onDragLeave={() => setIsDraggingOver(false)}
             onDrop={handleDropFiles}
@@ -1180,6 +1195,10 @@ export const Composer: React.FC = () => {
             </div>
           )}
 
+          {secondsLeft > 0 && <div role="status" style={{ padding: 12, background: 'var(--bg-tertiary)', display: 'flex', justifyContent: 'space-between' }}>
+            <span>İleti henüz gönderilmedi · {secondsLeft} sn</span>
+            <button onClick={cancelSend} style={{ color: 'var(--accent-primary)', cursor: 'pointer' }}>Gönderimi geri al</button>
+          </div>}
           {/* Bottom Footer & Send Action */}
           <div style={{
             padding: '12px 18px',
@@ -1237,7 +1256,7 @@ export const Composer: React.FC = () => {
                 }}
               >
                 <Send size={15} />
-                <span>{isSending ? 'Gönderiliyor...' : 'Gönder'}</span>
+                <span>{secondsLeft > 0 ? secondsLeft + ' saniye sonra gönderilecek' : isSending ? 'Gönderiliyor...' : 'Gönder'}</span>
               </button>
             </div>
           </div>

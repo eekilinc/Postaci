@@ -1,3 +1,5 @@
+import { generateLocal } from './localAI.js';
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]!));
 import { Email } from '../types.js';
 
 export interface ExtractedTask {
@@ -13,6 +15,8 @@ export class AIService {
    */
   public static async summarizeEmail(email: Email): Promise<string> {
     const text = (email.bodyText || email.snippet || email.bodyHtml || '').trim();
+    const generated = await generateLocal('İletiyi en fazla 4 kısa maddeyle özetle. Kesin olmayan bilgileri kesinleştirme.', text);
+    if (generated) return generated;
 
     if (text.length < 40) {
       return `Kısa İleti: "${text}"`;
@@ -38,7 +42,7 @@ export class AIService {
       if (sentences.length > 1) keyPoints.push(sentences[1].trim());
     }
 
-    return `📌 Özet:\n• ${keyPoints.join('\n• ')}`;
+    return `📌 Kural tabanlı özet:\n• ${keyPoints.join('\n• ')}`;
   }
 
   /**
@@ -101,7 +105,9 @@ export class AIService {
    * Generates 3 contextual smart replies for one-click responding
    */
   public static async generateSmartReplies(email: Email): Promise<string[]> {
-    const text = (email.bodyText || email.snippet).toLowerCase();
+    const text = (email.bodyText || email.snippet || '').toLowerCase();
+    const generated = await generateLocal('Üç kısa yanıt önerisi üret. JSON biçimi: {"replies":["...","...","..."]}. Yapılmamış bir işlemi yapılmış gibi yazma.', text, true);
+    if (generated) { try { const replies = JSON.parse(generated).replies; if (Array.isArray(replies) && replies.length && replies.every(r => typeof r === 'string' && r.length <= 2000)) return replies.slice(0, 3); } catch {} }
     const sender = email.fromName.split(' ')[0] || 'Merhaba';
 
     if (text.includes('toplantı') || text.includes('saat') || text.includes('uygun mudur')) {
@@ -139,6 +145,8 @@ export class AIService {
    * Generates full professional email draft from a natural language prompt
    */
   public static async generateDraft(prompt: string, replyContext?: { fromName?: string; subject?: string; text?: string }): Promise<{ subject: string; bodyHtml: string; bodyText: string }> {
+    const generated = await generateLocal('Kullanıcının isteğinden e-posta taslağı üret. JSON: {"subject":"...","bodyText":"..."}. Düz metin kullan.', JSON.stringify({ prompt, replyContext }), true);
+    if (generated) { try { const data = JSON.parse(generated); if (typeof data.subject === 'string' && typeof data.bodyText === 'string') return { subject: data.subject.slice(0, 500), bodyText: data.bodyText, bodyHtml: '<p>' + escapeHtml(data.bodyText).replace(/\n/g, '<br>') + '</p>' }; } catch {} }
     const cleanPrompt = prompt.trim();
     const lowerPrompt = cleanPrompt.toLowerCase();
     const recipient = replyContext?.fromName || 'İlgili Kişi';
@@ -163,7 +171,7 @@ export class AIService {
       bodyText = `Merhaba ${recipient},\n\n${cleanPrompt}\n\nKonu hakkında değerlendirmelerinizi rica eder, iyi çalışmalar dilerim.\n\nSaygılarımla.`;
     }
 
-    const bodyHtml = bodyText.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+    const bodyHtml = bodyText.split('\n\n').map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join('');
 
     return { subject, bodyHtml, bodyText };
   }
@@ -174,6 +182,8 @@ export class AIService {
   public static async polishText(text: string, style: 'formal' | 'friendly' | 'concise' | 'persuasive' | 'expand' | 'fix_grammar'): Promise<string> {
     if (!text || text.trim().length === 0) return text;
 
+    const generated = await generateLocal('Bu metni ' + style + ' üslubuyla düzelt. Anlamı koru, yeni bilgi ekleme. Yalnızca düzeltilmiş metni döndür.', text);
+    if (generated) return generated;
     const clean = text.trim();
 
     switch (style) {
@@ -223,14 +233,14 @@ export class AIService {
     const hasExternalImages = /<img[^>]+src=["']https?:\/\//i.test(email.bodyHtml);
     if (hasExternalImages) {
       score += 10;
-      reasons.push('Gizlilik riski oluşturan harici izleme görselleri içeriyor.');
+      reasons.push('Harici görseller içeriyor; yüklenmeleri göndericiye okundu bilgisi verebilir.');
     }
 
     // Check sender domain vs display name
     const domain = email.fromEmail.split('@')[1] || '';
-    if (email.fromName.toLowerCase().includes('google') && !domain.includes('google.com')) {
+    if (email.fromName.toLowerCase().includes('google') && !(domain === 'google.com' || domain.endsWith('.google.com'))) {
       score += 45;
-      reasons.push('Gönderici adı "Google" görünüyor ancak alan adı sahte.');
+      reasons.push('Gönderici adı "Google" görünüyor ancak alan adı Google ile eşleşmiyor; göndericiyi doğrulayın.');
     }
 
     let level: 'safe' | 'low' | 'medium' | 'high' = 'safe';
@@ -239,7 +249,7 @@ export class AIService {
     else if (score > 0) level = 'low';
 
     return {
-      score,
+      score: Math.min(score, 100),
       level,
       reasons,
       hasBlockedImages: hasExternalImages

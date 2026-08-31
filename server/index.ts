@@ -1,18 +1,16 @@
 import express, { Request, Response } from 'express';
-import cors from 'cors';
+import { getAIStatus } from './services/localAI.js';
+import { getStorageStatus } from './services/db.js';
+import { DeliveryGuard, deliveryJournalPath } from './services/deliveryGuard.js';
+import { validateSendPayload } from './services/sendValidation.js';
+import { getPreferences, savePreferences } from './services/preferences.js';
+import { installSecurity } from './security.js';
+import { publicAccount } from './services/secrets.js';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { APP_VERSION } from './version';
-
-process.on('uncaughtException', (err: any) => {
-  console.warn('⚠️ Process uncaughtException caught (server kept alive):', err?.message || err);
-});
-
-process.on('unhandledRejection', (reason: any) => {
-  console.warn('⚠️ Process unhandledRejection caught (server kept alive):', reason?.message || reason);
-});
 
 const getDirname = () => {
   if (typeof __dirname !== 'undefined') return __dirname;
@@ -61,7 +59,7 @@ import { AIService } from './services/aiService.js';
 import { BackupService } from './services/backupService.js';
 import { UpdaterService } from './services/updaterService.js';
 import { AutodiscoverService } from './services/autodiscoverService.js';
-import { OAuthService } from './services/oauthService.js';
+import { authRoutes } from './routes/auth.js';
 import { Account, Email, CalendarEvent, Attachment } from './types.js';
 
 const app = express();
@@ -104,7 +102,7 @@ setInterval(() => {
 }, 25000);
 
 // Middleware
-app.use(cors());
+installSecurity(app, Number(PORT));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -134,11 +132,16 @@ app.get('/events', (req: Request, res: Response) => {
   });
 });
 
+app.get('/api/system/diagnostics', (_req, res) => res.json({ storage: getStorageStatus(), ai: getAIStatus(), security: { loopbackOnly: true, encryptedCredentials: true } }));
+app.get('/api/ai/status', (_req, res) => res.json(getAIStatus()));
+app.get('/api/preferences', (_req, res) => res.json(getPreferences()));
+app.put('/api/preferences', (req, res) => res.json(savePreferences(req.body)));
+
 // ----------------- ACCOUNTS -----------------
 app.get('/api/accounts', (req: Request, res: Response) => {
   try {
     const accounts = getAccounts();
-    res.json(accounts);
+    res.json(accounts.map(publicAccount));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -154,7 +157,7 @@ app.post('/api/accounts', (req: Request, res: Response) => {
       isDefault: req.body.isDefault ?? false,
     };
     const created = createAccount(newAcc);
-    broadcastSSE('accounts_updated', created);
+    broadcastSSE('accounts_updated', publicAccount(created));
 
     // Trigger instant background sync for newly added account
     if (created.provider !== 'demo') {
@@ -165,7 +168,7 @@ app.post('/api/accounts', (req: Request, res: Response) => {
       });
     }
 
-    res.status(201).json(created);
+    res.status(201).json(publicAccount(created));
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -173,12 +176,16 @@ app.post('/api/accounts', (req: Request, res: Response) => {
 
 app.post('/api/accounts/test', async (req: Request, res: Response) => {
   try {
-    const imapRes = await ImapService.testConnection(req.body);
+    const saved = req.body.id ? getAccountById(req.body.id) : undefined;
+    const credentials = { ...saved, ...req.body };
+    if (saved && !req.body.imapPassword) credentials.imapPassword = saved.imapPassword;
+    if (saved && !req.body.smtpPassword) credentials.smtpPassword = saved.smtpPassword;
+    const imapRes = await ImapService.testConnection(credentials);
     if (!imapRes.success) {
       return res.status(400).json(imapRes);
     }
 
-    const smtpRes = await SmtpService.testConnection(req.body);
+    const smtpRes = await SmtpService.testConnection(credentials);
     if (!smtpRes.success) {
       return res.status(400).json(smtpRes);
     }
@@ -211,123 +218,19 @@ app.post('/api/accounts/autodiscover', async (req: Request, res: Response) => {
   }
 });
 
-// OAuth 2.0 Configuration Endpoints
-app.get('/api/auth/oauth-config', (req: Request, res: Response) => {
-  try {
-    const creds = OAuthService.getCredentials();
-    res.json(creds);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/auth/oauth-config', (req: Request, res: Response) => {
-  try {
-    const updated = OAuthService.saveCredentials(req.body);
-    res.json(updated);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// OAuth 2.0 Google Endpoints
-app.get('/api/auth/google/url', (req: Request, res: Response) => {
-  try {
-    const clientId = (req.query.clientId as string) || undefined;
-    const redirectUri = 'http://127.0.0.1:3001/api/auth/google/callback';
-    const url = OAuthService.getGoogleAuthUrl(redirectUri, clientId);
-    res.json({ url });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
-  try {
-    const code = req.query.code as string;
-    const errorQuery = req.query.error as string;
-    if (errorQuery) {
-      throw new Error(`Google yetkilendirmesi reddedildi veya iptal edildi (${errorQuery}).`);
-    }
-    if (!code) {
-      return res.status(400).send('Yetkilendirme kodu (Authorization code) bulunamadı.');
-    }
-
-    const redirectUri = 'http://127.0.0.1:3001/api/auth/google/callback';
-    const account = await OAuthService.handleGoogleCallback(code, redirectUri);
-    broadcastSSE('accounts_updated', account);
-    
-    // Auto-sync the new Google account in background
-    ImapService.syncAccount(account.id).catch(() => {});
-
-    res.send(`
-      <!DOCTYPE html>
-      <html lang="tr">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Google Girişi Başarılı — Postacı</title>
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-            .card { background: #131e3a; border: 1px solid #3b82f6; border-radius: 16px; padding: 40px; text-align: center; max-width: 460px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
-            h2 { color: #38bdf8; margin-top: 0; }
-            p { color: #94a3b8; line-height: 1.6; font-size: 14px; }
-            .badge { display: inline-block; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 6px 16px; border-radius: 20px; font-weight: 600; margin-bottom: 16px; }
-            .btn { display: inline-block; background: #3b82f6; color: white; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 20px; cursor: pointer; border: none; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <div class="badge">✓ Yetkilendirme Başarılı</div>
-            <h2>Postacı'ya Bağlandı!</h2>
-            <p><strong>${account.email}</strong> Google hesabınız başarıyla eklendi ve senkronizasyon başlatıldı.</p>
-            <p style="font-size: 13px; color: #64748b;">Postacı masaüstü uygulamasına dönebilirsiniz.</p>
-            <button class="btn" onclick="window.close()">Pencereyi Kapat</button>
-            <script>setTimeout(() => window.close(), 3000);</script>
-          </div>
-        </body>
-      </html>
-    `);
-  } catch (err: any) {
-    console.error('Google OAuth callback error:', err);
-    res.status(500).send(`
-      <!DOCTYPE html>
-      <html lang="tr">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Google Giriş Durumu — Postacı</title>
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-            .card { background: #131e3a; border: 1px solid #ef4444; border-radius: 16px; padding: 36px; text-align: center; max-width: 500px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
-            h2 { color: #f87171; margin-top: 0; }
-            p { color: #cbd5e1; line-height: 1.6; font-size: 14px; }
-            .alert-box { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 12px; margin: 16px 0; font-family: monospace; font-size: 13px; color: #fca5a5; word-break: break-all; }
-            .solution { background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 14px; margin-top: 16px; text-align: left; font-size: 13px; color: #93c5fd; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <h2>Google Yetkilendirme Bildirimi</h2>
-            <div class="alert-box">${err.message || 'Yetkilendirme tamamlanamadı.'}</div>
-            <div class="solution">
-              <strong>💡 En Hızlı ve Sorunsuz Çözüm:</strong><br>
-              Postacı uygulamasında <strong>Hesap Ekle &gt; Gmail</strong> ekranında <strong>"Uygulama Şifresi Kullan"</strong> seçeneğini seçip 16 haneli Google Uygulama Şifrenizle tek tıkla ve şartsız bağlanabilirsiniz.
-            </div>
-            <p style="margin-top: 20px; font-size: 12px; color: #64748b;">Postacı uygulamasına dönüp işlemi tamamlayabilirsiniz.</p>
-          </div>
-        </body>
-      </html>
-    `);
-  }
-});
+app.use(authRoutes(broadcastSSE, PORT));
 
 app.put('/api/accounts/:id', (req: Request, res: Response) => {
   try {
-    const updated = updateAccount(req.params.id, req.body);
+    const changes = { ...req.body };
+    delete changes.id;
+    for (const field of ['imapPassword', 'smtpPassword']) if (!changes[field]) delete changes[field];
+    for (const field of ['oauthAccessToken', 'oauthRefreshToken', 'oauthClientSecret']) delete changes[field];
+    const updated = updateAccount(req.params.id, changes);
+    ImapService.clearAccountCache(req.params.id);
     if (!updated) return res.status(404).json({ error: 'Hesap bulunamadı.' });
-    broadcastSSE('accounts_updated', updated);
-    res.json(updated);
+    broadcastSSE('accounts_updated', publicAccount(updated));
+    res.json(publicAccount(updated));
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -380,10 +283,21 @@ app.post('/api/folders/sync', async (req: Request, res: Response) => {
   }
 });
 
+app.post('/api/folders/older', async (req, res) => {
+  try {
+    if (typeof req.body.accountId !== 'string' || typeof req.body.mailboxPath !== 'string') return res.status(400).json({ error: 'Hesap ve klasör gerekli.' });
+    const result = await ImapService.syncMailbox(req.body.accountId, req.body.mailboxPath, true);
+    res.json(result);
+    broadcastSSE('emails_synced', { accountId: req.body.accountId });
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+
 // ----------------- EMAILS & FOLDERS -----------------
 app.get('/api/emails', (req: Request, res: Response) => {
   try {
     const { accountId, folder, isStarred, isUnread, label, search } = req.query;
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 100));
+    const offset = Math.max(0, Math.floor(Number(req.query.offset) || 0));
     const emails = getEmails({
       accountId: accountId as string,
       folder: folder as string,
@@ -391,8 +305,9 @@ app.get('/api/emails', (req: Request, res: Response) => {
       isUnread: isUnread === 'true' ? true : undefined,
       label: label as string,
       search: search as string,
+      limit: limit + 1, offset, sort: String(req.query.sort || 'newest'), hasAttachment: req.query.hasAttachment === 'true',
     });
-    res.json(emails);
+    res.json({ items: emails.slice(0, limit), hasMore: emails.length > limit, nextOffset: offset + Math.min(limit, emails.length) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -582,9 +497,12 @@ app.delete('/api/emails/:id', (req: Request, res: Response) => {
 });
 
 // ----------------- COMPOSE & SEND -----------------
+const deliveryGuard = new DeliveryGuard<Email>(deliveryJournalPath, getEmailById);
 app.post('/api/send', async (req: Request, res: Response) => {
   try {
-    const sentEmail = await SmtpService.sendMail(req.body);
+    validateSendPayload(req.body);
+    const key = String(req.headers['idempotency-key'] || '');
+    const sentEmail = await deliveryGuard.run(key, req.body, () => SmtpService.sendMail(req.body));
     broadcastSSE('email_sent', sentEmail);
     res.status(201).json(sentEmail);
   } catch (err: any) {
@@ -844,9 +762,9 @@ app.delete('/api/contacts/:id', (req: Request, res: Response) => {
 });
 
 // ----------------- BACKUP & RESTORE -----------------
-app.get('/api/backup/export', (req: Request, res: Response) => {
+app.post('/api/backup/export', (req: Request, res: Response) => {
   try {
-    const backup = BackupService.createBackup();
+    const backup = BackupService.createBackup(req.body.passphrase, req.body.preferences);
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename=postaci_backup_${new Date().toISOString().split('T')[0]}.json`);
     res.json(backup);
@@ -857,8 +775,8 @@ app.get('/api/backup/export', (req: Request, res: Response) => {
 
 app.post('/api/backup/import', (req: Request, res: Response) => {
   try {
-    const { backup, mode } = req.body;
-    const result = BackupService.restoreBackup(backup, mode || 'merge');
+    const { backup, mode, passphrase } = req.body;
+    const result = BackupService.restoreBackup(backup, mode || 'merge', passphrase);
     broadcastSSE('accounts_updated', {});
     res.json(result);
   } catch (err: any) {
@@ -919,13 +837,14 @@ app.get('*', (req: Request, res: Response, next) => {
   }
 });
 
-app.listen(Number(PORT), '0.0.0.0', () => {
+app.listen(Number(PORT), '127.0.0.1', () => {
   console.log(`🚀 Postacı API Sunucusu http://127.0.0.1:${PORT} üzerinde çalışıyor.`);
   // Start continuous 15s auto-sync engine
   ImapService.startAutoSyncEngine(broadcastSSE);
 }).on('error', (err: any) => {
   if (err.code === 'EADDRINUSE') {
-    console.warn(`⚠️ Port ${PORT} zaten kullanımda, mevcut sunucu üzerinden devam ediliyor.`);
+    console.error(`Port ${PORT} kullanımda. Başka bir sunucuya bağlanılmadı.`);
+    process.exit(1);
   } else {
     console.error('Server listen error:', err);
   }

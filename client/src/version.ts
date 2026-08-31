@@ -1,1 +1,1 @@
-export const APP_VERSION = '1.3.22';
+export { APP_VERSION } from '../../shared/version';
