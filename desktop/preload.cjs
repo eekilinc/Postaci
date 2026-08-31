@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url) => {
     ipcRenderer.send('open-external', url);
   },
+  openOAuthWindow: (url) => {
+    return ipcRenderer.invoke('open-oauth-window', url);
+  },
   getDesktopSettings: () => {
     return ipcRenderer.invoke('get-desktop-settings');
   },

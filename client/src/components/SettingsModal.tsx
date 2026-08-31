@@ -436,9 +436,13 @@ export const SettingsModal: React.FC = () => {
       }
       const res = await api.getGoogleAuthUrl(googleClientId.trim() || undefined);
       if (res.url) {
-        handleOpenExternal(res.url);
         setIsWaitingOAuth(true);
-        info('Tarayıcınızda Google yetkilendirme sayfası açıldı. Giriş yaptığınızda Postacı otomatik olarak bağlanacaktır.');
+        if ((window as any).electronAPI?.openOAuthWindow) {
+          (window as any).electronAPI.openOAuthWindow(res.url);
+        } else {
+          handleOpenExternal(res.url);
+        }
+        info('Google yetkilendirme penceresi açıldı. Giriş yaptığınızda Postacı otomatik olarak bağlanacaktır.');
       }
     } catch (err: any) {
       error(err.message || 'Google yetkilendirmesi başlatılamadı.');

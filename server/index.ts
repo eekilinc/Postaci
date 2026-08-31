@@ -234,8 +234,7 @@ app.post('/api/auth/oauth-config', (req: Request, res: Response) => {
 app.get('/api/auth/google/url', (req: Request, res: Response) => {
   try {
     const clientId = (req.query.clientId as string) || undefined;
-    const host = req.get('host') || '127.0.0.1:3001';
-    const redirectUri = `${req.protocol}://${host}/api/auth/google/callback`;
+    const redirectUri = 'http://127.0.0.1:3001/api/auth/google/callback';
     const url = OAuthService.getGoogleAuthUrl(redirectUri, clientId);
     res.json({ url });
   } catch (err: any) {
@@ -254,9 +253,7 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
       return res.status(400).send('Yetkilendirme kodu (Authorization code) bulunamadı.');
     }
 
-    const host = req.get('host') || '127.0.0.1:3001';
-    const redirectUri = `${req.protocol}://${host}/api/auth/google/callback`;
-
+    const redirectUri = 'http://127.0.0.1:3001/api/auth/google/callback';
     const account = await OAuthService.handleGoogleCallback(code, redirectUri);
     broadcastSSE('accounts_updated', account);
     

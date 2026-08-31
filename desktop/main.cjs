@@ -419,3 +419,44 @@ ipcMain.on('open-external', (_event, url) => {
     shell.openExternal(url);
   }
 });
+
+// IPC: OAuth Popup Window (Embedded Dialog with Clean Chrome User-Agent)
+ipcMain.handle('open-oauth-window', async (_event, url) => {
+  return new Promise((resolve) => {
+    const authWindow = new BrowserWindow({
+      width: 540,
+      height: 700,
+      parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+      modal: true,
+      show: true,
+      title: 'Google Girişi — Postacı',
+      autoHideMenuBar: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      }
+    });
+
+    const chromeUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+    authWindow.webContents.setUserAgent(chromeUserAgent);
+
+    authWindow.loadURL(url, { userAgent: chromeUserAgent });
+
+    authWindow.webContents.on('did-finish-load', () => {
+      const currentUrl = authWindow.webContents.getURL();
+      if (currentUrl.includes('/api/auth/google/callback') && !currentUrl.includes('error=')) {
+        setTimeout(() => {
+          if (!authWindow.isDestroyed()) {
+            authWindow.close();
+          }
+          resolve({ success: true });
+        }, 1500);
+      }
+    });
+
+    authWindow.on('closed', () => {
+      resolve({ closed: true });
+    });
+  });
+});
