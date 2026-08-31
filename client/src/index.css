@@ -285,6 +285,14 @@ body {
   height: 100vh;
   width: 100vw;
   user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Ensure all input, textarea, select, and editable areas are completely selectable and interactable */
+input, textarea, select, [contenteditable="true"], [contenteditable], .selectable-text {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  pointer-events: auto !important;
 }
 
 /* Typography Headings */

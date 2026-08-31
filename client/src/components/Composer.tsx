@@ -111,8 +111,11 @@ export const Composer: React.FC = () => {
 
   useEffect(() => {
     if (isComposerOpen) {
+      const targetAccId = composerData?.accountId 
+        || (activeAccountId !== 'all' && accounts.some(a => a.id === activeAccountId) ? activeAccountId : accounts[0]?.id || '');
+      setSelectedAccountId(targetAccId);
+
       if (composerData) {
-        setSelectedAccountId(composerData.accountId || (activeAccountId !== 'all' ? activeAccountId : accounts[0]?.id || ''));
         setToRecipients(composerData.to || []);
         setCcRecipients(composerData.cc || []);
         setBccRecipients(composerData.bcc || []);
@@ -124,7 +127,7 @@ export const Composer: React.FC = () => {
           editorRef.current.innerHTML = composerData.bodyHtml || composerData.bodyText || '';
         }
       } else {
-        const defaultAcc = accounts.find(a => a.id === selectedAccountId) || accounts[0];
+        const defaultAcc = accounts.find(a => a.id === targetAccId) || accounts[0];
         const signatureHtml = defaultAcc?.signature ? `<br><br><div class="signature" style="color:var(--text-muted); font-size:12px;">--<br>${defaultAcc.signature.replace(/\n/g, '<br>')}</div>` : '';
         if (editorRef.current) {
           editorRef.current.innerHTML = `<p><br></p>${signatureHtml}`;
@@ -386,6 +389,14 @@ export const Composer: React.FC = () => {
       return;
     }
 
+    const effectiveAccountId = selectedAccountId 
+      || (activeAccountId !== 'all' && accounts.some(a => a.id === activeAccountId) ? activeAccountId : accounts[0]?.id || '');
+
+    if (!effectiveAccountId) {
+      error('Lütfen e-postayı göndermek için geçerli bir hesap seçin.');
+      return;
+    }
+
     const bodyHtml = editorRef.current?.innerHTML || '';
     const bodyText = editorRef.current?.innerText || '';
 
@@ -393,7 +404,7 @@ export const Composer: React.FC = () => {
     try {
       info('E-posta gönderiliyor...');
       await api.sendMail({
-        accountId: selectedAccountId,
+        accountId: effectiveAccountId,
         to: finalTo,
         cc: finalCc.length > 0 ? finalCc : undefined,
         bcc: finalBcc.length > 0 ? finalBcc : undefined,

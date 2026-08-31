@@ -281,6 +281,15 @@ function createWindow() {
     if (!desktopSettings.startMinimized) {
       mainWindow.show();
       mainWindow.focus();
+      if (mainWindow.webContents) {
+        mainWindow.webContents.focus();
+      }
+    }
+  });
+
+  mainWindow.on('focus', () => {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+      mainWindow.webContents.focus();
     }
   });
 
