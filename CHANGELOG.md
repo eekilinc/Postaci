@@ -1,5 +1,16 @@
 # Değişiklik kaydı
 
+## 1.4.1 — 2026-08-31
+
+- Windows'ta 3001 portunun kullanılması/engellenmesi nedeniyle oluşan başlangıç hatası giderildi; masaüstü artık boş yerel port kullanır.
+- Sunucunun hazır olması doğrudan dinleme sonucundan doğrulanır; hata ayrıntıları ve neden zinciri startup-error.log dosyasına yazılır.
+- OAuth, Host/Origin doğrulaması ve ayarlarda gösterilen dönüş adresi gerçek porta bağlandı.
+- Açılışta yükleme/hata/yeniden deneme ekranı; takılan istekler için zaman aşımı eklendi.
+- İki sütunda liste yenilenince istemsiz ileti açılması giderildi; görünüm tercihleri sunucuda saklanır.
+- Boş hesap listesi ve sonuçsuz aramalar için eylemler; liste hatalarında yeniden deneme eklendi.
+- Küçük pencerelerde ayar panelinin ve dar posta sütunlarında filtrelerin kesilmesi giderildi.
+- Yayın öncesi paketlenmiş Electron/SQLite/API başlangıç testi ve ilgili regresyon testleri eklendi.
+
 ## 1.4.0 — 2026-08-31
 
 - Yerel oturum doğrulaması, Origin/Host kısıtlaması, CSP ve API sır maskelemesi.

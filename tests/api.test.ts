@@ -80,3 +80,13 @@ test('API and SSE route variants require authentication on the running server', 
     assert.equal(response.status, 401, route);
   }
 });
+
+test('folder navigation lists standard folders and mailbox counts', async () => {
+  const response = await request('/folders/stats');
+  assert.equal(response.status, 200, await response.clone().text());
+  const folders = await response.json();
+  for (const name of ['INBOX','STARRED','SENT','DRAFTS','ARCHIVE','SPAM','TRASH']) {
+    assert.ok(folders.some((folder: any) => folder.folder === name), name);
+  }
+  assert.ok(folders.find((folder: any) => folder.folder === 'INBOX').count > 0);
+});

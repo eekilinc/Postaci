@@ -1,6 +1,6 @@
 # Postacı
 
-React, TypeScript, Express ve Electron ile geliştirilmiş yerel e-posta istemcisi. Sürüm: **1.4.0**.
+React, TypeScript, Express ve Electron ile geliştirilmiş yerel e-posta istemcisi. Sürüm: **1.4.1**.
 
 ## Özellikler
 
@@ -30,6 +30,7 @@ npm run desktop        # geliştirme ortamında Electron
 npm run check          # tür kontrolü, lint, SQLite ve JSON testleri
 npm run build          # üretim istemci/sunucu derlemesi
 npm run test:bundle    # derlenmiş sunucuya karşı API testleri
+npm run test:packaged  # paket içindeki Electron + SQLite + API başlangıç testi
 npm run preview        # gerçek veri dizininden ayrı geçici önizleme (3101)
 npm run pack:win       # NSIS kurulum + ZIP
 npm run pack:linux     # AppImage + DEB
@@ -41,7 +42,7 @@ Testler sahte hesaplar ve geçici dizinler kullanır; gerçek postayı senkroniz
 
 Ayarlar bölümünde sağlayıcı, sunucu ve kimlik bilgilerini girin. Düzenlerken boş bırakılan parola mevcut parolayı korur; API mevcut sırları arayüze göndermez.
 
-Google OAuth için kendi Google Cloud **Desktop app** istemci kimliğinizi yapılandırın. Giriş sistem tarayıcısında açılır. Varsayılan dönüş adresi `http://127.0.0.1:3001/api/auth/google/callback`; özel PORT kullanıldığında değişir. Sağlayıcıya ait onay/izin ve test kullanıcısı ayarları ayrıca gerekebilir. Alternatif olarak hesabın desteklediği uygulama parolası kullanılabilir.
+Google OAuth için kendi Google Cloud **Desktop app** istemci kimliğinizi yapılandırın. Giriş sistem tarayıcısında açılır. Geliştirme ortamında dönüş adresi `http://127.0.0.1:3001/api/auth/google/callback` olur. Masaüstü sürümü boş bir yerel port seçer; o oturumun gerçek dönüş adresi ayarlarda gösterilir. Sağlayıcıya ait onay/izin ve test kullanıcısı ayarları ayrıca gerekebilir. Alternatif olarak hesabın desteklediği uygulama parolası kullanılabilir.
 
 ## Yerel asistan
 
@@ -71,7 +72,7 @@ Geri yükleme mevcut verileri silmeden birleştirir. Eski şifresiz hesap yedekl
 
 | Değişken | Açıklama |
 |---|---|
-| `PORT` | Yerel sunucu portu; varsayılan 3001 |
+| `PORT` | CLI/geliştirmede varsayılan 3001; masaüstünde belirtilmezse boş bir yerel port seçilir |
 | `POSTACI_DATA_DIR` | Veri dizini; CLI'da varsayılan `./data`, Electron'da kullanıcı uygulama verisi |
 | `POSTACI_STORAGE=json` | JSON saklama biçimini açıkça seçer |
 | `POSTACI_SEED_DEMO=0` | Başlangıç örnek verisini devre dışı bırakır |

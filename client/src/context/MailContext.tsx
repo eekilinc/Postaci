@@ -1,4 +1,5 @@
 import { useEmailCollection } from '../hooks/useEmailCollection';
+import { persistPreferences } from '../services/preferences';
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Account, Email, FolderStat, ViewLayout, MainTab, SortOption } from '../types';
 import { api, EVENTS_URL, ensureSession } from '../services/api';
@@ -161,6 +162,18 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setViewLayoutState(layout);
     localStorage.setItem('postaci_view_layout', layout);
   }, []);
+  useEffect(() => {
+    const timer = setTimeout(() => { persistPreferences().catch(err => console.warn('Görünüm tercihi kaydedilemedi:', err)); }, 300);
+    return () => clearTimeout(timer);
+  }, [sortBy, viewLayout]);
+  useEffect(() => {
+    const update = () => {
+      setSortByState((localStorage.getItem('postaci_sort_by') || 'newest') as SortOption);
+      setViewLayoutState((localStorage.getItem('postaci_view_layout') || 'split-3-column') as ViewLayout);
+    };
+    window.addEventListener('postaci-preferences-changed', update);
+    return () => window.removeEventListener('postaci-preferences-changed', update);
+  }, []);
   const [mainTab, setMainTab] = useState<MainTab>('mail');
 
   const [isComposerOpen, setIsComposerOpen] = useState<boolean>(false);
@@ -176,7 +189,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     folder: activeFolder, isStarred: filter === 'starred' ? true : undefined,
     isUnread: filter === 'unread' ? true : undefined, label: activeLabel || undefined,
     search: searchQuery || undefined, sort: sortBy, hasAttachment: filter === 'has_attachment' ? true : undefined,
-  }, setSelectedEmailId);
+  }, setSelectedEmailId, viewLayout !== 'split-2-column');
 
   const loadOlderEmails = async () => {
     if (isSyncing) return;

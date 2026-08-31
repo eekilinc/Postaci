@@ -1,6 +1,6 @@
 # Güvenlik ve veri sınırları
 
-- API yalnızca `127.0.0.1` üzerinde dinler. Yerel tarayıcı oturumu HttpOnly / SameSite=Strict çerezi kullanır; Host ve Origin doğrulanır.
+- API yalnızca `127.0.0.1` üzerinde dinler. Masaüstü sürümü boş portu işletim sisteminden alır; uygulama başka bir yerel sunucuya bağlanmaz. Yerel tarayıcı oturumu HttpOnly / SameSite=Strict çerezi kullanır; Host ve Origin doğrulanır.
 - Bu uygulama tek kullanıcılı bir masaüstü/yerel web istemcisidir. İnternete veya paylaşılan bir sunucuya doğrudan açılmamalıdır. Aynı işletim sistemi kullanıcısıyla çalışan zararlı yazılıma karşı ayrı bir güvenlik sınırı sunmaz.
 - IMAP ve SMTP sertifika doğrulaması açıktır. STARTTLS zorunludur; kendinden imzalı sertifikalar otomatik kabul edilmez. Kurumsal sertifika kullanılıyorsa Node/Electron güven deposuna güvenilir CA eklenmelidir.
 - Hesap parolaları ve OAuth erişim/yenileme anahtarları AES-256-GCM ile saklanır. Masaüstünde şifreleme anahtarı, kullanılabiliyorsa Electron safeStorage ile işletim sistemi kasasına bağlanır. Kasa olmayan Linux/CLI ortamında 0600 izinli yerel anahtar dosyası kullanılır. Windows CLI kullanımında kullanıcı dizininin ACL izinleri önemlidir.

@@ -1,6 +1,6 @@
 {
   "name": "postaci",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "type": "module",
   "description": "Postaci",
   "author": "eekilinc <ekilinc@mehmetakif.edu.tr>",
@@ -24,7 +24,8 @@
     "test:json": "node scripts/test-json.cjs",
     "check": "npm run typecheck && npm run lint && npm test && npm run test:json",
     "preview": "node scripts/preview.cjs",
-    "test:bundle": "node scripts/test-bundle.cjs"
+    "test:bundle": "node scripts/test-bundle.cjs",
+    "test:packaged": "node scripts/test-packaged.cjs"
   },
   "build": {
     "appId": "com.postaci.app",

@@ -2,13 +2,15 @@ import { Router, type Request, type Response } from 'express';
 import { OAuthService } from '../services/oauthService.js';
 import { ImapService } from '../services/imapService.js';
 import { publicAccount } from '../services/secrets.js';
-export function authRoutes(broadcastSSE: (event: string, data: unknown) => void, PORT: string | number) {
+export function authRoutes(broadcastSSE: (event: string, data: unknown) => void, port: string | number | (() => number)) {
+const getPort = () => typeof port === 'function' ? port() : port;
+const getRedirectUri = () => 'http://127.0.0.1:' + getPort() + '/api/auth/google/callback';
 const router = Router();
 // OAuth 2.0 Configuration Endpoints
 router.get('/api/auth/oauth-config', (req: Request, res: Response) => {
   try {
     const creds = OAuthService.getCredentials();
-    res.json(creds);
+    res.json({ ...creds, googleRedirectUri: getRedirectUri() });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -27,7 +29,7 @@ router.post('/api/auth/oauth-config', (req: Request, res: Response) => {
 router.get('/api/auth/google/url', (req: Request, res: Response) => {
   try {
     const clientId = (req.query.clientId as string) || undefined;
-    const redirectUri = 'http://127.0.0.1:' + PORT + '/api/auth/google/callback';
+    const redirectUri = getRedirectUri();
     const url = OAuthService.getGoogleAuthUrl(redirectUri, clientId);
     res.json({ url });
   } catch (err: any) {
@@ -46,7 +48,7 @@ router.get('/api/auth/google/callback', async (req: Request, res: Response) => {
       return res.status(400).send('Yetkilendirme kodu (Authorization code) bulunamadı.');
     }
 
-    const redirectUri = 'http://127.0.0.1:' + PORT + '/api/auth/google/callback';
+    const redirectUri = getRedirectUri();
     const account = await OAuthService.handleGoogleCallback(code, redirectUri, String(req.query.state || ''));
     broadcastSSE('accounts_updated', publicAccount(account));
 

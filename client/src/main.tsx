@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { PostaciLogo } from './components/PostaciLogo';
 import './index.css';
-import { hydratePreferences } from './services/preferences';
+import { AppBootstrap } from './components/AppBootstrap';
 
 // Guard against unhandled exceptions and promise rejections from killing the UI
 if (typeof window !== 'undefined') {
@@ -81,13 +81,10 @@ class ErrorBoundary extends Component<Props, State> {
   }
 }
 
-hydratePreferences().catch(err => console.warn('Tercihler yüklenemedi:', err)).finally(() => {
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      <AppBootstrap><App /></AppBootstrap>
     </ErrorBoundary>
   </React.StrictMode>
 );
-
-});

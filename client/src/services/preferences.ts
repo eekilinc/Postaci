@@ -9,16 +9,19 @@ export function applyPreferences(input: unknown) {
   for (const [key, value] of Object.entries(filterPreferences(input))) localStorage.setItem(key, value);
   window.dispatchEvent(new Event('postaci-preferences-changed'));
 }
-export async function persistPreferences() {
-  const res = await fetchSafe('/api/preferences', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectPreferences()) });
+export async function persistPreferences(signal?: AbortSignal) {
+  const res = await fetchSafe('/api/preferences', { method: 'PUT', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectPreferences()) });
   if (!res.ok) throw new Error('Tercihler kaydedilemedi.');
-  applyPreferences(await res.json());
+  const preferences = await res.json();
+  signal?.throwIfAborted();
+  applyPreferences(preferences);
 }
-export async function hydratePreferences() {
+export async function hydratePreferences(signal?: AbortSignal) {
   localStorage.removeItem('postaci_google_client_secret');
-  const res = await fetchSafe('/api/preferences');
+  const res = await fetchSafe('/api/preferences', { signal });
   if (!res.ok) throw new Error('Tercihler yüklenemedi.');
   const preferences = await res.json();
+  signal?.throwIfAborted();
   if (Object.keys(preferences).length) applyPreferences(preferences);
-  else await persistPreferences();
+  else await persistPreferences(signal);
 }

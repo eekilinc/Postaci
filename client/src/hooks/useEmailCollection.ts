@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import { api, type EmailQuery } from '../services/api';
 import type { Email } from '../types';
 
-export function useEmailCollection(query: EmailQuery, select: Dispatch<SetStateAction<string | null>>) {
+export function useEmailCollection(query: EmailQuery, select: Dispatch<SetStateAction<string | null>>, autoSelectFirst = true) {
   const [emails, setEmails] = useState<Email[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -38,13 +38,13 @@ export function useEmailCollection(query: EmailQuery, select: Dispatch<SetStateA
       folderCacheRef.current.set(queryKey, unique);
       if (folderCacheRef.current.size > 30) folderCacheRef.current.delete(folderCacheRef.current.keys().next().value!);
       setEmails(unique); setHasMoreEmails(more);
-      select(previous => previous && unique.some(e => e.id === previous) ? previous : unique[0]?.id || null);
+      select(previous => previous && unique.some(e => e.id === previous) ? previous : autoSelectFirst ? unique[0]?.id || null : null);
     } catch (err: any) {
       if (!abort.signal.aborted && sequence === active.current.sequence) setListError(err.message || 'Posta listesi yüklenemedi.');
     } finally {
       if (sequence === active.current.sequence) { setIsLoading(false); setIsLoadingMore(false); }
     }
-  }, [queryKey, select]);
+  }, [queryKey, select, autoSelectFirst]);
 
   const loadMoreEmails = useCallback(async () => {
     if (isLoadingMore || !hasMoreEmails) return;

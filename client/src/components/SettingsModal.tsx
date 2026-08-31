@@ -346,6 +346,7 @@ export const SettingsModal: React.FC = () => {
   const [googleAuthMode, setGoogleAuthMode] = useState<'app_password' | 'oauth'>('app_password');
   const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('postaci_google_client_id') || '');
   const [googleClientSecret, setGoogleClientSecret] = useState('');
+  const [googleRedirectUri, setGoogleRedirectUri] = useState('');
   useEffect(() => {
     const update = () => {
       setUndoSendDelay(Number(localStorage.getItem('postaci_undo_send') || '5'));
@@ -362,6 +363,7 @@ export const SettingsModal: React.FC = () => {
 
   useEffect(() => {
     api.getOAuthConfig().then((cfg) => {
+      setGoogleRedirectUri(cfg.googleRedirectUri || '');
       if (cfg.googleClientId) {
         setGoogleClientId(cfg.googleClientId);
         localStorage.setItem('postaci_google_client_id', cfg.googleClientId);
@@ -859,9 +861,14 @@ export const SettingsModal: React.FC = () => {
     }}>
       <div
         className="glass-panel animate-fade-in"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Ayarlar"
         style={{
           width: '980px',
+          maxWidth: 'calc(100vw - 32px)',
           height: '680px',
+          maxHeight: 'calc(100vh - 32px)',
           backgroundColor: 'var(--bg-secondary)',
           borderRadius: 'var(--radius-xl)',
           boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.6)',
@@ -873,6 +880,8 @@ export const SettingsModal: React.FC = () => {
         {/* Settings Left Navigation Sidebar */}
         <div style={{
           width: '240px',
+          flexShrink: 0,
+          overflowY: 'auto',
           backgroundColor: 'var(--bg-primary)',
           borderRight: '1px solid var(--border-subtle)',
           padding: '20px 12px',
@@ -955,6 +964,7 @@ export const SettingsModal: React.FC = () => {
 
             <button
               onClick={handleCloseModal}
+              aria-label="Ayarları kapat"
               style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
             >
               <X size={18} />
@@ -1990,16 +2000,16 @@ export const SettingsModal: React.FC = () => {
                     borderRadius: 'var(--radius-sm)',
                     lineHeight: '1.5'
                   }}>
-                    <div>Google Cloud Console'da Yetkili Yönlendirme URI (Authorized redirect URI) alanına şunu ekleyin:</div>
+                    <div>Google Cloud Console'da Desktop app türünde istemci kullanın. Bu oturumun yerel dönüş adresi:</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
                       <code style={{ background: '#090d16', padding: '2px 6px', borderRadius: '4px', color: '#38bdf8', fontSize: '11px' }}>
-                        http://127.0.0.1:3001/api/auth/google/callback
+                        {googleRedirectUri || 'Sunucu adresi alınamadı'}
                       </code>
                       <button
                         type="button"
                         onClick={() => {
-                          navigator.clipboard.writeText('http://127.0.0.1:3001/api/auth/google/callback');
-                          success('Yönlendirme URI kopyalandı!');
+                          if (!googleRedirectUri) return;
+                          navigator.clipboard.writeText(googleRedirectUri).then(() => success('Yönlendirme URI kopyalandı!')).catch(() => error('Adres kopyalanamadı.'));
                         }}
                         style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px' }}
                       >

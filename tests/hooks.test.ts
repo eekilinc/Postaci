@@ -86,3 +86,23 @@ test('invalid legacy undo duration does not leave delivery waiting forever', asy
   assert.equal(hook.value.secondsLeft, 0);
   hook.unmount();
 });
+
+test('two-column mail view stays on the list after refresh until the user chooses a message', async () => {
+  const original = api.getEmailPage;
+  api.getEmailPage = async () => ({ items: [email(1), email(2)], hasMore: false, nextOffset: 2 });
+  let selected: string | null = null;
+  const choose: React.Dispatch<React.SetStateAction<string | null>> = update => {
+    selected = typeof update === 'function' ? update(selected) : update;
+  };
+  const hook = mountHook(() => useEmailCollection({ folder: 'INBOX' }, choose, false), {});
+  try {
+    await act(async () => hook.value.refreshEmails());
+    assert.equal(selected, null);
+    selected = email(2).id;
+    await act(async () => hook.value.refreshEmails());
+    assert.equal(selected, email(2).id);
+    selected = null;
+    await act(async () => hook.value.refreshEmails());
+    assert.equal(selected, null);
+  } finally { hook.unmount(); api.getEmailPage = original; }
+});

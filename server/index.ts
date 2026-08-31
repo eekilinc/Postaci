@@ -1,4 +1,6 @@
 import express, { Request, Response } from 'express';
+import { createServer } from 'node:http';
+import { boundPort, listenLoopback } from './listener.js';
 import { getAIStatus } from './services/localAI.js';
 import { getStorageStatus } from './services/db.js';
 import { DeliveryGuard, deliveryJournalPath } from './services/deliveryGuard.js';
@@ -63,7 +65,9 @@ import { authRoutes } from './routes/auth.js';
 import { Account, Email, CalendarEvent, Attachment } from './types.js';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+export const server = createServer(app);
+const PORT = Number(process.env.PORT ?? 3001);
+const getPort = () => boundPort(server);
 
 // SSE Clients for real-time push notifications
 // SSE Clients for real-time push notifications
@@ -102,7 +106,7 @@ setInterval(() => {
 }, 25000);
 
 // Middleware
-installSecurity(app, Number(PORT));
+installSecurity(app, getPort);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -218,7 +222,7 @@ app.post('/api/accounts/autodiscover', async (req: Request, res: Response) => {
   }
 });
 
-app.use(authRoutes(broadcastSSE, PORT));
+app.use(authRoutes(broadcastSSE, getPort));
 
 app.put('/api/accounts/:id', (req: Request, res: Response) => {
   try {
@@ -837,15 +841,14 @@ app.get('*', (req: Request, res: Response, next) => {
   }
 });
 
-app.listen(Number(PORT), '127.0.0.1', () => {
-  console.log(`🚀 Postacı API Sunucusu http://127.0.0.1:${PORT} üzerinde çalışıyor.`);
-  // Start continuous 15s auto-sync engine
+export const serverReady = listenLoopback(server, PORT).then(address => {
+  console.log('🚀 Postacı API Sunucusu ' + address.origin + ' üzerinde çalışıyor.');
   ImapService.startAutoSyncEngine(broadcastSSE);
-}).on('error', (err: any) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} kullanımda. Başka bir sunucuya bağlanılmadı.`);
-    process.exit(1);
-  } else {
-    console.error('Server listen error:', err);
-  }
+  return address;
 });
+if (process.env.POSTACI_DESKTOP !== '1') {
+  void serverReady.catch((error: Error) => {
+    console.error('Yerel sunucu başlatılamadı:', error);
+    process.exit(1);
+  });
+}

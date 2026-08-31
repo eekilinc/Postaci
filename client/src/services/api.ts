@@ -8,13 +8,15 @@ export const EVENTS_URL = '/events';
 let sessionPromise: Promise<void> | undefined;
 export function ensureSession(): Promise<void> {
   if (!sessionPromise) sessionPromise = fetch(API_BASE + '/session', {
-    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    method: 'POST', credentials: 'include', signal: AbortSignal.timeout(10000), headers: { 'Content-Type': 'application/json' }, body: '{}',
   }).then(res => { if (!res.ok) throw new Error('Yerel oturum başlatılamadı. Uygulamayı localhost adresinden açın.'); })
     .catch(err => { sessionPromise = undefined; throw err; });
   return sessionPromise;
 }
 export async function fetchSafe(url: string, options: RequestInit = {}): Promise<Response> {
+  options.signal?.throwIfAborted();
   await ensureSession();
+  options.signal?.throwIfAborted();
   const method = options.method || 'GET';
   const retries = method === 'GET' ? 3 : 1;
   for (let attempt = 0; attempt < retries; attempt++) {
@@ -27,7 +29,7 @@ export async function fetchSafe(url: string, options: RequestInit = {}): Promise
       }
       return res;
     } catch (err: any) {
-      if (err.name === 'AbortError' || attempt === retries - 1) throw err;
+      if (options.signal?.aborted || err.name === 'AbortError' || attempt === retries - 1) throw err;
       await new Promise(resolve => setTimeout(resolve, 300 * (attempt + 1)));
     }
   }
@@ -42,7 +44,7 @@ export const api = {
     return res.json();
   },
 
-  async getOAuthConfig(): Promise<{ googleClientId?: string; hasGoogleClientSecret?: boolean; microsoftClientId?: string }> {
+  async getOAuthConfig(): Promise<{ googleClientId?: string; hasGoogleClientSecret?: boolean; microsoftClientId?: string; googleRedirectUri?: string }> {
     const res = await fetchSafe(`${API_BASE}/auth/oauth-config`);
     if (!res.ok) throw new Error('OAuth ayarları alınamadı.');
     return res.json();

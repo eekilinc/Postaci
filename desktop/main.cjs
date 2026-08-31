@@ -1,14 +1,14 @@
 const { app, BrowserWindow, ipcMain, Notification, dialog, Tray, Menu, nativeImage, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const http = require('http');
+const { recordStartupError } = require('./startup.cjs');
 
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-const PORT = process.env.PORT || 3001;
+let PORT = process.env.PORT || 3001;
 const ownsInstance = app.requestSingleInstanceLock();
 if (!ownsInstance) app.quit();
 app.on('second-instance', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });
@@ -56,7 +56,7 @@ function saveDesktopSettings(settings) {
 
 let desktopSettings = loadDesktopSettings();
 
-function startBackend() {
+async function startBackend() {
   if (!isDev) {
     try {
       const userDataDir = path.join(app.getPath('userData'), 'data');
@@ -68,6 +68,8 @@ function startBackend() {
         }
       }
       process.env.POSTACI_DATA_DIR = userDataDir;
+      // Let Windows choose a free port instead of conflicting with other local services.
+      process.env.PORT = process.env.PORT || '0';
       process.env.POSTACI_DESKTOP = '1';
       process.env.NODE_ENV = 'production';
       if (safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text')) {
@@ -88,41 +90,17 @@ function startBackend() {
       ];
       const serverBundle = candidates.find(c => fs.existsSync(c)) || candidates[0];
       console.log('🚀 Starting internal Postacı server from:', serverBundle);
-      require(serverBundle);
+      const backend = require(serverBundle);
+      const address = await backend.serverReady;
+      if (!address?.port) throw new Error('Sunucu hazır olma bilgisi alınamadı.');
+      PORT = address.port;
     } catch (err) {
       console.error('Failed to start internal server:', err);
-      dialog.showErrorBox('Sunucu Başlatma Hatası', 'Postacı sunucusu başlatılamadı:\n' + (err.stack || err.message));
+      dialog.showErrorBox('Sunucu Başlatma Hatası', 'Postacı sunucusu başlatılamadı:\n' + recordStartupError(app.getPath('userData'), err));
       return false;
     }
   }
   return true;
-}
-
-function waitForServer(url = 'http://127.0.0.1:3001/api/system/health', timeoutMs = 8000) {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    const check = () => {
-      const req = http.get(url, (res) => {
-        res.resume();
-        if (res.statusCode === 200) {
-          resolve(true);
-        } else if (Date.now() - start < timeoutMs) {
-          setTimeout(check, 150);
-        } else {
-          resolve(false);
-        }
-      });
-      req.on('error', () => {
-        if (Date.now() - start < timeoutMs) {
-          setTimeout(check, 150);
-        } else {
-          resolve(false);
-        }
-      });
-      req.setTimeout(500, () => req.destroy());
-    };
-    check();
-  });
 }
 
 // Generate modern Tray Icon
@@ -360,16 +338,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   if (!ownsInstance) return;
   desktopSettings = loadDesktopSettings();
-  if (!startBackend()) { app.quit(); return; }
-
-  if (!isDev) {
-    // Wait for the internal backend server to be healthy before displaying the UI
-    if (!await waitForServer(`http://127.0.0.1:${PORT}/api/system/health`, 8000)) {
-      dialog.showErrorBox('Postacı', 'Yerel sunucu başlatılamadı.');
-      app.quit();
-      return;
-    }
-  }
+  if (!await startBackend()) { app.quit(); return; }
 
   createWindow();
   setupTray();

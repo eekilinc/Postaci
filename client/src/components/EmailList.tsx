@@ -51,6 +51,8 @@ export const EmailList: React.FC = () => {
     emptyTrashFolder,
     isLoading, hasMoreEmails, isLoadingMore, loadMoreEmails, loadOlderEmails, listError, accounts,
     isSyncing,
+    setIsSettingsOpen,
+    refreshEmails,
     activeFolder,
     activeLabel,
     triggerSync,
@@ -184,8 +186,8 @@ export const EmailList: React.FC = () => {
         </div>
 
         {/* Filter Chips & Quick Sort Dropdown */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-          <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px', flex: 1 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingBottom: '2px', flex: '1 0 auto' }}>
             {[
               { key: 'all', label: 'Tümü' },
               { key: 'unread', label: 'Okunmamış' },
@@ -474,17 +476,19 @@ export const EmailList: React.FC = () => {
           </div>
         )}
 
-        {!isLoading && emails.length === 0 && !isSyncing && (
+        {!isLoading && emails.length === 0 && !isSyncing && !listError && (
           <div style={{ padding: '50px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
             <div className="animate-float" style={{ width: '56px', height: '56px', margin: '0 auto 14px auto', borderRadius: '50%', background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-subtle)' }}>
               <Sparkles size={28} color="var(--accent-primary)" />
             </div>
             <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
-              {activeFolder === 'INBOX' ? '✨ Harika! Gelen Kutunuz Tertemiz' : 'Bu Klasörde E-Posta Yok'}
+              {accounts.length === 0 ? 'İlk e-posta hesabınızı ekleyin' : searchQuery || filter !== 'all' ? 'Eşleşen ileti bulunamadı' : activeFolder === 'INBOX' ? 'Gelen kutunuzda ileti yok' : 'Bu klasörde e-posta yok'}
             </div>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '240px', margin: '0 auto 14px auto', lineHeight: 1.4 }}>
-              {activeFolder === 'INBOX' ? 'Tüm e-postalarınızı tamamladınız. Yeni e-postalar arka planda otomatik eşitlenmektedir.' : 'Yeni iletiler için senkronizasyon otomatik çalışıyor.'}
+              {accounts.length === 0 ? 'Hesabınızı ayarlardan ekleyerek postalarınızı almaya başlayabilirsiniz.' : searchQuery || filter !== 'all' ? 'Aramanızı değiştirin veya filtreleri temizleyin.' : 'Yeni iletiler için senkronizasyonu çalıştırabilirsiniz.'}
             </p>
+            {accounts.length === 0 && <button onClick={() => setIsSettingsOpen(true)} style={{ marginBottom: 16, padding: '10px 16px', background: 'var(--accent-primary)', color: 'white', border: 0, borderRadius: 8 }}>Hesap ekle</button>}
+            {(searchQuery || filter !== 'all') && <button onClick={() => { setSearchQuery(''); setFilter('all'); }} style={{ marginBottom: 16, padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-medium)', borderRadius: 8 }}>Arama ve filtreleri temizle</button>}
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
               <span>Komut paleti için</span>
               <span className="kbd-badge">Ctrl + K</span>
@@ -773,7 +777,7 @@ export const EmailList: React.FC = () => {
           );
         })}
         {!hasMoreEmails && !['STARRED','UNREAD','DRAFTS'].includes(activeFolder) && accounts.some(a => a.provider !== 'demo') && <button disabled={isSyncing} onClick={() => loadOlderEmails()} style={{ display: 'block', margin: '12px auto', padding: 10, color: 'var(--accent-primary)', background: 'transparent', border: '1px solid var(--border-medium)', borderRadius: 8 }}>Sunucudan daha eski iletileri getir</button>}
-        {listError && <p role="alert" style={{ padding: 12, color: 'var(--accent-danger)' }}>{listError}</p>}
+        {listError && <div role="alert" style={{ padding: 12, color: 'var(--accent-danger)' }}><p>{listError}</p><button onClick={() => refreshEmails()} disabled={isLoading} style={{ padding: 8, borderRadius: 6 }}>Tekrar dene</button></div>}
         {hasMoreEmails && <button onClick={() => loadMoreEmails()} disabled={isLoadingMore} style={{ display: 'block', margin: '16px auto', padding: '10px 20px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-medium)', borderRadius: 8 }}>
           {isLoadingMore ? 'Yükleniyor…' : 'Daha fazla ileti yükle'}
         </button>}

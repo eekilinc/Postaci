@@ -38,6 +38,9 @@ jobs:
       - name: Build Windows Executable & Installer
         run: npx electron-builder --win nsis zip --publish never
 
+      - name: Test Packaged Windows Runtime
+        run: npm run test:packaged
+
       - name: Publish Windows Assets to GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
@@ -79,6 +82,9 @@ jobs:
 
       - name: Build Linux Packages
         run: npx electron-builder --linux AppImage deb --publish never
+
+      - name: Test Packaged Linux Runtime
+        run: npm run test:packaged
 
       - name: Publish Linux Assets to GitHub Release
         uses: softprops/action-gh-release@v2

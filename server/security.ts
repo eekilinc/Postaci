@@ -5,20 +5,25 @@ import type { Express, Request } from 'express';
 const securityPath = (req: Request) => req.path.toLowerCase().replace(/\/$/, '');
 const isProtectedPath = (route: string) => route === '/api' || route.startsWith('/api/') || route === '/events';
 
-export function installSecurity(app: Express, port: number) {
+export function installSecurity(app: Express, port: number | (() => number)) {
   const token = process.env.POSTACI_API_TOKEN || randomBytes(32).toString('hex');
-  const origins = new Set(['http://127.0.0.1:' + port, 'http://localhost:' + port]);
-  if (process.env.NODE_ENV !== 'production' && process.env.POSTACI_DESKTOP !== '1') {
-    origins.add('http://127.0.0.1:5173');
-    origins.add('http://localhost:5173');
-  }
-  const hosts = new Set([...origins].map(o => new URL(o).host));
+  const allowedOrigins = () => {
+    const currentPort = typeof port === 'function' ? port() : port;
+    const origins = new Set(['http://127.0.0.1:' + currentPort, 'http://localhost:' + currentPort]);
+    if (process.env.NODE_ENV !== 'production' && process.env.POSTACI_DESKTOP !== '1') {
+      origins.add('http://127.0.0.1:5173');
+      origins.add('http://localhost:5173');
+    }
+    return origins;
+  };
   const matches = (candidate: string) => {
     const a = Buffer.from(candidate), b = Buffer.from(token);
     return a.length === b.length && timingSafeEqual(a, b);
   };
   app.disable('x-powered-by');
   app.use((req, res, next) => {
+    const origins = allowedOrigins();
+    const hosts = new Set([...origins].map(o => new URL(o).host));
     if (!hosts.has(req.headers.host || '')) return res.status(403).json({ error: 'Geçersiz sunucu adresi.' });
     const origin = req.headers.origin;
     if (origin && !origins.has(origin)) return res.status(403).json({ error: 'Bu kaynağa izin verilmiyor.' });
@@ -38,7 +43,7 @@ export function installSecurity(app: Express, port: number) {
     next();
   });
   app.post('/api/session', (req, res) => {
-    if (!req.headers.origin || !origins.has(req.headers.origin)) return res.status(403).json({ error: 'Uygulamayı yerel adresinden açın.' });
+    if (!req.headers.origin || !allowedOrigins().has(req.headers.origin)) return res.status(403).json({ error: 'Uygulamayı yerel adresinden açın.' });
     res.cookie('postaci_session', token, { httpOnly: true, sameSite: 'strict', path: '/' });
     res.json({ success: true });
   });
