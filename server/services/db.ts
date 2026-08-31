@@ -1,7 +1,15 @@
 import path from 'path';
 import fs from 'fs';
+import { createRequire } from 'module';
 import { Account, Email, Contact, CalendarEvent, FolderStat, Attachment } from '../types.js';
 import { initialAccounts, initialContacts, initialEmails, initialCalendarEvents } from './demoData.js';
+
+let nativeRequire: NodeRequire;
+try {
+  nativeRequire = typeof require === 'function' ? require : createRequire(typeof __filename !== 'undefined' ? __filename : (typeof import.meta !== 'undefined' && (import.meta as any)?.url ? (import.meta as any).url : `file://${process.cwd()}/index.js`));
+} catch {
+  nativeRequire = createRequire(`file://${process.cwd()}/index.js`);
+}
 
 export const dataDir = process.env.POSTACI_DATA_DIR || path.resolve(process.cwd(), 'data');
 if (!fs.existsSync(dataDir)) {
@@ -12,11 +20,42 @@ if (!fs.existsSync(dataDir)) {
 
 export const dbPath = path.join(dataDir, 'postaci.db');
 export const jsonDbPath = path.join(dataDir, 'postaci_store.json');
+export const accountsJsonPath = path.join(dataDir, 'accounts.json');
+
+export function loadAccountsBackup(): Account[] {
+  if (fs.existsSync(accountsJsonPath)) {
+    try {
+      const data = fs.readFileSync(accountsJsonPath, 'utf-8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to read accounts.json backup:', e);
+    }
+  }
+  return [];
+}
+
+export function saveAccountsBackup(accounts: Account[]) {
+  if (!Array.isArray(accounts)) return;
+  const tmpPath = `${accountsJsonPath}.tmp`;
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(accounts, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, accountsJsonPath);
+  } catch (e) {
+    try {
+      fs.writeFileSync(accountsJsonPath, JSON.stringify(accounts, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('Failed to write accounts.json backup:', err);
+    }
+  }
+}
 
 let isNativeSqlite = false;
 let db: any = null;
 
-// In-Memory / File-based Store fallback if better-sqlite3 native addon fails to load (e.g. cross-platform Windows binaries)
+// In-Memory / File-based Store fallback if better-sqlite3 native addon fails to load
 interface MemoryStore {
   accounts: Account[];
   emails: Email[];
@@ -34,6 +73,7 @@ let memStore: MemoryStore = {
 };
 
 function loadJsonStore() {
+  let loaded = false;
   if (fs.existsSync(jsonDbPath)) {
     try {
       const content = fs.readFileSync(jsonDbPath, 'utf-8');
@@ -46,19 +86,33 @@ function loadJsonStore() {
           calendar_events: Array.isArray(parsed.calendar_events) ? parsed.calendar_events : [],
           deletedRecords: Array.isArray(parsed.deletedRecords) ? parsed.deletedRecords : []
         };
-        return;
+        loaded = true;
       }
-    } catch {}
+    } catch (err) {
+      console.warn('postaci_store.json parse error, attempting backup:', err);
+      try {
+        fs.copyFileSync(jsonDbPath, `${jsonDbPath}.corrupted.${Date.now()}.bak`);
+      } catch {}
+    }
   }
-  // Initialize with seed data if file doesn't exist
-  memStore = {
-    accounts: [...initialAccounts],
-    emails: [...initialEmails],
-    contacts: [...initialContacts],
-    calendar_events: [...initialCalendarEvents],
-    deletedRecords: []
-  };
-  saveJsonStore();
+
+  // Double redundancy: If memStore accounts is empty, load from accounts.json!
+  const backedUp = loadAccountsBackup();
+  if (memStore.accounts.length === 0 && backedUp.length > 0) {
+    memStore.accounts = backedUp;
+    loaded = true;
+  }
+
+  if (!loaded && memStore.accounts.length === 0) {
+    memStore = {
+      accounts: [...initialAccounts],
+      emails: [...initialEmails],
+      contacts: [...initialContacts],
+      calendar_events: [...initialCalendarEvents],
+      deletedRecords: []
+    };
+  }
+  saveJsonStore(true);
 }
 
 let saveTimer: NodeJS.Timeout | null = null;
@@ -66,17 +120,28 @@ let isSaving = false;
 let needsSaveAgain = false;
 
 export function saveJsonStore(forceSync = false) {
-  if (isNativeSqlite) return;
+  if (isNativeSqlite) {
+    saveAccountsBackup(getAccounts());
+    return;
+  }
+
+  saveAccountsBackup(memStore.accounts);
 
   if (forceSync) {
     if (saveTimer) {
       clearTimeout(saveTimer);
       saveTimer = null;
     }
+    const tmpPath = `${jsonDbPath}.tmp`;
     try {
-      fs.writeFileSync(jsonDbPath, JSON.stringify(memStore), 'utf-8');
+      fs.writeFileSync(tmpPath, JSON.stringify(memStore), 'utf-8');
+      fs.renameSync(tmpPath, jsonDbPath);
     } catch (e) {
-      console.warn('Sync JSON store save error:', e);
+      try {
+        fs.writeFileSync(jsonDbPath, JSON.stringify(memStore), 'utf-8');
+      } catch (err) {
+        console.warn('Sync JSON store save error:', err);
+      }
     }
     return;
   }
@@ -92,9 +157,15 @@ export function saveJsonStore(forceSync = false) {
     isSaving = true;
     try {
       const data = JSON.stringify(memStore);
-      await fs.promises.writeFile(jsonDbPath, data, 'utf-8');
+      const tmpPath = `${jsonDbPath}.tmp`;
+      await fs.promises.writeFile(tmpPath, data, 'utf-8');
+      await fs.promises.rename(tmpPath, jsonDbPath);
     } catch (e) {
-      console.warn('Debounced JSON store save error:', e);
+      try {
+        await fs.promises.writeFile(jsonDbPath, JSON.stringify(memStore), 'utf-8');
+      } catch (err) {
+        console.warn('Debounced JSON store save error:', err);
+      }
     } finally {
       isSaving = false;
       if (needsSaveAgain) {
@@ -103,6 +174,17 @@ export function saveJsonStore(forceSync = false) {
       }
     }
   }, 200);
+}
+
+try {
+  const Database = nativeRequire('better-sqlite3');
+  db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  isNativeSqlite = true;
+} catch (err: any) {
+  console.warn('⚠️ Native SQLite not available, using JSON/In-Memory fallback store:', err.message || err);
+  isNativeSqlite = false;
+  loadJsonStore();
 }
 
 export function resetDatabase(seedDemo: boolean = false) {
@@ -114,7 +196,7 @@ export function resetDatabase(seedDemo: boolean = false) {
       calendar_events: seedDemo ? [...initialCalendarEvents] : [],
       deletedRecords: []
     };
-    saveJsonStore();
+    saveJsonStore(true);
     return { success: true, accountsCount: memStore.accounts.length, emailsCount: memStore.emails.length };
   }
 
@@ -130,6 +212,7 @@ export function resetDatabase(seedDemo: boolean = false) {
     if (seedDemo) {
       seedDemoData();
     }
+    saveAccountsBackup(getAccounts());
     return { success: true };
   } catch (err: any) {
     throw new Error(`Sıfırlama hatası: ${err.message}`);
@@ -142,7 +225,7 @@ export function clearAccountCache(accountId: string): boolean {
     if (memStore.deletedRecords) {
       memStore.deletedRecords = memStore.deletedRecords.filter(r => r.accountId !== accountId);
     }
-    saveJsonStore();
+    saveJsonStore(true);
     return true;
   }
 
@@ -155,20 +238,9 @@ export function clearAccountCache(accountId: string): boolean {
   }
 }
 
-try {
-  const Database = require('better-sqlite3');
-  db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  isNativeSqlite = true;
-} catch (err: any) {
-  console.warn('⚠️ Native SQLite not available, using JSON/In-Memory fallback store:', err.message || err);
-  isNativeSqlite = false;
-  loadJsonStore();
-}
-
 export function initDatabase() {
   if (!isNativeSqlite) {
-    console.log('🌱 JSON Storage active. Loaded', memStore.emails.length, 'emails.');
+    console.log('🌱 JSON Storage active. Loaded', memStore.accounts.length, 'accounts,', memStore.emails.length, 'emails.');
     return;
   }
 
@@ -300,18 +372,33 @@ export function initDatabase() {
       `);
     } catch (_) {}
 
-    // Auto-clean any orphaned emails, records, and calendar events from deleted accounts
-    try {
-      db.prepare('DELETE FROM emails WHERE accountId NOT IN (SELECT id FROM accounts)').run();
-      db.prepare('DELETE FROM deleted_records WHERE accountId IS NOT NULL AND accountId NOT IN (SELECT id FROM accounts)').run();
-      db.prepare('DELETE FROM calendar_events WHERE accountId NOT IN (SELECT id FROM accounts)').run();
-    } catch (_) {}
-
-    const accountCount = db.prepare('SELECT COUNT(*) as count FROM accounts').get() as { count: number };
-    if (accountCount.count === 0) {
-      console.log('🌱 Seeding initial demo accounts, emails, contacts and calendar events...');
-      seedDemoData();
+    const accountCount = (db.prepare('SELECT COUNT(*) as count FROM accounts').get() as { count: number })?.count || 0;
+    if (accountCount === 0) {
+      const backedUp = loadAccountsBackup();
+      if (backedUp.length > 0) {
+        console.log(`🔄 Restoring ${backedUp.length} accounts from accounts.json backup into SQLite...`);
+        for (const acc of backedUp) {
+          saveAccount(acc);
+        }
+      } else {
+        console.log('🌱 Seeding initial demo accounts, emails, contacts and calendar events...');
+        seedDemoData();
+      }
+    } else {
+      saveAccountsBackup(getAccounts());
     }
+
+    // Auto-clean orphaned emails only if accounts are present
+    const currentAccCount = (db.prepare('SELECT COUNT(*) as count FROM accounts').get() as { count: number })?.count || 0;
+    if (currentAccCount > 0) {
+      try {
+        db.prepare('DELETE FROM emails WHERE accountId NOT IN (SELECT id FROM accounts)').run();
+        db.prepare('DELETE FROM deleted_records WHERE accountId IS NOT NULL AND accountId NOT IN (SELECT id FROM accounts)').run();
+        db.prepare('DELETE FROM calendar_events WHERE accountId NOT IN (SELECT id FROM accounts)').run();
+      } catch (_) {}
+    }
+
+    console.log(`📦 SQLite database initialized. ${currentAccCount} accounts active.`);
   } catch (err: any) {
     console.warn('SQLite init failed, falling back to JSON storage:', err.message);
     isNativeSqlite = false;
@@ -587,6 +674,7 @@ export function createAccount(acc: Account): Account {
     syncInterval: acc.syncInterval || 60,
     lastSyncedAt: acc.lastSyncedAt || new Date().toISOString()
   });
+  saveAccountsBackup(getAccounts());
   return acc;
 }
 
@@ -599,6 +687,7 @@ export function updateAccount(id: string, acc: Partial<Account>): Account | unde
     }
     memStore.accounts[idx] = { ...memStore.accounts[idx], ...acc };
     saveJsonStore();
+    saveAccountsBackup(memStore.accounts);
     return memStore.accounts[idx];
   }
 
@@ -669,6 +758,7 @@ export function updateAccount(id: string, acc: Partial<Account>): Account | unde
     lastSyncedAt: updated.lastSyncedAt || null
   });
 
+  saveAccountsBackup(getAccounts());
   return updated;
 }
 
@@ -691,6 +781,7 @@ export function deleteAccount(id: string): boolean {
     memStore.deletedRecords = (memStore.deletedRecords || []).filter((d: any) => !d.accountId || activeIds.has(d.accountId));
     memStore.calendar_events = (memStore.calendar_events || []).filter((c: any) => activeIds.has(c.accountId));
     saveJsonStore();
+    saveAccountsBackup(memStore.accounts);
     return memStore.accounts.length < prevLen;
   }
 
@@ -718,6 +809,7 @@ export function deleteAccount(id: string): boolean {
     db.prepare('DELETE FROM calendar_events WHERE accountId NOT IN (SELECT id FROM accounts)').run();
   } catch (_) {}
 
+  saveAccountsBackup(getAccounts());
   return res.changes > 0;
 }
 

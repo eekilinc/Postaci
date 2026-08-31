@@ -44,33 +44,39 @@ export class ImapService {
 
   public static async getOrCreateClient(account: Account): Promise<ImapFlow> {
     const pooled = this.clientPool.get(account.id);
-    if (pooled && pooled.client && pooled.client.authenticated && pooled.client.usable) {
+    if (pooled && pooled.client && pooled.client.authenticated && pooled.client.usable && Date.now() - pooled.lastUsed < 45000) {
       pooled.lastUsed = Date.now();
       return pooled.client;
     }
 
     if (pooled) {
+      this.clientPool.delete(account.id);
       try {
         await pooled.client.logout().catch(() => {});
       } catch {}
-      this.clientPool.delete(account.id);
     }
 
-    const client = await this.connectClient(account);
-    this.clientPool.set(account.id, { client, lastUsed: Date.now() });
+    try {
+      const client = await this.connectClient(account);
+      this.clientPool.set(account.id, { client, lastUsed: Date.now() });
 
-    client.on('error', () => {
-      this.clientPool.delete(account.id);
-    });
-
-    client.on('close', () => {
-      const cur = this.clientPool.get(account.id);
-      if (cur && cur.client === client) {
+      client.on('error', (err) => {
         this.clientPool.delete(account.id);
-      }
-    });
+        try { client.close(); } catch {}
+      });
 
-    return client;
+      client.on('close', () => {
+        const cur = this.clientPool.get(account.id);
+        if (cur && cur.client === client) {
+          this.clientPool.delete(account.id);
+        }
+      });
+
+      return client;
+    } catch (connectErr) {
+      this.clientPool.delete(account.id);
+      throw connectErr;
+    }
   }
 
   public static async closeAccountClient(accountId: string) {
@@ -1388,6 +1394,7 @@ export class ImapService {
       }
     } catch (err: any) {
       console.error(`IMAP Sync error for account ${account.email}:`, err);
+      this.closeAccountClient(accountId);
       let userMsg = err.message || String(err);
       if (userMsg.includes('AUTHENTICATIONFAILED') || userMsg.includes('Command failed')) {
         userMsg = `"${account.email}" hesabı için kimlik doğrulama başarısız. Lütfen şifrenizi veya Uygulama Şifrenizi güncelleyin.`;
