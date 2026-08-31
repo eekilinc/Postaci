@@ -27,7 +27,9 @@ import {
   Sun,
   Moon,
   ListTodo,
-  CheckSquare
+  CheckSquare,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { useMail } from '../context/MailContext';
@@ -72,6 +74,15 @@ export const EmailDetail: React.FC = () => {
   const [isSendingQuickReply, setIsSendingQuickReply] = useState(false);
   const [emailViewMode, setEmailViewMode] = useState<'smart_dark' | 'light_card' | 'original'>('smart_dark');
   const isLightCardMode = emailViewMode === 'light_card';
+  const [isAiWidgetExpanded, setIsAiWidgetExpanded] = useState<boolean>(() => localStorage.getItem('postaci_ai_expanded') !== 'false');
+
+  const toggleAiWidget = () => {
+    setIsAiWidgetExpanded(prev => {
+      const next = !prev;
+      localStorage.setItem('postaci_ai_expanded', String(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!selectedEmail) {
@@ -698,171 +709,236 @@ export const EmailDetail: React.FC = () => {
         {/* AI Intelligence Assistant Widget */}
         <div style={{
           background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(139, 92, 246, 0.08))',
-          border: '1px solid rgba(59, 130, 246, 0.2)',
+          border: '1px solid rgba(59, 130, 246, 0.22)',
           borderRadius: 'var(--radius-md)',
-          padding: '14px 18px',
+          padding: isAiWidgetExpanded ? '14px 18px' : '10px 16px',
           marginBottom: '24px',
+          transition: 'all 0.2s ease',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <div
+            onClick={toggleAiWidget}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              userSelect: 'none',
+              marginBottom: isAiWidgetExpanded ? '12px' : '0',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Sparkles size={16} color="var(--accent-purple)" />
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
                 Postacı AI Asistanı
               </span>
+              {!isAiWidgetExpanded && (
+                <span style={{
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                  backgroundColor: 'var(--bg-tertiary)',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  fontWeight: 500,
+                }}>
+                  {aiSummary ? 'Özet Hazır' : smartReplies.length > 0 ? `${smartReplies.length} Yanıt Önerisi` : 'Genişletmek için tıklayın'}
+                </span>
+              )}
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button
-                onClick={handleExtractTasks}
-                disabled={isExtractingTasks}
-                style={{
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-medium)',
-                  color: 'var(--text-primary)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '4px 10px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                }}
-              >
-                <ListTodo size={13} color="var(--accent-primary)" />
-                {isExtractingTasks ? 'Analiz Ediliyor...' : '🎯 Görev & Tarih Çıkar'}
-              </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }} onClick={e => e.stopPropagation()}>
+              {isAiWidgetExpanded ? (
+                <>
+                  <button
+                    onClick={handleExtractTasks}
+                    disabled={isExtractingTasks}
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-medium)',
+                      color: 'var(--text-primary)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '4px 10px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                    }}
+                  >
+                    <ListTodo size={13} color="var(--accent-primary)" />
+                    {isExtractingTasks ? 'Analiz Ediliyor...' : '🎯 Görev & Tarih Çıkar'}
+                  </button>
 
-              {!aiSummary && (
+                  {!aiSummary && (
+                    <button
+                      onClick={handleGenerateSummary}
+                      disabled={isSummarizing}
+                      style={{
+                        background: 'var(--accent-primary)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '4px 10px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isSummarizing ? 'Özetleniyor...' : 'Özet Çıkar'}
+                    </button>
+                  )}
+
+                  <button
+                    onClick={toggleAiWidget}
+                    title="Asistanı Daralt"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      borderRadius: 'var(--radius-sm)',
+                    }}
+                  >
+                    <ChevronDown size={17} />
+                  </button>
+                </>
+              ) : (
                 <button
-                  onClick={handleGenerateSummary}
-                  disabled={isSummarizing}
+                  onClick={toggleAiWidget}
+                  title="Asistanı Genişlet"
                   style={{
-                    background: 'var(--accent-primary)',
-                    color: 'white',
+                    background: 'transparent',
                     border: 'none',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '4px 10px',
-                    fontSize: '12px',
-                    fontWeight: 600,
+                    color: 'var(--text-muted)',
                     cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    borderRadius: 'var(--radius-sm)',
                   }}
                 >
-                  {isSummarizing ? 'Özetleniyor...' : 'Özet Çıkar'}
+                  <ChevronRight size={17} />
                 </button>
               )}
             </div>
           </div>
 
-          {aiSummary && (
-            <div style={{
-              fontSize: '13px',
-              color: 'var(--text-primary)',
-              lineHeight: 1.5,
-              whiteSpace: 'pre-line',
-              backgroundColor: 'var(--bg-secondary)',
-              padding: '10px 14px',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
-              marginBottom: extractedTasks.length > 0 ? '10px' : '0',
-            }}>
-              {aiSummary}
-            </div>
-          )}
-
-          {/* Extracted Tasks and Action Items */}
-          {extractedTasks.length > 0 && (
-            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <CheckSquare size={13} />
-                Çıkarılan Eylemler ve Görev Maddeleri:
-              </div>
-              {extractedTasks.map((t, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    backgroundColor: 'var(--bg-secondary)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '8px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '10px',
-                    fontSize: '12px',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                    <span style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      backgroundColor: t.type === 'meeting' ? 'rgba(59, 130, 246, 0.15)' : t.type === 'question' ? 'rgba(234, 179, 8, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                      color: t.type === 'meeting' ? '#3b82f6' : t.type === 'question' ? '#eab308' : '#10b981',
-                    }}>
-                      {t.type === 'meeting' ? '🗓️ Toplantı' : t.type === 'question' ? '❓ Soru' : t.type === 'deadline' ? '⏰ Süreli Görev' : '✅ Eylem'}
-                    </span>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
-                      {t.task}
-                    </span>
-                    {t.date && (
-                      <span style={{ fontSize: '11px', color: 'var(--accent-purple)', fontWeight: 600 }}>
-                        ({t.date})
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => {
-                      openReply(selectedEmail);
-                    }}
-                    style={{
-                      backgroundColor: 'transparent',
-                      border: '1px solid var(--border-medium)',
-                      borderRadius: '4px',
-                      padding: '2px 8px',
-                      fontSize: '11px',
-                      color: 'var(--text-secondary)',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    Yanıtla
-                  </button>
+          {isAiWidgetExpanded && (
+            <>
+              {aiSummary && (
+                <div style={{
+                  fontSize: '13px',
+                  color: 'var(--text-primary)',
+                  lineHeight: 1.5,
+                  whiteSpace: 'pre-line',
+                  backgroundColor: 'var(--bg-secondary)',
+                  padding: '10px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border-subtle)',
+                  marginBottom: extractedTasks.length > 0 ? '10px' : '0',
+                }}>
+                  {aiSummary}
                 </div>
-              ))}
-            </div>
-          )}
+              )}
 
-          {/* Smart Reply Chips */}
-          {smartReplies.length > 0 && (
-            <div style={{ marginTop: '10px' }}>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                Hızlı Yanıt Önerileri:
-              </div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {smartReplies.map((reply, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      setQuickReplyText(reply);
-                    }}
-                    style={{
-                      background: 'var(--bg-secondary)',
-                      border: '1px solid var(--border-medium)',
-                      borderRadius: '999px',
-                      padding: '5px 12px',
-                      color: 'var(--text-primary)',
-                      fontSize: '12px',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                    }}
-                  >
-                    💬 {reply}
-                  </button>
-                ))}
-              </div>
-            </div>
+              {/* Extracted Tasks and Action Items */}
+              {extractedTasks.length > 0 && (
+                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <CheckSquare size={13} />
+                    Çıkarılan Eylemler ve Görev Maddeleri:
+                  </div>
+                  {extractedTasks.map((t, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        backgroundColor: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '8px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                        fontSize: '12px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          backgroundColor: t.type === 'meeting' ? 'rgba(59, 130, 246, 0.15)' : t.type === 'question' ? 'rgba(234, 179, 8, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                          color: t.type === 'meeting' ? '#3b82f6' : t.type === 'question' ? '#eab308' : '#10b981',
+                        }}>
+                          {t.type === 'meeting' ? '🗓️ Toplantı' : t.type === 'question' ? '❓ Soru' : t.type === 'deadline' ? '⏰ Süreli Görev' : '✅ Eylem'}
+                        </span>
+                        <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                          {t.task}
+                        </span>
+                        {t.date && (
+                          <span style={{ fontSize: '11px', color: 'var(--accent-purple)', fontWeight: 600 }}>
+                            ({t.date})
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          openReply(selectedEmail);
+                        }}
+                        style={{
+                          backgroundColor: 'transparent',
+                          border: '1px solid var(--border-medium)',
+                          borderRadius: '4px',
+                          padding: '2px 8px',
+                          fontSize: '11px',
+                          color: 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        Yanıtla
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Smart Reply Chips */}
+              {smartReplies.length > 0 && (
+                <div style={{ marginTop: '10px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                    Hızlı Yanıt Önerileri:
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {smartReplies.map((reply, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setQuickReplyText(reply);
+                        }}
+                        style={{
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--border-medium)',
+                          borderRadius: '999px',
+                          padding: '5px 12px',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        💬 {reply}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 

@@ -29,7 +29,14 @@ import {
   Layers,
   Copy,
   Save,
-  ArrowLeft
+  ArrowLeft,
+  Code2,
+  Scale,
+  Heart,
+  Shield,
+  Cpu,
+  Globe,
+  Award
 } from 'lucide-react';
 import { useMail } from '../context/MailContext';
 import { useTheme, Theme, AccentColor, Density } from '../context/ThemeContext';
@@ -38,6 +45,13 @@ import { api } from '../services/api';
 import { Account, ViewLayout } from '../types';
 import { PostaciLogo } from './PostaciLogo';
 import { APP_VERSION } from '../version';
+
+const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+    <path d="M9 18c-4.51 2-5-2-7-2" />
+  </svg>
+);
 
 export const PROVIDER_PRESETS: Record<string, {
   name: string;
@@ -339,7 +353,9 @@ export const SettingsModal: React.FC = () => {
   };
 
   const handleOpenExternal = (url: string) => {
-    if ((window as any).desktop?.openExternal) {
+    if ((window as any).electronAPI?.openExternal) {
+      (window as any).electronAPI.openExternal(url);
+    } else if ((window as any).desktop?.openExternal) {
       (window as any).desktop.openExternal(url);
     } else {
       window.open(url, '_blank', 'noopener,noreferrer');
@@ -2295,21 +2311,367 @@ export const SettingsModal: React.FC = () => {
 
             {/* TAB: ABOUT */}
             {activeTab === 'about' && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '32px 0', gap: '14px' }}>
-                <PostaciLogo size={64} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', padding: '10px 0 30px 0' }}>
+                {/* Hero Header Card */}
+                <div style={{
+                  position: 'relative',
+                  overflow: 'hidden',
+                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(139, 92, 246, 0.12) 50%, rgba(16, 185, 129, 0.08) 100%)',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-xl)',
+                  padding: '32px 24px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  textAlign: 'center',
+                  boxShadow: '0 10px 30px -10px rgba(0, 0, 0, 0.3)',
+                }}>
+                  <div style={{
+                    position: 'absolute',
+                    top: '-50px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: '240px',
+                    height: '240px',
+                    background: 'radial-gradient(circle, rgba(59, 130, 246, 0.25) 0%, rgba(0, 0, 0, 0) 70%)',
+                    pointerEvents: 'none',
+                    zIndex: 0
+                  }} />
 
-                <div>
-                  <h3 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                    Postacı E-Posta İstemcisi Pro
-                  </h3>
-                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Sürüm {APP_VERSION} (x64 Windows & Linux Desktop)
-                  </p>
+                  <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
+                    <div style={{
+                      padding: '12px',
+                      borderRadius: '24px',
+                      background: 'rgba(15, 23, 42, 0.6)',
+                      boxShadow: '0 8px 24px rgba(59, 130, 246, 0.25), inset 0 0 0 1px rgba(255, 255, 255, 0.15)',
+                    }}>
+                      <PostaciLogo size={68} />
+                    </div>
+
+                    <div>
+                      <h2 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
+                        Postacı — Yeni Nesil E-Posta İstemcisi
+                      </h2>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                        <span style={{
+                          padding: '3px 10px',
+                          borderRadius: '999px',
+                          backgroundColor: 'var(--accent-primary)',
+                          color: '#ffffff',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                        }}>
+                          v{APP_VERSION} Stabil
+                        </span>
+                        <span style={{
+                          padding: '3px 10px',
+                          borderRadius: '999px',
+                          backgroundColor: 'var(--bg-tertiary)',
+                          color: 'var(--text-secondary)',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          border: '1px solid var(--border-subtle)',
+                        }}>
+                          MIT Açık Kaynak
+                        </span>
+                        <span style={{
+                          padding: '3px 10px',
+                          borderRadius: '999px',
+                          backgroundColor: 'var(--bg-tertiary)',
+                          color: 'var(--text-secondary)',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          border: '1px solid var(--border-subtle)',
+                        }}>
+                          x64 Windows &amp; Linux Desktop
+                        </span>
+                      </div>
+                    </div>
+
+                    <p style={{ maxWidth: '580px', fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6, margin: '4px 0 0 0' }}>
+                      Postacı; ultra-hızlı IMAP/SMTP senkronizasyon motoru, yerleşik kimlik avı güvenlik kalkanı,
+                      Superhuman klavye hakimiyeti ve yapay zekâ asistanı ile donatılmış bağımsız, modern bir e-posta istemcisidir.
+                    </p>
+
+                    {/* Author & Org Credit */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: '12px',
+                      color: 'var(--text-muted)',
+                      backgroundColor: 'rgba(0, 0, 0, 0.25)',
+                      padding: '6px 14px',
+                      borderRadius: 'var(--radius-full)',
+                      border: '1px solid var(--border-subtle)',
+                      marginTop: '4px',
+                    }}>
+                      <span>Geliştirici: <strong style={{ color: 'var(--text-primary)' }}>EEKILINC</strong> (<a href="mailto:ekilinc@mehmetakif.edu.tr" style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}>ekilinc@mehmetakif.edu.tr</a>)</span>
+                      <span>•</span>
+                      <span>Burdur Mehmet Akif Ersoy Üniversitesi</span>
+                    </div>
+
+                    {/* Action Links & GitHub Buttons */}
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                      <button
+                        onClick={() => handleOpenExternal('https://github.com/eekilinc/Postaci')}
+                        style={{
+                          background: 'var(--bg-primary)',
+                          border: '1px solid var(--border-medium)',
+                          color: 'var(--text-primary)',
+                          borderRadius: 'var(--radius-md)',
+                          padding: '8px 16px',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                          transition: 'all 0.15s ease',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-medium)'}
+                      >
+                        <GithubIcon size={16} />
+                        GitHub Deposu
+                        <ExternalLink size={13} color="var(--text-muted)" />
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenExternal('https://github.com/eekilinc/Postaci/releases')}
+                        style={{
+                          background: 'var(--accent-primary)',
+                          border: 'none',
+                          color: '#ffffff',
+                          borderRadius: 'var(--radius-md)',
+                          padding: '8px 16px',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          boxShadow: '0 2px 10px rgba(59, 130, 246, 0.4)',
+                        }}
+                      >
+                        <Download size={15} />
+                        Sürüm Notları &amp; İndir
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenExternal('https://github.com/eekilinc/Postaci/issues')}
+                        style={{
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--border-medium)',
+                          color: 'var(--text-primary)',
+                          borderRadius: 'var(--radius-md)',
+                          padding: '8px 14px',
+                          fontSize: '13px',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        <AlertCircle size={15} color="var(--accent-warning)" />
+                        Geri Bildirim / Sorun Bildir
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                <p style={{ maxWidth: '480px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                  Postacı; yüksek hızlı IMAP/SMTP senkronizasyonu, akıllı kimlik avı kalkanı, Superhuman klavye kısayolları ve modern masaüstü e-posta deneyimi sunar.
-                </p>
+                {/* Core Architecture Highlights (4 Features Grid) */}
+                <div>
+                  <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Sparkles size={16} color="var(--accent-primary)" />
+                    Temel Yetenekler &amp; Mimari Özellikler
+                  </h4>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="glass-card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Zap size={16} color="var(--accent-warning)" />
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          Ultra-Hızlı Senkronizasyon
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
+                        Asenkron çok kanallı IMAP bağlantı havuzu, SQLite yerel indeksleme ve anlık SSE bildirimleri ile gecikmesiz e-posta deneyimi.
+                      </p>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <ShieldCheck size={16} color="var(--accent-success)" />
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          Akıllı Güvenlik &amp; Gizlilik Kalkanı
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
+                        Yerleşik kimlik avı (phishing) algoritmaları, görünmez 1x1 izleme piksellerinin engellenmesi ve güvenli HTML sanitizasyonu.
+                      </p>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Sparkles size={16} color="var(--accent-purple)" />
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          Postacı AI Asistanı
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
+                        Uzun iletileri saniyeler içinde özetler, toplantı ve görev maddelerini ayıklar ve bağlama uygun akıllı yanıt önerileri üretir.
+                      </p>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Keyboard size={16} color="var(--accent-primary)" />
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          Superhuman Klavye Hakimiyeti
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
+                        Hızlı komut paleti (Ctrl+K), Gmail ve Superhuman tarzı 2 tuşlu akıllı kısayollar ile fareye ihtiyaç duymadan tam kontrol.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Open Source License (MIT) Card */}
+                <div style={{
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: '18px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Scale size={18} color="var(--accent-primary)" />
+                      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        Yazılım Lisansı &amp; Kullanım Hakları (MIT License)
+                      </span>
+                    </div>
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--accent-success)',
+                      backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                      padding: '3px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                    }}>
+                      Açık Kaynak &amp; Özgür Yazılım
+                    </span>
+                  </div>
+
+                  <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+                    Postacı, <strong>MIT Lisansı</strong> altında yayınlanan açık kaynaklı ve bağımsız bir projedir. Bu yazılımı herhangi bir kısıtlama olmaksızın kullanma, değiştirme, kopyalama, birleştirme, yayınlama ve dağıtma hakkı ücretsiz olarak sunulmaktadır.
+                  </p>
+
+                  <div style={{
+                    backgroundColor: 'var(--bg-tertiary)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '12px 14px',
+                    border: '1px solid var(--border-subtle)',
+                    fontSize: '11.5px',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--text-muted)',
+                    lineHeight: 1.5,
+                  }}>
+                    Copyright (c) 2026 EEKILINC &amp; Postacı Contributors.<br />
+                    THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+                  </div>
+                </div>
+
+                {/* Open Source Dependencies & Credits Table */}
+                <div style={{
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: '18px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Code2 size={18} color="var(--accent-purple)" />
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      Kullanılan Açık Kaynak Kütüphaneler &amp; Teşekkürler
+                    </span>
+                  </div>
+
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                    Postacı&apos;nın geliştirilmesinde emeği geçen ve açık kaynak ekosistemine katkı sağlayan projelere teşekkür ederiz:
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    {[
+                      { name: 'Electron', role: 'Masaüstü Uygulama Platformu', license: 'MIT' },
+                      { name: 'React 18 & TypeScript', role: 'Ön Yüz & Bileşen Mimarisi', license: 'MIT' },
+                      { name: 'Vite', role: 'Yeni Nesil Hızlı Derleyici', license: 'MIT' },
+                      { name: 'ImapFlow', role: 'Modern IMAP Protokol Motoru', license: 'MIT' },
+                      { name: 'Nodemailer', role: 'SMTP ve OAuth2 Gönderim Motoru', license: 'MIT' },
+                      { name: 'better-sqlite3 & sql.js', role: 'Yerel Veritabanı ve Önbellek', license: 'MIT' },
+                      { name: 'DOMPurify', role: 'HTML Güvenliği & XSS Koruması', license: 'Apache-2.0' },
+                      { name: 'Lucide Icons', role: 'Vektörel Modern İkon Seti', license: 'ISC' },
+                    ].map((lib, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          backgroundColor: 'var(--bg-tertiary)',
+                          padding: '8px 12px',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          border: '1px solid var(--border-subtle)',
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{lib.name}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{lib.role}</div>
+                        </div>
+                        <span style={{ fontSize: '10.5px', fontWeight: 600, color: 'var(--text-secondary)', backgroundColor: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>
+                          {lib.license}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* System & Diagnostic Footer */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px 16px',
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border-subtle)',
+                  fontSize: '11.5px',
+                  color: 'var(--text-muted)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Cpu size={14} />
+                    <span>Ortam: <strong>Electron Desktop (Chromium + Node.js)</strong></span>
+                    <span>•</span>
+                    <span>Veri Tabanı: <strong>SQLite (Aktif)</strong></span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: 'var(--accent-success)' }} />
+                      Sistem Senkronize
+                    </span>
+                    <span>•</span>
+                    <span>© 2026 Postacı</span>
+                  </div>
+                </div>
               </div>
             )}
           </div>
