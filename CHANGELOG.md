@@ -1,5 +1,13 @@
 # Değişiklik kaydı
 
+## 1.4.2 — 2026-09-03
+
+- Silme → Çöp Kutusu güvenilirliği: IMAP `MOVE` artık senkron ve `502` ile hata bildiriyor; fire-and-forget kaldırıldı.
+- Stale UID dayanıklılığı: `move`/`delete`/`flag` işlemlerinde `messageId` ile yeniden arama ve retry, `requireImapSuccess` kontrolleri.
+- Yerel silme takibi: `TRASH`’a taşınan iletiler `deleted_records`’a yazılıyor; senkronizasyonda geri dirilme engellendi.
+- README, EzanApp referansıyla tamamen yenilendi (rozetler, tablo, kurulum, mimari ve CI/CD diyagramı).
+- `release.yml` Windows + Linux paralel build ve otomatik GitHub Release yayınlama.
+
 ## 1.4.1 — 2026-08-31
 
 - Windows'ta 3001 portunun kullanılması/engellenmesi nedeniyle oluşan başlangıç hatası giderildi; masaüstü artık boş yerel port kullanır.

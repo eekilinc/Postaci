@@ -254,6 +254,7 @@ app.delete('/api/accounts/:id', (req: Request, res: Response) => {
 
 app.post('/api/accounts/:id/sync', async (req: Request, res: Response) => {
   try {
+    if (!getAccountById(req.params.id)) return res.status(404).json({ error: 'Hesap bulunamadı.' });
     const result = await ImapService.syncAccount(req.params.id);
     broadcastSSE('emails_synced', { accountId: req.params.id, ...result });
     res.json({ success: true, ...result });
@@ -279,6 +280,7 @@ app.post('/api/folders/sync', async (req: Request, res: Response) => {
     if (!accountId || !mailboxPath) {
       return res.status(400).json({ error: 'accountId and mailboxPath are required.' });
     }
+    if (!getAccountById(accountId)) return res.status(404).json({ error: 'Hesap bulunamadı.' });
     const result = await ImapService.syncMailbox(accountId, mailboxPath);
     broadcastSSE('emails_synced', { accountId, mailboxPath, ...result });
     res.json({ success: true, ...result });
@@ -363,138 +365,147 @@ app.get('/api/emails/thread/:threadId', (req: Request, res: Response) => {
   }
 });
 
-app.patch('/api/emails/:id/flags', (req: Request, res: Response) => {
+class RemoteMailSyncError extends Error {}
+
+function isRemoteMail(email: Email): boolean {
+  const account = getAccountById(email.accountId);
+  return Boolean(account && account.provider !== 'demo');
+}
+
+async function syncUpdateToRemote(email: Email, updates: Record<string, any>): Promise<Record<string, any>> {
+  if (!isRemoteMail(email)) return updates;
+
+  if (updates.isRead !== undefined || updates.isStarred !== undefined) {
+    const flagsUpdated = await ImapService.updateFlagsOnServer(email.accountId, email, {
+      isRead: updates.isRead,
+      isStarred: updates.isStarred,
+    });
+    if (!flagsUpdated) throw new RemoteMailSyncError('İleti bayrakları posta sunucusunda güncellenemedi.');
+  }
+
+  if (updates.folder === 'SNOOZED') return updates;
+
+  if (updates.folder || updates.isDeleted) {
+    const targetFolder = (updates.folder === 'TRASH' || updates.isDeleted) ? 'TRASH' : (updates.folder || 'INBOX');
+    const moved = await ImapService.moveMessageOnServer(email.accountId, email, targetFolder);
+    if (!moved) throw new RemoteMailSyncError('İleti posta sunucusunda hedef klasöre taşınamadı.');
+    // UID is per-mailbox; after a successful MOVE the old UID is stale in the new folder.
+    // Clear it so subsequent ops (e.g. permanent delete from TRASH) use messageId fallback
+    // and so the next sync can assign the correct new UID.
+    return { ...updates, mailboxPath: targetFolder, imapUid: 0 };
+  }
+
+  return updates;
+}
+
+app.patch('/api/emails/:id/flags', async (req: Request, res: Response) => {
   try {
-    const updated = updateEmailFlags(req.params.id, req.body);
+    const mail = getEmailById(req.params.id);
+    if (!mail) return res.status(404).json({ error: 'E-posta bulunamadı.' });
+    const updates = await syncUpdateToRemote(mail, req.body || {});
+    const updated = updateEmailFlags(req.params.id, updates);
     if (!updated) return res.status(404).json({ error: 'E-posta bulunamadı.' });
     broadcastSSE('email_updated', updated);
     res.json(updated);
-
-    // Asynchronously synchronize with remote IMAP mail server
-    (async () => {
-      try {
-        if (req.body.folder || req.body.isDeleted) {
-          const targetFolder = (req.body.folder === 'TRASH' || req.body.isDeleted) ? 'TRASH' : (req.body.folder || 'INBOX');
-          await ImapService.moveMessageOnServer(updated.accountId, updated, targetFolder);
-        }
-        if (req.body.isRead !== undefined || req.body.isStarred !== undefined) {
-          await ImapService.updateFlagsOnServer(updated.accountId, updated, {
-            isRead: req.body.isRead,
-            isStarred: req.body.isStarred
-          });
-        }
-      } catch (e) {
-        console.warn('Background IMAP sync error:', e);
-      }
-    })();
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(err instanceof RemoteMailSyncError ? 502 : 400).json({ error: err.message });
   }
 });
 
-app.post('/api/emails/bulk-flags', (req: Request, res: Response) => {
+app.post('/api/emails/bulk-flags', async (req: Request, res: Response) => {
   try {
-    const { ids, updates } = req.body;
+    const { ids, updates = {} } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'ids dizisi gereklidir.' });
     }
+
     const mails = ids.map(id => getEmailById(id)).filter(Boolean) as Email[];
-    const count = bulkUpdateEmailFlags(ids, updates || {});
-    broadcastSSE('emails_synced', { count });
+    const successfulIds: string[] = [];
+    const failures: string[] = [];
+
+    for (const mail of mails) {
+      try {
+        const localUpdates = await syncUpdateToRemote(mail, { ...updates });
+        if (updateEmailFlags(mail.id, localUpdates)) successfulIds.push(mail.id);
+      } catch {
+        failures.push(getAccountById(mail.accountId)?.email || mail.accountId);
+      }
+    }
+
+    const count = successfulIds.length;
+    if (count) broadcastSSE('emails_synced', { count });
+    if (failures.length) {
+      return res.status(502).json({
+        error: `Posta sunucusunda güncellenemeyen ${failures.length} ileti var.`,
+        updatedCount: count,
+      });
+    }
     res.json({ success: true, updatedCount: count });
-
-    // Asynchronously synchronize bulk updates with remote IMAP mail server in parallel batches
-    (async () => {
-      const byAccount = new Map<string, Email[]>();
-      for (const m of mails) {
-        if (!byAccount.has(m.accountId)) byAccount.set(m.accountId, []);
-        byAccount.get(m.accountId)!.push(m);
-      }
-
-      for (const [accId, accMails] of byAccount.entries()) {
-        try {
-          if (updates.folder || updates.isDeleted) {
-            const targetFolder = (updates.folder === 'TRASH' || updates.isDeleted) ? 'TRASH' : (updates.folder || 'INBOX');
-            await ImapService.bulkMoveMessagesOnServer(accId, accMails, targetFolder);
-          }
-          if (updates.isRead !== undefined || updates.isStarred !== undefined) {
-            await ImapService.bulkUpdateFlagsOnServer(accId, accMails, {
-              isRead: updates.isRead,
-              isStarred: updates.isStarred
-            });
-          }
-        } catch (e) {
-          console.warn('Bulk IMAP sync error:', e);
-        }
-      }
-    })();
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/emails/bulk-delete', (req: Request, res: Response) => {
+app.post('/api/emails/bulk-delete', async (req: Request, res: Response) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'ids dizisi gereklidir.' });
     }
+
     const mails = ids.map(id => getEmailById(id)).filter(Boolean) as Email[];
-    const count = bulkDeleteEmails(ids);
-    broadcastSSE('emails_synced', { count });
+    const successfulIds: string[] = [];
+    let failureCount = 0;
+
+    for (const mail of mails) {
+      const remoteOk = !isRemoteMail(mail) || await ImapService.deleteMessageOnServer(mail.accountId, mail);
+      if (remoteOk) successfulIds.push(mail.id);
+      else failureCount++;
+    }
+
+    const count = successfulIds.length ? bulkDeleteEmails(successfulIds) : 0;
+    if (count) broadcastSSE('emails_synced', { count });
+    if (failureCount) {
+      return res.status(502).json({
+        error: `Posta sunucusunda silinemeyen ${failureCount} ileti var.`,
+        deletedCount: count,
+      });
+    }
     res.json({ success: true, deletedCount: count });
-
-    // Asynchronously delete permanently on remote IMAP mail server in parallel batches
-    (async () => {
-      const byAccount = new Map<string, Email[]>();
-      for (const m of mails) {
-        if (!byAccount.has(m.accountId)) byAccount.set(m.accountId, []);
-        byAccount.get(m.accountId)!.push(m);
-      }
-
-      for (const [accId, accMails] of byAccount.entries()) {
-        try {
-          await ImapService.bulkDeleteMessagesOnServer(accId, accMails);
-        } catch (e) {
-          console.warn('Bulk IMAP delete error:', e);
-        }
-      }
-    })();
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/folders/empty-trash', (req: Request, res: Response) => {
+app.post('/api/folders/empty-trash', async (req: Request, res: Response) => {
   try {
     const { accountId } = req.body;
+    const targetAccounts = accountId ? [getAccountById(accountId)].filter(Boolean) : getAccounts();
+    const hasRemoteAccounts = targetAccounts.some(account => account!.provider !== 'demo');
+    if (hasRemoteAccounts) {
+      const remoteOk = await ImapService.emptyTrashOnServer(accountId);
+      if (!remoteOk) return res.status(502).json({ error: 'Çöp kutusu posta sunucusunda boşaltılamadı.' });
+    }
     const count = emptyTrash(accountId);
     broadcastSSE('emails_synced', { count });
     res.json({ success: true, deletedCount: count });
-
-    // Asynchronously empty trash on remote IMAP mail server
-    ImapService.emptyTrashOnServer(accountId).catch(err => {
-      console.warn('Empty trash IMAP sync error:', err);
-    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/emails/:id', (req: Request, res: Response) => {
+app.delete('/api/emails/:id', async (req: Request, res: Response) => {
   try {
     const mail = getEmailById(req.params.id);
+    if (!mail) return res.status(404).json({ error: 'E-posta bulunamadı.' });
+    if (isRemoteMail(mail)) {
+      const remoteOk = await ImapService.deleteMessageOnServer(mail.accountId, mail);
+      if (!remoteOk) return res.status(502).json({ error: 'İleti posta sunucusunda kalıcı olarak silinemedi.' });
+    }
     const success = deleteEmailPermanent(req.params.id);
     if (!success) return res.status(404).json({ error: 'E-posta bulunamadı.' });
     broadcastSSE('email_deleted', { id: req.params.id });
     res.json({ success: true });
-
-    // Asynchronously delete on remote IMAP mail server
-    if (mail) {
-      ImapService.deleteMessageOnServer(mail.accountId, mail).catch(err => {
-        console.warn('IMAP delete error:', err);
-      });
-    }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

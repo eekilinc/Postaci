@@ -1,87 +1,213 @@
-# Postacı
+# Postacı — Yerel E-posta İstemcisi 📮
 
-React, TypeScript, Express ve Electron ile geliştirilmiş yerel e-posta istemcisi. Sürüm: **1.4.1**.
+<p align="center">
+  <img src="desktop/icon.png" alt="Postacı Logo" width="120" height="120" style="border-radius: 28px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);">
+</p>
 
-## Özellikler
+<p align="center">
+  <a href="https://github.com/eekilinc/Postaci/releases/latest"><img alt="Son Sürüm" src="https://img.shields.io/github/v/release/eekilinc/Postaci?label=s%C3%BCr%C3%BCm&color=10b981&style=flat-square"></a>
+  <a href="https://github.com/eekilinc/Postaci/actions/workflows/release.yml"><img alt="CI/CD Build" src="https://github.com/eekilinc/Postaci/actions/workflows/release.yml/badge.svg?style=flat-square"></a>
+  <a href="https://github.com/eekilinc/Postaci/actions/workflows/ci.yml"><img alt="Validate" src="https://github.com/eekilinc/Postaci/actions/workflows/ci.yml/badge.svg?style=flat-square"></a>
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-44-47848F?style=flat-square&logo=electron&logoColor=white">
+  <img alt="React 18" src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black">
+  <img alt="Node 22" src="https://img.shields.io/badge/Node-22-339933?style=flat-square&logo=node.js&logoColor=white">
+  <img alt="License MIT" src="https://img.shields.io/badge/License-MIT-amber?style=flat-square">
+</p>
 
-- IMAP/SMTP ile birden fazla hesap; Google OAuth veya uygulama parolası.
-- SQLite önbellek; yeni veri dizinlerinde yerel modül kullanılamıyorsa JSON alternatifi. Mevcut SQLite açılamazsa veri kaybını önlemek için başlatma durur.
-- Sayfalı posta listesi, sunucudan eski iletileri getirme, arama ve sıralama.
-- Kalıcı sabitleme/erteleme, klasörler, kişiler, takvim, temalar ve kısayollar.
-- Gerçek görsel ve izleyici engelleme; izole HTML görüntüleme.
-- 5–30 saniyelik gönderimi geri alma; eksik ek ve geçersiz alıcı uyarıları.
-- Şifreli hesap saklama; parolalı tam yedek ve mevcut verilerle birleştirerek geri yükleme.
-- Varsayılan kural tabanlı asistan; isteğe bağlı **yerel Ollama** ile özet, yanıt ve taslak üretimi.
-- Tekrarlanan API isteklerinde çift gönderim koruması.
+<p align="center">
+  <strong>IMAP/SMTP tabanlı, yerel ve güvenli masaüstü e-posta istemcisi.</strong><br>
+  React + TypeScript + Express + Electron ile geliştirilmiş, SQLite önbellekli, çok hesaplı ve çevrimdışı çalışabilen Postacı.
+</p>
 
-## Geliştirme
+<p align="center">
+  <a href="https://github.com/eekilinc/Postaci/releases/latest"><strong>↓ Son Sürümü İndir (v1.4.2)</strong></a>
+  · <a href="#-kurulum">Kurulum</a>
+  · <a href="CHANGELOG.md">Sürüm Notları</a>
+  · <a href="#-hesaplar-ve-google-oauth">OAuth</a>
+  · <a href="#-teknik-mimari">Mimari</a>
+  · <a href="https://github.com/eekilinc/Postaci/issues">Geri Bildirim</a>
+</p>
 
-Node.js **22.21.1 veya üstü**, npm ve Git gerekir. Electron/SQLite paketleme işlemleri için platforma ait derleme araçları gerekebilir.
+---
 
-```sh
-npm ci
-npm run dev
-```
+> 📮 **Tamamen Yerel, Güvenli ve Açık Kaynaklı.** E-postalarınız buluta gönderilmez; tüm hesap, imap ve tercih verileri cihazınızda AES-256-GCM ile şifrelenerek saklanır.
 
-Arayüz: `http://127.0.0.1:5173`. Yerel API: `http://127.0.0.1:3001`.
+---
 
-```sh
-npm run desktop        # geliştirme ortamında Electron
-npm run check          # tür kontrolü, lint, SQLite ve JSON testleri
-npm run build          # üretim istemci/sunucu derlemesi
-npm run test:bundle    # derlenmiş sunucuya karşı API testleri
-npm run test:packaged  # paket içindeki Electron + SQLite + API başlangıç testi
-npm run preview        # gerçek veri dizininden ayrı geçici önizleme (3101)
-npm run pack:win       # NSIS kurulum + ZIP
-npm run pack:linux     # AppImage + DEB
-```
+## 🌟 Neler Sunuyor?
 
-Testler sahte hesaplar ve geçici dizinler kullanır; gerçek postayı senkronize etmez veya göndermez. `provider: demo` gönderimleri yalnızca yerel test kaydı oluşturur. CI, Windows ve Linux üzerinde kontrolleri çalıştırır. Test/paketleme komutları yayın yapmaz.
+Postacı, tarayıcı tabanlı e-postanın ötesinde, çok hesaplı IMAP senkronizasyonu, sayfalı çevrimdışı önbellek, gönderimi geri alma ve iş akışı entegrasyonu sunar.
 
-## Hesaplar ve Google OAuth
-
-Ayarlar bölümünde sağlayıcı, sunucu ve kimlik bilgilerini girin. Düzenlerken boş bırakılan parola mevcut parolayı korur; API mevcut sırları arayüze göndermez.
-
-Google OAuth için kendi Google Cloud **Desktop app** istemci kimliğinizi yapılandırın. Giriş sistem tarayıcısında açılır. Geliştirme ortamında dönüş adresi `http://127.0.0.1:3001/api/auth/google/callback` olur. Masaüstü sürümü boş bir yerel port seçer; o oturumun gerçek dönüş adresi ayarlarda gösterilir. Sağlayıcıya ait onay/izin ve test kullanıcısı ayarları ayrıca gerekebilir. Alternatif olarak hesabın desteklediği uygulama parolası kullanılabilir.
-
-## Yerel asistan
-
-Ayarlar → Genel → Asistan motoru bölümünden **Yerel Ollama modeli** seçip bilgisayarınızda kurulu modelin adını girin ve tercihleri kaydedin. Ollama `127.0.0.1:11434` üzerinde çalışmalıdır. Postacı model indirmez ve bulut AI hizmetine bağlanmaz. Model erişilemiyorsa kural tabanlı sonuç kullanılır.
-
-Model çıktıları taslaktır: göndermeden önce doğrulayın. Takvim/görev ayıklama ve phishing uyarıları kural tabanlıdır.
-
-## Yedekleme ve taşıma
-
-Ayarlar → Yedekleme & Veri bölümünde en az 12 karakterli bir parola ile şifreli yedek alın. Yedek; hesap sırları ve OAuth alanları, yerel iletiler/ekler, kişiler, takvim, klasörler ve tercihleri içerir. Parola saklanmaz; kaybedilirse yedek açılamaz.
-
-Geri yükleme mevcut verileri silmeden birleştirir. Eski şifresiz hesap yedekleri okunabilir. İndirilmemiş ileti gövdeleri yedekte değildir. Tek dosyalı dışa aktarım ham içerikte 32 MB ile sınırlıdır; bu sınır aşılırsa açık hata verilir.
-
-## Yapı
-
-| Dizin | Görev |
+| Modül / Özellik | Nasıl Çalışır ve Ne Sağlar? |
 |---|---|
-| `client/src/components` | Arayüz ve ayrı yedekleme paneli |
-| `client/src/hooks` | Sayfalama, istek yarışı kontrolü, gönderimi geri alma |
-| `server/routes` | OAuth rotaları |
-| `server/services` | Veritabanı, IMAP/SMTP, şifreleme, yedek, AI |
-| `shared` | Ortak posta tipleri, sürüm ve tercih sözleşmesi |
-| `desktop` | Electron, IPC ve işletim sistemi anahtar kasası |
-| `tests` | Birim ve API entegrasyon testleri |
+| 📧 **Çok Hesaplı IMAP/SMTP** | Gmail, Outlook, Yahoo, iCloud, Yandex ve özel IMAP/SMTP; Google OAuth 2.0 + PKCE veya 16 haneli uygulama şifresi. Otomatik autodiscover. |
+| 💾 **SQLite + JSON Çift Önbellek** | Birincil SQLite (`better-sqlite3`), açılamazsa otomatik JSON fallback. `secure_delete=ON`, WAL modu, veri kaybı koruması. |
+| 📄 **Sayfalı & Aranabilir Liste** | `{items, hasMore, nextOffset}` ile 500 limit yerine gerçek sayfalama, sunucudan eski iletileri çekme, klasör/etiket/arama sıralaması. |
+| 📌 **Kalıcı Sabitleme & Erteleme** | `isPinned` / `snoozedUntil` sunucuda ve senkronizasyonda korunur; açık taslak hesap yenilemesinde kaybolmaz. |
+| 🛡️ **İzleyici & Görsel Kalkanı** | `dompurify` + `jsdom` ile izole HTML, takip pikseli ve dış görsel engelleme, güvenli alıntı. |
+| ↩️ **5–30sn Gönderimi Geri Al** | `DeliveryGuard` ile idempotent gönderim, çift gönderim koruması, eksik ek & geçersiz alıcı uyarısı. |
+| 🔐 **Şifreli Yedek & Geri Yükleme** | Parolalı (≥12 karakter) AES şifreli yedek; kişiler, klasörler, takvim, ekler dahil. Birleştirmeli geri yükleme, 32 MB tek dosya limiti. |
+| 🤖 **Kural Tabanlı + Yerel AI** | Varsayılan kural tabanlı özet/yanıt; isteğe bağlı yerel Ollama (`127.0.0.1:11434`) ile özet, akıllı yanıt ve taslak üretimi. Bulut yok. |
+| 🎨 **Tema, Yoğunluk & Kısayollar** | Açık/Koyu/sistem tema, vurgu rengi, yoğunluk ve `CommandPalette` kısayolları. |
+| 🔔 **SSE Gerçek Zamanlı** | `GET /events` SSE, `emails_synced` / `accounts_updated` anlık bildirim, 25 sn keep-alive ping. |
+| 🖥️ **Electron Masaüstü** | `desktop/main.cjs` — IPC, OS keychain, tepsi, otomatik başlatma, `postaci://` OAuth callback protokolü. |
+| 🧪 **CI & Paket Testleri** | `npm run check` (typecheck+lint+test), `test:bundle` ve `test:packaged` ile paketli Electron doğrulaması. |
 
-## Yapılandırma
+---
+
+## 🎉 1.4.2 ile Gelen Yenilikler
+
+Kalıcı paket korunur; önceki sürümleri kaldırmadan güncelleyebilirsiniz:
+
+- 🗑️ **Güvenilir Silme → Çöp Kutusu:** `syncUpdateToRemote` artık IMAP `MOVE` işlemini **senkron** bekleyip `502` ile hata döndürüyor; arka plan fire-and-forget kaldırıldı — “bazen çöp kutusuna gitmiyor” hatası düzeltildi.
+- 🔄 **Stale UID Dayanıklılığı:** `moveMessageOnServer` / `deleteMessageOnServer` / `updateFlagsOnServer` için `messageId` ile yeniden arama ve retry mantığı; IMAP kilit timeout ve `requireImapSuccess` kontrolleri eklendi.
+- 📦 **Yerel Silme Takibi:** `TRASH`'a taşınan mail `deleted_records`'a yazılıyor — senkronizasyonda geri dirilme engellendi (`isDeletedLocally` koruması).
+- 🛠️ **Build & Release İyileştirmesi:** `release.yml` Windows + Linux paralel, tag `v*` ile otomatik `electron-builder` ve `softprops/action-gh-release` ile GitHub Release yayınlama.
+
+---
+
+## 📦 Kurulum
+
+### 1. Kullanıcılar İçin (İndirme)
+
+1. **[Son Sürümü Açın](https://github.com/eekilinc/Postaci/releases/latest)**
+2. İşletim sisteminize göre indirin:
+   - **Windows:** `Postaci-Setup-1.4.2.exe` (NSIS) veya `Postaci-Setup-1.4.2.zip`
+   - **Linux:** `Postaci-1.4.2.AppImage` veya `postaci_1.4.2_amd64.deb`
+3. Kurun ve Ayarlar → E-Posta Hesapları’ndan hesabınızı ekleyin.
+
+### 2. Geliştiriciler İçin (Kaynaktan)
+
+#### Gereksinimler:
+- Node.js **22.21.1+**, npm, Git
+- Electron/SQLite derleme araçları (Windows: Build Tools, Linux: `build-essential` + `python3`)
+
+```bash
+# Depoyu klonlayın
+git clone https://github.com/eekilinc/Postaci.git
+cd Postaci
+
+# Bağımlılıkları yükleyin
+npm ci
+
+# Geliştirme (API + Vite + Electron)
+npm run dev              # http://127.0.0.1:5173  +  http://127.0.0.1:3001
+npm run desktop          # Electron ile birlikte
+
+# Kalite & test
+npm run check            # typecheck + lint + test + test:json
+npm run build            # istemci + sunucu derlemesi
+npm run test:bundle      # derlenmiş sunucuya karşı API testleri
+npm run test:packaged    # paketli Electron + SQLite testi
+npm run preview          # geçici önizleme (port 3101)
+```
+
+#### Paketleme:
+```bash
+npm run pack:win         # Windows NSIS + ZIP  → dist-desktop/
+npm run pack:linux       # Linux AppImage + DEB → dist-desktop/
+npm run build:desktop    # --dir (kurmadan test)
+```
+
+---
+
+## 🔐 Hesaplar ve Google OAuth
+
+Ayarlar → E-Posta Hesapları → **Yeni Hesap Ekle** → Sağlayıcı seç (Gmail/Outlook/Yahoo/iCloud/Yandex/Özel).
+
+- **Uygulama Şifresi (önerilen):** Gmail için 2 Adımlı Doğrulama → https://myaccount.google.com/apppasswords → 16 haneli şifre. Anında, Google Cloud projesi gerektirmez.
+- **OAuth 2.0:** Kendi Google Cloud **Desktop app** istemci kimliğiniz. Giriş sistem tarayıcısında açılır, dönüş `http://127.0.0.1:3001/api/auth/google/callback` (dev) veya masaüstünde rastgele boş port + `postaci://` protokolü.
+
+> Boş bırakılan parola mevcut parolayı korur; API sırları arayüze asla gönderilmez (`publicAccount` maskeleme).
+
+---
+
+## 🧠 Yerel Asistan (Ollama)
+
+Ayarlar → Genel → **Asistan motoru** → `Yerel Ollama` → model adı (örn. `llama3.1:8b`) → Kaydet.
+
+- Ollama `127.0.0.1:11434` üzerinde çalışmalı. Postacı model **indirmez**, buluta bağlanmaz.
+- Erişilemezse otomatik kural tabanlı özet/yanıt kullanılır.
+- Çıktılar taslaktır — göndermeden önce doğrulayın.
+
+---
+
+## 💾 Yedekleme ve Taşıma
+
+Ayarlar → **Yedekleme & Veri** → en az 12 karakter parola → **Şifreli Yedek Al**.
+
+- İçerik: hesap sırları + OAuth, iletiler/ekler, kişiler, takvim, klasörler, tercihler.
+- Geri yükleme **birleştirir**, silmez. Eski şifresiz yedekler okunabilir. İndirilmemiş gövdeler dahil değildir. Tek dosya 32 MB limiti aşarsa açık hata verir.
+
+---
+
+## 🛠️ Teknik Mimari
+
+```
+client/src/
+├── components/   # EmailList, EmailDetail, Composer, Sidebar, SettingsModal, BackupPanel
+├── hooks/        # useEmailCollection (sayfalama), useUndoSend, useComposeInitialization
+├── context/      # MailContext (SSE), ThemeContext, ToastContext
+└── services/     # api.ts (fetchSafe + session)
+
+server/
+├── index.ts      # Express + SSE (+ security, listener)
+├── routes/auth.ts# OAuth akışları
+└── services/     # db.ts, imapService.ts, smtpService.ts, aiService.ts, backupService.ts, ...
+
+shared/           # mail.ts, preferences.ts, version.ts (ortak sözleşme)
+desktop/          # main.cjs, preload.cjs, oauth-protocol.cjs (Electron)
+tests/            # api, storage, security, delivery, imap-actions, oauth-*
+```
+
+* **IMAP:** `imapflow` ile `INBOX` dahil çekirdek klasörlerin öncelikli senkronu, `getMailboxLock` ile yarış kontrolü, 3 dk posta kutusu önbelleği.
+* **Güvenlik:** `installSecurity` (CSP, Origin/Host doğrulama, case-insensitive bypass kapalı), `POSTACI_API_TOKEN` Bearer, yerel oturum (`/api/session`).
+* **Veri:** `shared/version.ts` tek kaynak sürüm, `shared/preferences.ts` tercih sözleşmesi, `docs/SECURITY.md` sınırları.
+
+---
+
+## ⚙️ Yapılandırma
 
 | Değişken | Açıklama |
 |---|---|
-| `PORT` | CLI/geliştirmede varsayılan 3001; masaüstünde belirtilmezse boş bir yerel port seçilir |
-| `POSTACI_DATA_DIR` | Veri dizini; CLI'da varsayılan `./data`, Electron'da kullanıcı uygulama verisi |
-| `POSTACI_STORAGE=json` | JSON saklama biçimini açıkça seçer |
-| `POSTACI_SEED_DEMO=0` | Başlangıç örnek verisini devre dışı bırakır |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Sunucu tarafı OAuth yapılandırması |
-| `POSTACI_AI_MODEL` | Yerel model adını geçersiz kılar; UI'da Ollama ayrıca etkin olmalıdır |
-| `POSTACI_API_TOKEN` | İsteğe bağlı yerel otomasyon Bearer anahtarı; paylaşmayın |
+| `PORT` | CLI'da 3001; masaüstünde boş port otomatik |
+| `POSTACI_DATA_DIR` | Veri dizini (`./data` varsayılan, Electron’da appData) |
+| `POSTACI_STORAGE=json` | JSON saklamayı zorlar |
+| `POSTACI_SEED_DEMO=0` | Demo veriyi kapatır |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Sunucu OAuth |
+| `POSTACI_AI_MODEL` | Yerel model override |
+| `POSTACI_API_TOKEN` | Yerel otomasyon Bearer (paylaşmayın) |
 
-API tek kullanıcı ve yerel kullanım içindir. E-posta listeleme artık `{items, hasMore, nextOffset}` döndürür; `limit`, `offset`, `sort` destekler. Yedek dışa aktarımı parolalı POST isteği gerektirir.
+API tek kullanıcı / yerel kullanım içindir. E-posta listeleme `{items, hasMore, nextOffset}` döndürür.
 
-Ayrıntılar ve sınırlar: [Güvenlik](docs/SECURITY.md). Son değişiklikler: [Değişiklik kaydı](CHANGELOG.md). Çalıştırılan testler ve doğrulanmayan alanlar: [Doğrulama kaydı](docs/VALIDATION.md).
+---
 
-Teknik kaynaklar: [Electron güvenliği](https://www.electronjs.org/docs/latest/tutorial/security), [Google masaüstü OAuth](https://developers.google.com/identity/protocols/oauth2/native-app), [Ollama generate API](https://docs.ollama.com/api/generate).
+## 🤖 GitHub Actions CI/CD
+
+`.github/workflows/ci.yml` — her push/PR’de `ubuntu-latest` + `windows-latest` üzerinde `npm run check` + `build` + `test:bundle`.
+
+`.github/workflows/release.yml` — `v*` tag veya manuel dispatch:
+
+```mermaid
+graph LR
+    A[Git Tag v*] --> B[Setup Node 22 & npm ci]
+    B --> C[Typecheck + Lint + Test]
+    C --> D[Build Client & Backend]
+    D --> E[Electron Builder - win/linux]
+    E --> F[Publish GitHub Release]
+```
+
+Artifaktlar: `Postaci-Setup-*.exe`, `Postaci-Setup-*.zip`, `Postaci-*.AppImage`, `*.deb` — `generate_release_notes: true`.
+
+---
+
+## 📄 Lisans
+
+Bu proje **[MIT Lisansı](LICENSE)** altındadır. Ticari/kişisel kullanım serbesttir.
+
+---
+
+<p align="center">
+  Geliştirici: <strong><a href="https://github.com/eekilinc">Ekrem Eşref Kılınç (@eekilinc)</a></strong><br>
+  Made with ❤️ for local-first email
+</p>

@@ -270,7 +270,10 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
           api.syncFolder(targetAcc.id, activeFolder).then(() => {
             refreshEmailsRef.current(false);
             refreshStatsRef.current();
-          }).catch(() => {});
+          }).catch((err: any) => {
+            if (lastSyncedFolderRef.current === key) lastSyncedFolderRef.current = null;
+            console.warn('Klasör senkronizasyonu başarısız:', err);
+          });
         }
       }
     }
@@ -291,6 +294,8 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
   infoRef.current = info;
   const successRef = useRef(success);
   successRef.current = success;
+  const errorRef = useRef(error);
+  errorRef.current = error;
 
   // Window focus and visibilitychange sync (re-validates local state instantly without network lag)
   useEffect(() => {
@@ -452,6 +457,15 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       eventSource.addEventListener('email_deleted', () => {
         debouncedRefresh();
+      });
+
+      eventSource.addEventListener('sync_error', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          errorRef.current(data.message || 'Senkronizasyon tamamlanamadı.', 'Senkronizasyon Hatası');
+        } catch {
+          errorRef.current('Senkronizasyon tamamlanamadı.', 'Senkronizasyon Hatası');
+        }
       });
     }).catch(err => console.warn('SSE bağlantısı kurulamadı:', err));
 
@@ -630,17 +644,17 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       adjustAccountUnread(cur.accountId, -1);
     }
 
-    success(isAlreadyTrash ? 'İleti kalıcı olarak silindi.' : 'İleti çöp kutusuna taşındı.');
-
     try {
       if (isAlreadyTrash) {
         await api.deleteEmailPermanent(id);
       } else {
         await api.updateEmailFlags(id, { isDeleted: true, folder: 'TRASH' });
       }
+      success(isAlreadyTrash ? 'İleti kalıcı olarak silindi.' : 'İleti çöp kutusuna taşındı.');
       refreshEmails(false);
       refreshStats();
-    } catch {
+    } catch (err: any) {
+      error(err.message || 'Silme işlemi posta sunucusunda tamamlanamadı.');
       refreshEmails();
       refreshStats();
     }
@@ -695,7 +709,6 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const targetDisplayName = folderNames[targetFolder] || targetFolder;
-    success(`${idList.length} ileti "${targetDisplayName}" klasörüne taşındı.`);
 
     try {
       await api.bulkUpdateEmailFlags(idList, {
@@ -704,9 +717,11 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isArchived: targetFolder === 'ARCHIVE',
         isSpam: targetFolder === 'SPAM',
       });
+      success(`${idList.length} ileti "${targetDisplayName}" klasörüne taşındı.`);
       refreshEmails(false);
       refreshStats();
-    } catch {
+    } catch (err: any) {
+      error(err.message || 'İletiler hedef klasöre taşınamadı.');
       refreshEmails();
       refreshStats();
     }
@@ -839,17 +854,17 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    success(isTrash ? `${ids.length} e-posta kalıcı olarak silindi.` : `${ids.length} e-posta çöp kutusuna taşındı.`);
-
     try {
       if (isTrash) {
         await api.bulkDeleteEmails(ids);
       } else {
         await api.bulkUpdateEmailFlags(ids, { isDeleted: true, folder: 'TRASH' });
       }
+      success(isTrash ? `${ids.length} e-posta kalıcı olarak silindi.` : `${ids.length} e-posta çöp kutusuna taşındı.`);
       refreshEmails(false);
       refreshStats();
-    } catch {
+    } catch (err: any) {
+      error(err.message || 'Toplu silme işlemi posta sunucusunda tamamlanamadı.');
       refreshEmails();
       refreshStats();
     }
@@ -869,13 +884,13 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       { folder: 'TRASH', countDelta: -count, unreadDelta: -unreadCount }
     ]);
 
-    success(`Çöp kutusu boşaltıldı (${count} e-posta temizlendi).`);
-
     try {
       await api.emptyTrash(activeAccountId);
+      success(`Çöp kutusu boşaltıldı (${count} e-posta temizlendi).`);
       refreshEmails(false);
       refreshStats();
-    } catch {
+    } catch (err: any) {
+      error(err.message || 'Çöp kutusu posta sunucusunda boşaltılamadı.');
       refreshEmails();
       refreshStats();
     }

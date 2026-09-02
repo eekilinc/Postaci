@@ -31,6 +31,10 @@ export interface MailboxState {
 }
 
 export class ImapService {
+  private static requireImapSuccess<T>(result: T | false, action: string): T {
+    if (result === false) throw new Error(`${action}: sunucu işlemi kabul etmedi.`);
+    return result;
+  }
   private static clientPool = new Map<string, { client: ImapFlow; lastUsed: number }>();
   private static mailboxStates = new Map<string, MailboxState>();
   private static mailboxListCache = new Map<string, { mailboxes: any[]; cachedAt: number }>();
@@ -515,6 +519,12 @@ export class ImapService {
       const targetPath = await this.resolveServerMailboxPath(client, account.id, targetFolder);
       const sourcePath = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
 
+      // If we couldn't resolve the target path (returned the raw input), the folder doesn't exist
+      if (targetPath === targetFolder.toUpperCase() && targetFolder !== 'INBOX') {
+        console.warn(`Target folder "${targetFolder}" not found on server for account ${account.email}, resolved to: ${targetPath}`);
+        return false;
+      }
+
       if (sourcePath === targetPath) return true;
 
       const lock = await Promise.race([
@@ -523,27 +533,55 @@ export class ImapService {
       ]);
       try {
         let uidToMove = email.imapUid;
+        let searchedByMessageId = false;
 
         if (!uidToMove && email.messageId) {
           const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
           try {
             const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
             if (searchResults && searchResults.length > 0) uidToMove = searchResults[0];
-          } catch {}
+            searchedByMessageId = true;
+          } catch (searchErr) {
+            console.warn(`Search by messageId failed for ${account.email}:`, searchErr);
+          }
         }
 
-        if (uidToMove) {
+        if (!uidToMove) {
+          console.warn(`No UID available to move message for ${account.email}, email:`, email.id);
+          return false;
+        }
+
+        const tryMove = async (uid: number): Promise<boolean> => {
           try {
-            await client.messageMove(String(uidToMove), targetPath, { uid: true });
+            this.requireImapSuccess(await client.messageMove(String(uid), targetPath, { uid: true }), 'IMAP komutu');
             return true;
-          } catch {
+          } catch (moveErr) {
+            console.warn(`messageMove failed for ${account.email} uid ${uid}, trying copy+delete fallback:`, moveErr);
             try {
-              await client.messageCopy(String(uidToMove), targetPath, { uid: true });
-              await client.messageFlagsAdd(String(uidToMove), ['\\Deleted'], { uid: true });
-              await client.messageDelete(String(uidToMove), { uid: true });
+              this.requireImapSuccess(await client.messageCopy(String(uid), targetPath, { uid: true }), 'IMAP komutu');
+              this.requireImapSuccess(await client.messageFlagsAdd(String(uid), ['\\Deleted'], { uid: true }), 'IMAP komutu');
+              this.requireImapSuccess(await client.messageDelete(String(uid), { uid: true }), 'IMAP komutu');
               return true;
-            } catch {}
+            } catch (fallbackErr) {
+              console.warn(`Copy+delete fallback also failed for ${account.email} uid ${uid}:`, fallbackErr);
+              return false;
+            }
           }
+        };
+
+        if (await tryMove(uidToMove)) return true;
+
+        // If UID was stale (present but move failed), retry via messageId search
+        if (!searchedByMessageId && email.messageId) {
+          const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
+          try {
+            const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
+            const newUid = searchResults && searchResults.length > 0 ? searchResults[0] : null;
+            if (newUid && newUid !== uidToMove) {
+              console.warn(`Stale UID ${uidToMove} failed, retrying move with resolved UID ${newUid} for ${account.email}`);
+              if (await tryMove(newUid)) return true;
+            }
+          } catch (e) { console.warn(`Retry search by messageId failed for move ${account.email}:`, e); }
         }
       } finally {
         lock.release();
@@ -561,6 +599,12 @@ export class ImapService {
     try {
       const client = await this.getOrCreateClient(account);
       const targetPath = await this.resolveServerMailboxPath(client, account.id, targetFolder);
+
+      // If we couldn't resolve the target path (returned the raw input), the folder doesn't exist
+      if (targetPath === targetFolder.toUpperCase() && targetFolder !== 'INBOX') {
+        console.warn(`Target folder "${targetFolder}" not found on server for account ${account.email}, resolved to: ${targetPath}`);
+        return false;
+      }
 
       const groups = new Map<string, number[]>();
       for (const e of emails) {
@@ -582,13 +626,16 @@ export class ImapService {
           try {
             const uidStr = uids.join(',');
             try {
-              await client.messageMove(uidStr, targetPath, { uid: true });
-            } catch {
+              this.requireImapSuccess(await client.messageMove(uidStr, targetPath, { uid: true }), 'IMAP komutu');
+            } catch (moveErr) {
+              console.warn(`Bulk messageMove failed for ${account.email}, trying copy+delete fallback:`, moveErr);
               try {
-                await client.messageCopy(uidStr, targetPath, { uid: true });
-                await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
-                await client.messageDelete(uidStr, { uid: true });
-              } catch {}
+                this.requireImapSuccess(await client.messageCopy(uidStr, targetPath, { uid: true }), 'IMAP komutu');
+                this.requireImapSuccess(await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true }), 'IMAP komutu');
+                this.requireImapSuccess(await client.messageDelete(uidStr, { uid: true }), 'IMAP komutu');
+              } catch (fallbackErr) {
+                console.warn(`Bulk copy+delete fallback also failed for ${account.email}:`, fallbackErr);
+              }
             }
           } finally {
             lock.release();
@@ -608,6 +655,27 @@ export class ImapService {
     const account = getAccountById(accountId);
     if (!account || account.provider === 'demo') return false;
 
+    const tryDeleteWithUid = async (client: ImapFlow, uid: number, sourcePath: string, isGmailAccount: boolean, folder: string, isDeleted: boolean, trashPath?: string): Promise<boolean> => {
+      if (isGmailAccount && (folder !== 'TRASH' && !isDeleted) && trashPath) {
+        try {
+          this.requireImapSuccess(await client.messageMove(String(uid), trashPath, { uid: true }), 'IMAP komutu');
+          return true;
+        } catch {
+          try {
+            this.requireImapSuccess(await client.messageFlagsAdd(String(uid), ['\\Deleted'], { uid: true }), 'IMAP komutu');
+            this.requireImapSuccess(await client.messageDelete(String(uid), { uid: true }), 'IMAP komutu');
+            return true;
+          } catch { return false; }
+        }
+      } else {
+        try {
+          this.requireImapSuccess(await client.messageFlagsAdd(String(uid), ['\\Deleted'], { uid: true }), 'IMAP komutu');
+          this.requireImapSuccess(await client.messageDelete(String(uid), { uid: true }), 'IMAP komutu');
+          return true;
+        } catch { return false; }
+      }
+    };
+
     try {
       const client = await this.getOrCreateClient(account);
       const sourcePath = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
@@ -623,32 +691,31 @@ export class ImapService {
           try {
             const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
             if (searchResults && searchResults.length > 0) uidToDelete = searchResults[0];
-          } catch {}
+          } catch (e) { console.warn(`Search by messageId failed for delete ${account.email}:`, e); }
         }
 
         if (uidToDelete) {
-          // Gmail requires moving to [Gmail]/Trash before expunging.
-          // Direct messageFlagsAdd(\Deleted) + messageDelete on Gmail only removes the INBOX label.
           const isGmailAccount = account.authType === 'oauth2' || (account.imapHost || '').includes('gmail') || (account.imapHost || '').includes('google');
-          if (isGmailAccount && (email.folder !== 'TRASH' && !email.isDeleted)) {
-            // Move to Trash first (Gmail IMAP standard practice)
-            const trashPath = await this.resolveServerMailboxPath(client, account.id, 'TRASH');
-            try {
-              await client.messageMove(String(uidToDelete), trashPath, { uid: true });
-              return true;
-            } catch {
-              // Fallback: direct delete
-              try {
-                await client.messageFlagsAdd(String(uidToDelete), ['\\Deleted'], { uid: true });
-                await client.messageDelete(String(uidToDelete), { uid: true });
-                return true;
-              } catch {}
-            }
-          } else {
-            await client.messageFlagsAdd(String(uidToDelete), ['\\Deleted'], { uid: true });
-            await client.messageDelete(String(uidToDelete), { uid: true });
+          const trashPath = isGmailAccount && (email.folder !== 'TRASH' && !email.isDeleted) ? await this.resolveServerMailboxPath(client, account.id, 'TRASH') : undefined;
+          if (await tryDeleteWithUid(client, uidToDelete, sourcePath, isGmailAccount, email.folder, !!email.isDeleted, trashPath)) {
             return true;
           }
+          // UID existed but delete failed — likely stale UID (moved folder). Retry via messageId search
+          if (email.messageId) {
+            const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
+            try {
+              const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
+              const newUid = searchResults && searchResults.length > 0 ? searchResults[0] : null;
+              if (newUid && newUid !== uidToDelete) {
+                console.warn(`Stale UID ${uidToDelete} failed, retrying delete with resolved UID ${newUid} for ${account.email}`);
+                if (await tryDeleteWithUid(client, newUid, sourcePath, isGmailAccount, email.folder, !!email.isDeleted, trashPath)) {
+                  return true;
+                }
+              }
+            } catch (e) { console.warn(`Retry search by messageId failed for delete ${account.email}:`, e); }
+          }
+        } else {
+          console.warn(`No UID available to delete message for ${account.email}, email: ${email.id}`);
         }
       } finally {
         lock.release();
@@ -689,20 +756,20 @@ export class ImapService {
               const trashPath = await this.resolveServerMailboxPath(client, account.id, 'TRASH');
               if (sourcePath !== trashPath) {
                 try {
-                  await client.messageMove(uidStr, trashPath, { uid: true });
+                  this.requireImapSuccess(await client.messageMove(uidStr, trashPath, { uid: true }), 'IMAP komutu');
                 } catch {
                   // Fallback to direct delete
-                  await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
-                  await client.messageDelete(uidStr, { uid: true });
+                  this.requireImapSuccess(await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true }), 'IMAP komutu');
+                  this.requireImapSuccess(await client.messageDelete(uidStr, { uid: true }), 'IMAP komutu');
                 }
               } else {
                 // Already in Trash — permanently expunge
-                await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
-                await client.messageDelete(uidStr, { uid: true });
+                this.requireImapSuccess(await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true }), 'IMAP komutu');
+                this.requireImapSuccess(await client.messageDelete(uidStr, { uid: true }), 'IMAP komutu');
               }
             } else {
-              await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
-              await client.messageDelete(uidStr, { uid: true });
+              this.requireImapSuccess(await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true }), 'IMAP komutu');
+              this.requireImapSuccess(await client.messageDelete(uidStr, { uid: true }), 'IMAP komutu');
             }
           } finally {
             lock.release();
@@ -731,30 +798,53 @@ export class ImapService {
       ]);
       try {
         let uidToUpdate = email.imapUid;
+        let searchedByMessageId = false;
         if (!uidToUpdate && email.messageId) {
           const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
           try {
             const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
             if (searchResults && searchResults.length > 0) uidToUpdate = searchResults[0];
-          } catch {}
+            searchedByMessageId = true;
+          } catch (e) { console.warn(`Search by messageId failed for flags ${account.email}:`, e); }
         }
 
+        const tryUpdate = async (uid: number): Promise<boolean> => {
+          try {
+            if (flags.isRead !== undefined) {
+              if (flags.isRead) {
+                this.requireImapSuccess(await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true }), 'IMAP komutu');
+              } else {
+                this.requireImapSuccess(await client.messageFlagsRemove(String(uid), ['\\Seen'], { uid: true }), 'IMAP komutu');
+              }
+            }
+            if (flags.isStarred !== undefined) {
+              if (flags.isStarred) {
+                this.requireImapSuccess(await client.messageFlagsAdd(String(uid), ['\\Flagged'], { uid: true }), 'IMAP komutu');
+              } else {
+                this.requireImapSuccess(await client.messageFlagsRemove(String(uid), ['\\Flagged'], { uid: true }), 'IMAP komutu');
+              }
+            }
+            return true;
+          } catch { return false; }
+        };
+
         if (uidToUpdate) {
-          if (flags.isRead !== undefined) {
-            if (flags.isRead) {
-              await client.messageFlagsAdd(String(uidToUpdate), ['\\Seen'], { uid: true });
-            } else {
-              await client.messageFlagsRemove(String(uidToUpdate), ['\\Seen'], { uid: true });
-            }
+          if (await tryUpdate(uidToUpdate)) return true;
+          // stale UID — retry via messageId
+          if (!searchedByMessageId && email.messageId) {
+            const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
+            try {
+              const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
+              const newUid = searchResults && searchResults.length > 0 ? searchResults[0] : null;
+              if (newUid && newUid !== uidToUpdate) {
+                console.warn(`Stale UID ${uidToUpdate} failed for flags, retrying with ${newUid} for ${account.email}`);
+                if (await tryUpdate(newUid)) return true;
+              }
+            } catch (e) { console.warn(`Retry search by messageId failed for flags ${account.email}:`, e); }
           }
-          if (flags.isStarred !== undefined) {
-            if (flags.isStarred) {
-              await client.messageFlagsAdd(String(uidToUpdate), ['\\Flagged'], { uid: true });
-            } else {
-              await client.messageFlagsRemove(String(uidToUpdate), ['\\Flagged'], { uid: true });
-            }
-          }
-          return true;
+          console.warn(`Could not update flags on server for account ${account.email} uid ${uidToUpdate}`);
+        } else {
+          console.warn(`No UID available to update flags for ${account.email}, email: ${email.id}`);
         }
       } finally {
         lock.release();
@@ -789,12 +879,12 @@ export class ImapService {
           try {
             const uidStr = uids.join(',');
             if (flags.isRead !== undefined) {
-              if (flags.isRead) await client.messageFlagsAdd(uidStr, ['\\Seen'], { uid: true });
-              else await client.messageFlagsRemove(uidStr, ['\\Seen'], { uid: true });
+              if (flags.isRead) this.requireImapSuccess(await client.messageFlagsAdd(uidStr, ['\\Seen'], { uid: true }), 'IMAP komutu');
+              else this.requireImapSuccess(await client.messageFlagsRemove(uidStr, ['\\Seen'], { uid: true }), 'IMAP komutu');
             }
             if (flags.isStarred !== undefined) {
-              if (flags.isStarred) await client.messageFlagsAdd(uidStr, ['\\Flagged'], { uid: true });
-              else await client.messageFlagsRemove(uidStr, ['\\Flagged'], { uid: true });
+              if (flags.isStarred) this.requireImapSuccess(await client.messageFlagsAdd(uidStr, ['\\Flagged'], { uid: true }), 'IMAP komutu');
+              else this.requireImapSuccess(await client.messageFlagsRemove(uidStr, ['\\Flagged'], { uid: true }), 'IMAP komutu');
             }
           } finally {
             lock.release();
@@ -815,16 +905,14 @@ export class ImapService {
       ? getAccounts().filter(a => a.provider !== 'demo')
       : [getAccountById(accountId)].filter(Boolean) as Account[];
 
-    if (targetAccounts.length === 0) return false;
+    if (targetAccounts.length === 0) return true;
 
-    let anyEmptied = false;
+    let allSucceeded = true;
     for (const account of targetAccounts) {
       let client: ImapFlow | null = null;
       try {
         client = await this.connectClient(account);
         const mailboxes = await client.list();
-
-        // Find trash mailbox
         const trashMailbox = mailboxes.find((mb: any) => {
           const special = (mb.specialUse || '').toLowerCase();
           const p = mb.path.toLowerCase();
@@ -832,36 +920,34 @@ export class ImapService {
           return special === '\\trash' || /trash|çöp|cop|deleted|silinmiş|silinmis/i.test(p) || /trash|çöp|cop|deleted|silinmiş|silinmis/i.test(n);
         });
 
-        if (!trashMailbox) continue;
+        if (!trashMailbox) {
+          allSucceeded = false;
+          continue;
+        }
 
         const lock = await client.getMailboxLock(trashMailbox.path);
         try {
-          if (client.mailbox && client.mailbox.exists > 0) {
-            const uids = await client.search({ all: true }, { uid: true });
-            if (Array.isArray(uids) && uids.length > 0) {
-              const CHUNK_SIZE = 100;
-              for (let i = 0; i < uids.length; i += CHUNK_SIZE) {
-                const chunk = uids.slice(i, i + CHUNK_SIZE);
-                const uidStr = chunk.join(',');
-                try {
-                  await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
-                  await client.messageDelete(uidStr, { uid: true });
-                } catch {}
-              }
-              anyEmptied = true;
+          const uids = await client.search({ all: true }, { uid: true });
+          if (Array.isArray(uids)) {
+            const CHUNK_SIZE = 100;
+            for (let i = 0; i < uids.length; i += CHUNK_SIZE) {
+              const uidStr = uids.slice(i, i + CHUNK_SIZE).join(',');
+              this.requireImapSuccess(await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true }), 'IMAP komutu');
+              this.requireImapSuccess(await client.messageDelete(uidStr, { uid: true }), 'IMAP komutu');
             }
           }
         } finally {
           lock.release();
         }
       } catch (err) {
+        allSucceeded = false;
         console.warn(`Could not empty trash on server for account ${account.email}:`, err);
       } finally {
         if (client) await client.logout().catch(() => {});
       }
     }
 
-    return anyEmptied;
+    return allSucceeded;
   }
 
   public static async resolveServerMailboxPath(client: ImapFlow, accountId: string, folderNameOrPath: string): Promise<string> {

@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, Notification, dialog, Tray, Menu, nativeIma
 const path = require('path');
 const fs = require('fs');
 const { recordStartupError } = require('./startup.cjs');
+const { findOAuthCallbackArg } = require('./oauth-protocol.cjs');
 
 let mainWindow = null;
 let tray = null;
@@ -10,8 +11,26 @@ let isQuitting = false;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 let PORT = process.env.PORT || 3001;
 const ownsInstance = app.requestSingleInstanceLock();
+let pendingOAuthReturn = Boolean(findOAuthCallbackArg(process.argv));
 if (!ownsInstance) app.quit();
-app.on('second-instance', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });
+
+function focusMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+app.on('second-instance', (_event, argv) => {
+  if (findOAuthCallbackArg(argv)) pendingOAuthReturn = true;
+  focusMainWindow();
+});
+app.on('open-url', (event, url) => {
+  if (!findOAuthCallbackArg([url])) return;
+  event.preventDefault();
+  pendingOAuthReturn = true;
+  focusMainWindow();
+});
 
 // Default Desktop Preferences
 const defaultSettings = {
@@ -337,11 +356,20 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   if (!ownsInstance) return;
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('postaci', process.execPath, [path.resolve(process.argv[1])]);
+  } else {
+    app.setAsDefaultProtocolClient('postaci');
+  }
   desktopSettings = loadDesktopSettings();
   if (!await startBackend()) { app.quit(); return; }
 
   createWindow();
   setupTray();
+  if (pendingOAuthReturn) {
+    pendingOAuthReturn = false;
+    focusMainWindow();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

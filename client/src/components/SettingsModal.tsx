@@ -178,7 +178,6 @@ export const SettingsModal: React.FC = () => {
     refreshStats,
     viewLayout,
     setViewLayout,
-    triggerSync,
   } = useMail();
 
   const { theme, setTheme, accentColor, setAccentColor, density, setDensity } = useTheme();
@@ -371,50 +370,61 @@ export const SettingsModal: React.FC = () => {
     }).catch(() => {});
   }, []);
 
-  const initialAccountIdsRef = useRef<Set<string>>(new Set());
+  const [oauthState, setOAuthState] = useState<string | null>(null);
 
-  // Active polling listener when Google OAuth popup is active in browser
+  // Track this exact OAuth attempt. This also detects reconnecting an existing account.
   useEffect(() => {
-    if (!isWaitingOAuth) return;
+    if (!isWaitingOAuth || !oauthState) return;
 
     let isDone = false;
-    const checkOAuthAccounts = async () => {
+    const finish = () => {
+      isDone = true;
+      setIsWaitingOAuth(false);
+      setOAuthState(null);
+    };
+    const checkOAuthStatus = async () => {
       if (isDone) return;
       try {
-        const currentAccounts = await api.getAccounts();
-        const newAcc = currentAccounts.find((a: Account) => !initialAccountIdsRef.current.has(a.id)) ||
-                       (currentAccounts.length > initialAccountIdsRef.current.size ? currentAccounts[currentAccounts.length - 1] : null);
-
-        if (newAcc || currentAccounts.length > initialAccountIdsRef.current.size) {
-          isDone = true;
-          setIsWaitingOAuth(false);
-          await refreshAccounts();
-          if (newAcc?.id) {
-            setActiveAccountId(newAcc.id);
-          }
-          success(`${newAcc?.email || 'Google'} hesabı başarıyla bağlandı! 🎉`, 'Giriş Başarılı');
-          refreshEmails();
-          refreshStats();
-          triggerSync();
-          handleResetForm();
-          setIsFormOpen(false);
-          setEditingAccountId(null);
-          setSelectedProviderKey(null);
-          setActiveTab('accounts');
+        const result = await api.getGoogleAuthStatus(oauthState);
+        if (result.status === 'pending') return;
+        if (result.status === 'error') {
+          finish();
+          error(result.message || 'Google yetkilendirmesi tamamlanamadı.', 'Google Giriş Hatası');
+          return;
         }
-      } catch {}
+
+        finish();
+        await refreshAccounts();
+        setActiveAccountId(result.account.id);
+        success(`${result.account.email || 'Google'} hesabı başarıyla bağlandı! 🎉`, 'Giriş Başarılı');
+        await Promise.all([refreshEmails(), refreshStats()]);
+        handleResetForm();
+        setIsFormOpen(false);
+        setEditingAccountId(null);
+        setSelectedProviderKey(null);
+        setActiveTab('accounts');
+      } catch (err: any) {
+        console.warn('Google yetkilendirme durumu geçici olarak alınamadı:', err);
+      }
     };
 
-    const interval = setInterval(checkOAuthAccounts, 1000);
+    void checkOAuthStatus();
+    const interval = setInterval(checkOAuthStatus, 750);
+    const timeout = setTimeout(() => {
+      if (!isDone) {
+        finish();
+        error('Google girişi zaman aşımına uğradı. Lütfen yeniden deneyin.', 'Google Giriş Hatası');
+      }
+    }, 5 * 60 * 1000);
     return () => {
       isDone = true;
       clearInterval(interval);
+      clearTimeout(timeout);
     };
-  }, [isWaitingOAuth, refreshAccounts, setActiveAccountId, refreshEmails, refreshStats, triggerSync, success]);
+  }, [isWaitingOAuth, oauthState, refreshAccounts, setActiveAccountId, refreshEmails, refreshStats, success, error]);
 
   const handleStartGoogleOAuth = async () => {
     setIsSavingOAuth(true);
-    initialAccountIdsRef.current = new Set(accounts.map((a: Account) => a.id));
     try {
       if (googleClientId.trim()) {
         localStorage.setItem('postaci_google_client_id', googleClientId.trim());
@@ -424,18 +434,20 @@ export const SettingsModal: React.FC = () => {
         });
       }
       const res = await api.getGoogleAuthUrl(googleClientId.trim() || undefined);
-      if (res.url) {
+      if (res.url && res.state) {
+        setOAuthState(res.state);
         setIsWaitingOAuth(true);
         if ((window as any).electronAPI?.openOAuthWindow) {
-          (window as any).electronAPI.openOAuthWindow(res.url);
+          await (window as any).electronAPI.openOAuthWindow(res.url);
         } else {
           handleOpenExternal(res.url);
         }
-        info('Google yetkilendirme penceresi açıldı. Giriş yaptığınızda Postacı otomatik olarak bağlanacaktır.');
+        info('Google yetkilendirme penceresi açıldı. İşlem bitince Postacı yeniden öne gelecektir.');
       }
     } catch (err: any) {
       error(err.message || 'Google yetkilendirmesi başlatılamadı.');
       setIsWaitingOAuth(false);
+      setOAuthState(null);
     } finally {
       setIsSavingOAuth(false);
     }
@@ -1945,7 +1957,7 @@ export const SettingsModal: React.FC = () => {
                   </div>
 
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.5' }}>
-                    Google OAuth 2.0 tarayıcı girişlerini etkinleştirmek için Google Cloud Console'dan aldığınız İstemci Kimliğini (Client ID) buraya kaydedin:
+                    Google Cloud Console'da <strong>Masaüstü uygulaması (Desktop app)</strong> türünde oluşturduğunuz OAuth istemci kimliğini buraya kaydedin:
                   </p>
 
                   <div>
@@ -1972,7 +1984,7 @@ export const SettingsModal: React.FC = () => {
 
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '3px' }}>
-                      Google İstemci Gizli Anahtarı (Client Secret)
+                      Google İstemci Gizli Anahtarı (Client Secret — isteğe bağlı)
                     </label>
                     <input
                       type="password"
@@ -2000,7 +2012,7 @@ export const SettingsModal: React.FC = () => {
                     borderRadius: 'var(--radius-sm)',
                     lineHeight: '1.5'
                   }}>
-                    <div>Google Cloud Console'da Desktop app türünde istemci kullanın. Bu oturumun yerel dönüş adresi:</div>
+                    <div><strong>“Bu uygulama güvenli değil” uyarısı alırsanız:</strong> OAuth izin ekranını yapılandırın ve Yayın durumu “Test” ise Gmail adresinizi Test kullanıcıları listesine ekleyin. Masaüstü uygulaması türü bu yerel dönüş adresini otomatik kullanır:</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
                       <code style={{ background: '#090d16', padding: '2px 6px', borderRadius: '4px', color: '#38bdf8', fontSize: '11px' }}>
                         {googleRedirectUri || 'Sunucu adresi alınamadı'}

@@ -1,6 +1,6 @@
 {
   "name": "postaci",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "type": "module",
   "description": "Postaci",
   "author": "eekilinc <ekilinc@mehmetakif.edu.tr>",
@@ -86,7 +86,15 @@
       "target": [
         "dmg"
       ]
-    }
+    },
+    "protocols": [
+      {
+        "name": "Postacı OAuth Callback",
+        "schemes": [
+          "postaci"
+        ]
+      }
+    ]
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

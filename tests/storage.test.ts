@@ -42,6 +42,15 @@ test('pin and snooze survive writes and reads', () => {
   assert.equal(db.getEmailById(email(2).id)!.isPinned, true);
   assert.equal(db.getEmailById(email(2).id)!.snoozedUntil, '2030-01-01T00:00:00.000Z');
 });
+test('folder moves persist the server mailbox identity used by later deletes', () => {
+  const target = email(3);
+  db.updateEmailFlags(target.id, { folder: 'TRASH', isDeleted: true, mailboxPath: 'TRASH', imapUid: 0 });
+  const moved = db.getEmailById(target.id)!;
+  assert.equal(moved.folder, 'TRASH');
+  assert.equal(moved.mailboxPath, 'TRASH');
+  assert.equal(moved.imapUid, 0);
+});
+
 test('backup includes OAuth, mail, attachments, contacts, calendar and folders', () => {
   const message = email(800);
   message.attachments = [{ id: 'attachment', filename: 'file.txt', contentType: 'text/plain', size: 4, contentBase64: 'dGVzdA==' }];

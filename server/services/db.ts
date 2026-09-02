@@ -1713,6 +1713,13 @@ export function updateEmailFlags(id: string, updates: Partial<{
     if (idx === -1) return undefined;
     memStore.emails[idx] = { ...memStore.emails[idx], ...updates };
     saveJsonStore();
+
+    // If email is moved to TRASH, mark it as deleted locally to prevent resurrection during sync
+    if (updates.isDeleted === true && updates.folder === 'TRASH') {
+      const email = memStore.emails[idx];
+      markDeletedLocally({ id: email.id, messageId: email.messageId, accountId: email.accountId, imapUid: email.imapUid, mailboxPath: email.mailboxPath });
+    }
+
     return memStore.emails[idx];
   }
 
@@ -1748,6 +1755,14 @@ export function updateEmailFlags(id: string, updates: Partial<{
     sets.push('folder = @folder');
     params.folder = updates.folder;
   }
+  if (updates.mailboxPath !== undefined) {
+    sets.push('mailboxPath = @mailboxPath');
+    params.mailboxPath = updates.mailboxPath;
+  }
+  if (updates.imapUid !== undefined) {
+    sets.push('imapUid = @imapUid');
+    params.imapUid = updates.imapUid;
+  }
   if (updates.isPinned !== undefined) { sets.push('isPinned = @isPinned'); params.isPinned = updates.isPinned ? 1 : 0; }
   if (updates.snoozedUntil !== undefined) { sets.push('snoozedUntil = @snoozedUntil'); params.snoozedUntil = updates.snoozedUntil; }
   if (updates.labels !== undefined) {
@@ -1757,6 +1772,14 @@ export function updateEmailFlags(id: string, updates: Partial<{
 
   if (sets.length > 0) {
     db.prepare(`UPDATE emails SET ${sets.join(', ')} WHERE id = @id`).run(params);
+  }
+
+  // If email is moved to TRASH, mark it as deleted locally to prevent resurrection during sync
+  if (updates.isDeleted === true && updates.folder === 'TRASH') {
+    const email = getEmailById(targetId);
+    if (email) {
+      markDeletedLocally({ id: email.id, messageId: email.messageId, accountId: email.accountId, imapUid: email.imapUid, mailboxPath: email.mailboxPath });
+    }
   }
 
   return getEmailById(targetId);

@@ -36,6 +36,11 @@ export async function fetchSafe(url: string, options: RequestInit = {}): Promise
   throw new Error('Yerel sunucuya ulaşılamadı.');
 }
 
+async function responseError(res: Response, fallback: string): Promise<Error> {
+  const body = await res.json().catch(() => ({}));
+  return new Error(body?.error || fallback);
+}
+
 export const api = {
   // Accounts
   async getAccounts(): Promise<Account[]> {
@@ -60,13 +65,23 @@ export const api = {
     return res.json();
   },
 
-  async getGoogleAuthUrl(clientId?: string): Promise<{ url: string }> {
+  async getGoogleAuthUrl(clientId?: string): Promise<{ url: string; state: string }> {
     const query = clientId ? `?clientId=${encodeURIComponent(clientId)}` : '';
     const res = await fetchSafe(`${API_BASE}/auth/google/url${query}`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Google yetkilendirme bağlantısı alınamadı.');
     }
+    return res.json();
+  },
+
+  async getGoogleAuthStatus(state: string): Promise<
+    { status: 'pending' } |
+    { status: 'success'; account: Account } |
+    { status: 'error'; message: string }
+  > {
+    const res = await fetchSafe(`${API_BASE}/auth/google/status?state=${encodeURIComponent(state)}`);
+    if (!res.ok) throw await responseError(res, 'Google yetkilendirme sonucu alınamadı.');
     return res.json();
   },
 
@@ -137,6 +152,7 @@ export const api = {
 
   async syncAccount(id: string): Promise<{ success: boolean; syncedCount: number }> {
     const res = await fetchSafe(`${API_BASE}/accounts/${id}/sync`, { method: 'POST' });
+    if (!res.ok) throw await responseError(res, 'Hesap senkronize edilemedi.');
     return res.json();
   },
 
@@ -155,6 +171,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accountId, mailboxPath }),
     });
+    if (!res.ok) throw await responseError(res, 'Klasör senkronize edilemedi.');
     return res.json();
   },
 
@@ -211,7 +228,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
     });
-    if (!res.ok) throw new Error('E-posta durumu güncellenemedi.');
+    if (!res.ok) throw await responseError(res, 'E-posta durumu güncellenemedi.');
     return res.json();
   },
 
@@ -229,7 +246,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids, updates }),
     });
-    if (!res.ok) throw new Error('Toplu e-posta güncelleme başarısız oldu.');
+    if (!res.ok) throw await responseError(res, 'Toplu e-posta güncelleme başarısız oldu.');
     return res.json();
   },
 
@@ -239,7 +256,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids }),
     });
-    if (!res.ok) throw new Error('Toplu silme işlemi başarısız oldu.');
+    if (!res.ok) throw await responseError(res, 'Toplu silme işlemi başarısız oldu.');
     return res.json();
   },
 
@@ -249,13 +266,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accountId: accountId === 'all' ? undefined : accountId }),
     });
-    if (!res.ok) throw new Error('Çöp kutusu boşaltılamadı.');
+    if (!res.ok) throw await responseError(res, 'Çöp kutusu boşaltılamadı.');
     return res.json();
   },
 
   async deleteEmailPermanent(id: string): Promise<boolean> {
     const res = await fetchSafe(`${API_BASE}/emails/${id}`, { method: 'DELETE' });
-    return res.ok;
+    if (!res.ok) throw await responseError(res, 'E-posta kalıcı olarak silinemedi.');
+    return true;
   },
 
   async getFolderStats(accountId?: string): Promise<FolderStat[]> {

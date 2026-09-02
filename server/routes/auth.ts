@@ -2,6 +2,10 @@ import { Router, type Request, type Response } from 'express';
 import { OAuthService } from '../services/oauthService.js';
 import { ImapService } from '../services/imapService.js';
 import { publicAccount } from '../services/secrets.js';
+import { beginOAuthAttempt, completeOAuthAttempt, failOAuthAttempt, getOAuthAttempt } from '../services/oauthAttemptStatus.js';
+
+const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
+const returnToApp = '<a class="btn" href="postaci://oauth-complete">Postacı uygulamasına dön</a>';
 export function authRoutes(broadcastSSE: (event: string, data: unknown) => void, port: string | number | (() => number)) {
 const getPort = () => typeof port === 'function' ? port() : port;
 const getRedirectUri = () => 'http://127.0.0.1:' + getPort() + '/api/auth/google/callback';
@@ -31,13 +35,26 @@ router.get('/api/auth/google/url', (req: Request, res: Response) => {
     const clientId = (req.query.clientId as string) || undefined;
     const redirectUri = getRedirectUri();
     const url = OAuthService.getGoogleAuthUrl(redirectUri, clientId);
-    res.json({ url });
+    const state = new URL(url).searchParams.get('state');
+    if (!state) throw new Error('OAuth güvenlik durumu oluşturulamadı.');
+    beginOAuthAttempt(state);
+    res.json({ url, state });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
 });
 
+router.get('/api/auth/google/status', (req: Request, res: Response) => {
+  const state = String(req.query.state || '');
+  if (!state) return res.status(400).json({ error: 'OAuth güvenlik durumu eksik.' });
+  const result = getOAuthAttempt(state);
+  if (!result) return res.status(404).json({ error: 'Yetkilendirme isteği bulunamadı veya süresi doldu.' });
+  if (result.status === 'success') return res.json({ ...result, account: publicAccount(result.account) });
+  return res.json(result);
+});
+
 router.get('/api/auth/google/callback', async (req: Request, res: Response) => {
+  const state = String(req.query.state || '');
   try {
     const code = req.query.code as string;
     const errorQuery = req.query.error as string;
@@ -45,15 +62,18 @@ router.get('/api/auth/google/callback', async (req: Request, res: Response) => {
       throw new Error(`Google yetkilendirmesi reddedildi veya iptal edildi (${errorQuery}).`);
     }
     if (!code) {
-      return res.status(400).send('Yetkilendirme kodu (Authorization code) bulunamadı.');
+      throw new Error('Yetkilendirme kodu (Authorization code) bulunamadı.');
     }
 
     const redirectUri = getRedirectUri();
-    const account = await OAuthService.handleGoogleCallback(code, redirectUri, String(req.query.state || ''));
+    const account = await OAuthService.handleGoogleCallback(code, redirectUri, state);
+    completeOAuthAttempt(state, account);
     broadcastSSE('accounts_updated', publicAccount(account));
 
     // Auto-sync the new Google account in background
-    ImapService.syncAccount(account.id).catch(() => {});
+    ImapService.syncAccount(account.id).catch((syncError: any) => {
+      broadcastSSE('sync_error', { accountId: account.id, message: syncError?.message || 'İlk senkronizasyon tamamlanamadı.' });
+    });
 
     res.send(`
       <!DOCTYPE html>
@@ -61,6 +81,7 @@ router.get('/api/auth/google/callback', async (req: Request, res: Response) => {
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta http-equiv="refresh" content="1;url=postaci://oauth-complete">
           <title>Google Girişi Başarılı — Postacı</title>
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
@@ -78,19 +99,21 @@ router.get('/api/auth/google/callback', async (req: Request, res: Response) => {
             <p><strong>${account.email}</strong> Google hesabınız başarıyla eklendi ve senkronizasyon başlatıldı.</p>
             <p style="font-size: 13px; color: #64748b;">Postacı masaüstü uygulamasına dönebilirsiniz.</p>
             <p>Bu sekmeyi kapatıp Postacı uygulamasına dönebilirsiniz.</p>
-
+            ${returnToApp}
           </div>
         </body>
       </html>
     `);
   } catch (err: any) {
     console.error('Google OAuth callback error:', err);
-    res.status(500).send(`
+    failOAuthAttempt(state, err.message || 'Yetkilendirme tamamlanamadı.');
+    res.status(400).send(`
       <!DOCTYPE html>
       <html lang="tr">
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta http-equiv="refresh" content="1;url=postaci://oauth-complete">
           <title>Google Giriş Durumu — Postacı</title>
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
@@ -99,17 +122,19 @@ router.get('/api/auth/google/callback', async (req: Request, res: Response) => {
             p { color: #cbd5e1; line-height: 1.6; font-size: 14px; }
             .alert-box { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 12px; margin: 16px 0; font-family: monospace; font-size: 13px; color: #fca5a5; word-break: break-all; }
             .solution { background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 14px; margin-top: 16px; text-align: left; font-size: 13px; color: #93c5fd; }
+            .btn { display: inline-block; background: #3b82f6; color: white; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 16px; }
           </style>
         </head>
         <body>
           <div class="card">
             <h2>Google Yetkilendirme Bildirimi</h2>
-            <div class="alert-box">${String(err.message || 'Yetkilendirme tamamlanamadı.').replace(/[&<>"']/g, (c: string) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] || c))}</div>
+            <div class="alert-box">${escapeHtml(err.message || 'Yetkilendirme tamamlanamadı.')}</div>
             <div class="solution">
               <strong>💡 En Hızlı ve Sorunsuz Çözüm:</strong><br>
               Postacı uygulamasında <strong>Hesap Ekle &gt; Gmail</strong> ekranında <strong>"Uygulama Şifresi Kullan"</strong> seçeneğini seçip 16 haneli Google Uygulama Şifrenizle tek tıkla ve şartsız bağlanabilirsiniz.
             </div>
             <p style="margin-top: 20px; font-size: 12px; color: #64748b;">Postacı uygulamasına dönüp işlemi tamamlayabilirsiniz.</p>
+            ${returnToApp}
           </div>
         </body>
       </html>
