@@ -87,8 +87,18 @@ async function startBackend() {
         }
       }
       process.env.POSTACI_DATA_DIR = userDataDir;
-      // Dynamic port allocation (port 0): Windows guarantees a free port, completely eliminating any EADDRINUSE conflicts with port 3001 or any other application
-      process.env.PORT = process.env.PORT || '0';
+      // Smart port selection: prefer 3001 for OAuth redirect URI consistency,
+      // but gracefully fall back to dynamic port 0 if 3001 is occupied by another app
+      if (!process.env.PORT) {
+        const net = require('node:net');
+        const is3001Free = await new Promise((resolve) => {
+          const tester = net.createServer();
+          tester.once('error', () => resolve(false));
+          tester.once('listening', () => tester.close(() => resolve(true)));
+          tester.listen(3001, '127.0.0.1');
+        });
+        process.env.PORT = is3001Free ? '3001' : '0';
+      }
       process.env.POSTACI_DESKTOP = '1';
       process.env.NODE_ENV = 'production';
       if (safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text')) {
@@ -453,7 +463,7 @@ ipcMain.on('open-external', (event, url) => {
   }
 });
 
-// IPC: Open OAuth in system browser (Google strictly blocks embedded Electron WebViews)
+// IPC: OAuth Popup Window (Embedded Dialog with Clean Chrome User-Agent as in v1.3.22)
 ipcMain.handle('open-oauth-window', async (event, url) => {
   if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
   const parsed = new URL(url);
@@ -461,6 +471,45 @@ ipcMain.handle('open-oauth-window', async (event, url) => {
     throw new Error('Invalid OAuth URL');
   }
 
-  await shell.openExternal(parsed.href);
-  return { opened: true };
+  return new Promise((resolve) => {
+    const authWindow = new BrowserWindow({
+      width: 540,
+      height: 700,
+      parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+      modal: true,
+      show: true,
+      title: 'Google Girişi — Postacı',
+      autoHideMenuBar: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      }
+    });
+
+    const chromeUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+    authWindow.webContents.setUserAgent(chromeUserAgent);
+
+    authWindow.loadURL(parsed.href, { userAgent: chromeUserAgent });
+
+    const checkCallback = () => {
+      if (authWindow.isDestroyed()) return;
+      const currentUrl = authWindow.webContents.getURL();
+      if (currentUrl.includes('/api/auth/google/callback') && !currentUrl.includes('error=')) {
+        setTimeout(() => {
+          if (!authWindow.isDestroyed()) {
+            authWindow.close();
+          }
+          resolve({ success: true });
+        }, 1200);
+      }
+    };
+
+    authWindow.webContents.on('did-finish-load', checkCallback);
+    authWindow.webContents.on('did-navigate', checkCallback);
+
+    authWindow.on('closed', () => {
+      resolve({ closed: true });
+    });
+  });
 });

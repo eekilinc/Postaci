@@ -1,5 +1,12 @@
 # Değişiklik kaydı
 
+## 1.4.11 — 2026-09-04
+
+- **Hazır Google OAuth İstemci Kimliği & Akıllı Port Yönetimi**:
+  - v1.3.22 sürümündeki hazır Google OAuth Client ID ve Client Secret anahtarları tekrar varsayılan olarak geri yüklendi (`789045427209-boh4tqlvsgivef1lb3nmmco4bibk1lpp...`).
+  - Akıllı port seçimi eklendi: Masaüstü uygulaması açılırken öncelikle standart 3001 portunun boş olup olmadığını kontrol eder. 3001 boşsa OAuth adres uyumluluğu için 3001'i alır; eğer başka bir uygulama 3001'i kullanıyorsa asla çökmez, otomatik olarak sıradaki dinamik boş portu tahsis eder.
+  - Uygulama içi modal yetkilendirme penceresi v1.3.22 standartlarında (Chrome 131 User-Agent) tekrar aktif hale getirildi.
+
 ## 1.4.10 — 2026-09-04
 
 - **Google OAuth Güvenlik Politikası & Sabit Port (3001) Uyumluluğu**:
