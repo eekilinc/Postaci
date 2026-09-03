@@ -87,8 +87,8 @@ async function startBackend() {
         }
       }
       process.env.POSTACI_DATA_DIR = userDataDir;
-      // Use stable port 3001 for OAuth redirect URI consistency (fallback if occupied)
-      process.env.PORT = process.env.PORT || '3001';
+      // Dynamic port allocation (port 0): Windows guarantees a free port, completely eliminating any EADDRINUSE conflicts with port 3001 or any other application
+      process.env.PORT = process.env.PORT || '0';
       process.env.POSTACI_DESKTOP = '1';
       process.env.NODE_ENV = 'production';
       if (safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text')) {
