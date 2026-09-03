@@ -539,16 +539,19 @@ export class ImapService {
 
     try {
       const client = await this.getOrCreateClient(account);
-      const targetPath = await this.resolveServerMailboxPath(client, account.id, targetFolder);
-      const sourcePath = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
+      const rawTarget = await this.resolveServerMailboxPath(client, account.id, targetFolder);
+      const rawSource = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
+      const targetPath = decodeImapUtf7(rawTarget);
+      const sourcePath = decodeImapUtf7(rawSource);
 
       // Check if target folder exists on server (or is INBOX / resolved)
       const cachedMailboxes = this.mailboxListCache.get(account.id)?.mailboxes || [];
-      const targetFound = targetFolder === 'INBOX' || cachedMailboxes.some((m: any) =>
-        m.path === targetPath || decodeImapUtf7(m.path) === targetPath || m.path.toLowerCase() === targetPath.toLowerCase()
-      );
+      const targetFound = targetFolder === 'INBOX' || cachedMailboxes.some((m: any) => {
+        const p = decodeImapUtf7(m.path);
+        return p === targetPath || m.path === targetPath || p.toLowerCase() === targetPath.toLowerCase();
+      });
 
-      if (!targetFound && targetPath === targetFolder.toUpperCase() && targetFolder !== 'INBOX') {
+      if (!targetFound && targetPath.toUpperCase() === targetFolder.toUpperCase() && targetFolder !== 'INBOX') {
         console.warn(`Target folder "${targetFolder}" not found on server for account ${account.email}, resolved to: ${targetPath}`);
         return false;
       }
@@ -632,15 +635,17 @@ export class ImapService {
 
     try {
       const client = await this.getOrCreateClient(account);
-      const targetPath = await this.resolveServerMailboxPath(client, account.id, targetFolder);
+      const rawTarget = await this.resolveServerMailboxPath(client, account.id, targetFolder);
+      const targetPath = decodeImapUtf7(rawTarget);
 
       // Check if target folder exists on server (or is INBOX / resolved)
       const cachedMailboxes = this.mailboxListCache.get(account.id)?.mailboxes || [];
-      const targetFound = targetFolder === 'INBOX' || cachedMailboxes.some((m: any) =>
-        m.path === targetPath || decodeImapUtf7(m.path) === targetPath || m.path.toLowerCase() === targetPath.toLowerCase()
-      );
+      const targetFound = targetFolder === 'INBOX' || cachedMailboxes.some((m: any) => {
+        const p = decodeImapUtf7(m.path);
+        return p === targetPath || m.path === targetPath || p.toLowerCase() === targetPath.toLowerCase();
+      });
 
-      if (!targetFound && targetPath === targetFolder.toUpperCase() && targetFolder !== 'INBOX') {
+      if (!targetFound && targetPath.toUpperCase() === targetFolder.toUpperCase() && targetFolder !== 'INBOX') {
         console.warn(`Target folder "${targetFolder}" not found on server for account ${account.email}, resolved to: ${targetPath}`);
         return false;
       }
@@ -716,7 +721,8 @@ export class ImapService {
 
     try {
       const client = await this.getOrCreateClient(account);
-      const sourcePath = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
+      const rawSource = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
+      const sourcePath = decodeImapUtf7(rawSource);
 
       const lock = await client.getMailboxLock(sourcePath, { acquireTimeout: 15000 });
       try {
@@ -1005,14 +1011,14 @@ export class ImapService {
              decP === lowerTarget ||
              decN === lowerTarget;
     });
-    if (exact) return exact.path;
+    if (exact) return decodeImapUtf7(exact.path);
 
     // Semantic match
     const targetFolder = folderNameOrPath.toUpperCase();
     for (const mb of mailboxes) {
       const mapped = this.mapMailboxToFolder(mb);
       if (mapped.folder.toUpperCase() === targetFolder) {
-        return mb.path;
+        return decodeImapUtf7(mb.path);
       }
     }
 
@@ -1025,7 +1031,7 @@ export class ImapService {
                /trash|çöp|cop|deleted|silinmiş|silinmis|bin/i.test(decN) ||
                /trash|bin/i.test(m.path) || /trash|bin/i.test(m.name);
       });
-      if (trashMb) return trashMb.path;
+      if (trashMb) return decodeImapUtf7(trashMb.path);
 
       // If no trash folder exists on server at all, attempt to create 'Trash'
       try {
@@ -1038,7 +1044,7 @@ export class ImapService {
       }
     }
 
-    return folderNameOrPath;
+    return decodeImapUtf7(folderNameOrPath);
   }
 
   public static async syncAccount(accountId: string, options?: { onlyInbox?: boolean }): Promise<{ syncedCount: number }> {
@@ -1104,17 +1110,26 @@ export class ImapService {
       // Prioritize core standard mailboxes (INBOX first, then Sent, Trash, Drafts, Junk, Spam)
       const isCore = (mb: any) => {
         if (isGmailVirtualSkip(mb)) return false;
-        const p = mb.path.toUpperCase();
+        const mapped = this.mapMailboxToFolder(mb);
+        if (['INBOX', 'SENT', 'TRASH', 'DRAFTS', 'SPAM', 'ARCHIVE'].includes(mapped.folder)) {
+          return true;
+        }
+        const decP = decodeImapUtf7(mb.path).toLowerCase();
+        const decN = decodeImapUtf7(mb.name || '').toLowerCase();
+        const rawP = (mb.path || '').toLowerCase();
         const s = (mb.specialUse || '').toUpperCase();
-        return p === 'INBOX' || s === '\\INBOX' || s === '\\SENT' || s === '\\TRASH' || s === '\\DRAFTS' || s === '\\JUNK' || s === '\\ALL' || s === '\\ARCHIVE' ||
-          /sent|trash|çöp|draft|taslak|junk|spam|all mail|tüm postalar|arsiv|archive/i.test(mb.path);
+        return s === '\\INBOX' || s === '\\SENT' || s === '\\TRASH' || s === '\\DRAFTS' || s === '\\JUNK' || s === '\\ALL' || s === '\\ARCHIVE' ||
+          /sent|trash|çöp|cop|draft|taslak|junk|spam|silinmiş|silinmis|deleted|bin|arsiv|archive/i.test(decP) ||
+          /sent|trash|çöp|cop|draft|taslak|junk|spam|silinmiş|silinmis|deleted|bin|arsiv|archive/i.test(decN) ||
+          /sent|trash|cop|draft|junk|spam|deleted|bin|archive/i.test(rawP);
       };
 
       const sortedMailboxes = onlyInbox
         ? mailboxes.filter(m => m.path.toUpperCase() === 'INBOX' || (m.specialUse || '').toUpperCase() === '\\INBOX')
         : [
             ...mailboxes.filter(m => m.path.toUpperCase() === 'INBOX' || (m.specialUse || '').toUpperCase() === '\\INBOX'),
-            ...mailboxes.filter(m => m.path.toUpperCase() !== 'INBOX' && (m.specialUse || '').toUpperCase() !== '\\INBOX' && isCore(m))
+            ...mailboxes.filter(m => m.path.toUpperCase() !== 'INBOX' && (m.specialUse || '').toUpperCase() !== '\\INBOX' && isCore(m)),
+            ...mailboxes.filter(m => m.path.toUpperCase() !== 'INBOX' && (m.specialUse || '').toUpperCase() !== '\\INBOX' && !isCore(m) && !isGmailVirtualSkip(m))
           ];
 
       if (sortedMailboxes.length === 0 && mailboxes.length > 0) {
@@ -1474,22 +1489,24 @@ export class ImapService {
               }
             }
 
-            // TIER 2: Fast Pre-load of top 30 email bodies (prioritizing unread, then recent)
-            if (envelopeEmails.length > 0) {
+            // TIER 2: Fast Pre-load of top 5 email bodies ONLY for INBOX (never block TRASH/SPAM/other folders)
+            if (targetFolder === 'INBOX' && envelopeEmails.length > 0) {
               const unreadCandidates = envelopeEmails
                 .filter(e => !e.isRead && e.imapUid)
                 .sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0))
-                .slice(0, 20);
+                .slice(0, 5);
               for (const em of unreadCandidates) {
                 if (em.imapUid && !uidsToPreloadBody.includes(em.imapUid)) uidsToPreloadBody.push(em.imapUid);
               }
-              const recentCandidates = envelopeEmails
-                .filter(e => e.imapUid)
-                .sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0))
-                .slice(0, 20);
-              for (const em of recentCandidates) {
-                if (em.imapUid && !uidsToPreloadBody.includes(em.imapUid) && uidsToPreloadBody.length < 30) {
-                  uidsToPreloadBody.push(em.imapUid);
+              if (uidsToPreloadBody.length < 5) {
+                const recentCandidates = envelopeEmails
+                  .filter(e => e.imapUid)
+                  .sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0))
+                  .slice(0, 5 - uidsToPreloadBody.length);
+                for (const em of recentCandidates) {
+                  if (em.imapUid && !uidsToPreloadBody.includes(em.imapUid)) {
+                    uidsToPreloadBody.push(em.imapUid);
+                  }
                 }
               }
             }

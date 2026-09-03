@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/eekilinc/Postaci/releases/latest"><strong>↓ Son Sürümü İndir (v1.4.7)</strong></a>
+  <a href="https://github.com/eekilinc/Postaci/releases/latest"><strong>↓ Son Sürümü İndir (v1.4.8)</strong></a>
   · <a href="#-kurulum">Kurulum</a>
   · <a href="CHANGELOG.md">Sürüm Notları</a>
   · <a href="#-hesaplar-ve-google-oauth">OAuth</a>

@@ -170,15 +170,19 @@ test('decodeImapUtf7 correctly decodes Turkish IMAP folder names', async () => {
   assert.equal(decodeImapUtf7('T&APw-m Postalar'), 'Tüm Postalar');
 });
 
-test('resolveServerMailboxPath resolves TRASH for Turkish UTF-7 mailbox names', async () => {
+test('resolveServerMailboxPath resolves TRASH for Turkish UTF-7 mailbox names as decoded UTF-8', async () => {
   const fakeClientWithTurkishTrash = {
     list: async () => [
       { path: 'INBOX', name: 'INBOX', specialUse: '\\Inbox' },
       { path: '[Gmail]/&AMcA9g-p Kutusu', name: '&AMcA9g-p Kutusu' },
+      { path: 'Silinmi&AV8- &ANY-geler', name: 'Silinmi&AV8- &ANY-geler' },
     ],
   };
   const resolved = await ImapService.resolveServerMailboxPath(fakeClientWithTurkishTrash as any, 'turkish-acc-id', 'TRASH');
-  assert.equal(resolved, '[Gmail]/&AMcA9g-p Kutusu');
+  assert.equal(resolved, '[Gmail]/Çöp Kutusu');
+
+  const mapped = (ImapService as any).mapMailboxToFolder({ path: 'Silinmi&AV8- &ANY-geler', name: 'Silinmi&AV8- &ANY-geler' });
+  assert.equal(mapped.folder, 'TRASH');
 });
 
 test('pruneMissingServerUids preserves TRASH emails with imapUid = 0 (newly moved)', () => {

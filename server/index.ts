@@ -390,22 +390,30 @@ async function syncUpdateToRemote(email: Email, updates: Record<string, any>): P
   if (!isRemoteMail(email)) return updates;
 
   if (updates.isRead !== undefined || updates.isStarred !== undefined) {
-    const flagsUpdated = await ImapService.updateFlagsOnServer(email.accountId, email, {
-      isRead: updates.isRead,
-      isStarred: updates.isStarred,
-    });
-    if (!flagsUpdated) throw new RemoteMailSyncError('İleti bayrakları posta sunucusunda güncellenemedi.');
+    try {
+      await ImapService.updateFlagsOnServer(email.accountId, email, {
+        isRead: updates.isRead,
+        isStarred: updates.isStarred,
+      });
+    } catch (err: any) {
+      console.warn(`Remote flag sync warning for ${email.id}:`, err.message);
+    }
   }
 
   if (updates.folder === 'SNOOZED') return updates;
 
   if (updates.folder || updates.isDeleted) {
     const targetFolder = (updates.folder === 'TRASH' || updates.isDeleted) ? 'TRASH' : (updates.folder || 'INBOX');
-    const moved = await ImapService.moveMessageOnServer(email.accountId, email, targetFolder);
-    if (!moved) throw new RemoteMailSyncError('İleti posta sunucusunda hedef klasöre taşınamadı.');
-    // UID is per-mailbox; after a successful MOVE the old UID is stale in the new folder.
-    // Clear it so subsequent ops (e.g. permanent delete from TRASH) use messageId fallback
-    // and so the next sync can assign the correct new UID.
+    try {
+      const moved = await ImapService.moveMessageOnServer(email.accountId, email, targetFolder);
+      if (!moved) {
+        console.warn(`[RemoteMove] moveMessageOnServer returned false for ${email.id} to ${targetFolder}`);
+      }
+    } catch (err: any) {
+      console.warn(`[RemoteMove] moveMessageOnServer error for ${email.id} to ${targetFolder}:`, err.message);
+    }
+    // UID is per-mailbox; after a move the old UID is stale in the new folder.
+    // Clear it so subsequent ops use messageId fallback and so the next sync can assign the new UID.
     return { ...updates, folder: targetFolder, isDeleted: targetFolder === 'TRASH' ? true : (updates.isDeleted ?? false), mailboxPath: targetFolder, imapUid: 0 };
   }
 
@@ -421,11 +429,7 @@ app.patch('/api/emails/:id/flags', async (req: Request, res: Response) => {
     try {
       updates = await syncUpdateToRemote(mail, req.body || {});
     } catch (syncErr: any) {
-      // If it's a flag change (e.g. mark read/star), don't block local update if remote IMAP had a transient error
-      if (updates.folder || updates.isDeleted) {
-        throw syncErr;
-      }
-      console.warn(`Remote flag sync warning for ${mail.id}:`, syncErr.message);
+      console.warn(`Remote sync warning for ${mail.id}:`, syncErr.message);
     }
 
     const updated = updateEmailFlags(req.params.id, updates);

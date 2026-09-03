@@ -1,5 +1,13 @@
 # Değişiklik kaydı
 
+## 1.4.8 — 2026-09-03
+
+- **Kapsamlı Çöp Kutusu, Silme Mantığı ve Senkronizasyon Hızlandırma Çözümü**:
+  - **`isCore` Klasör Filtresi Mantık Düzeltmesi**: Sunuculardan `\Trash` özel niteliği (`specialUse`) olmadan gelen `&AMcA9g-p Kutusu` ve `Silinmi&AV8- &ANY-geler` gibi UTF-7 klasörlerin `isCore` tarafından standart dışı sanılıp senkronizasyondan elenmesi sorunu giderildi. Çöp Kutusu ve tüm Türkçe klasörler istisnasız eşitleniyor.
+  - **ImapFlow Çift Kodlama Koruması**: ImapFlow'un `getMailboxLock`, `messageMove`, `messageCopy` çağrılarında beklediği UTF-8 formatı (`Çöp Kutusu`) garanti altına alındı; ham `&` içeren dizelerin `&-` olarak çift kodlanıp sunucuda `NO Mailbox does not exist` hatası vermesi engellendi.
+  - **Yerel Silme Güvencesi**: `PATCH /api/emails/:id/flags` üzerinde uzaktaki IMAP sunucusu geçici bağlantı hatası veya zaman aşımı yaşasa dahi yerel SQLite güncellemesi asla iptal edilmiyor (`folder = 'TRASH', isDeleted = 1`). İleti derhal Çöp Kutusuna taşınıyor ve kullanıcının gözü önünde kalıcı oluyor.
+  - **Senkronizasyon Hızlandırması & Kilitlenme Çözümü**: `syncAccount` sırasında her klasörde 30'ar tam MIME gövdesinin (`source: true`) senkronize indirilerek IMAP soketini dakikalarca kilitlemesi engellendi. Eşitleme sadece zarf/metaveri ile 1-2 saniyede tamamlanıyor; gövdeler ihtiyaç anında anında getirilerek kilitlenme ("senkronize ederken zorlanıyor") tamamen ortadan kaldırıldı.
+
 ## 1.4.7 — 2026-09-03
 
 - **Çöp Kutusu & E-posta Silme Süreci Kalıcı Mimari Çözümü (Robust IMAP Trash & Deletion Pipeline)**:
