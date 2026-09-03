@@ -1,5 +1,12 @@
 # Değişiklik kaydı
 
+## 1.4.9 — 2026-09-04
+
+- **Google OAuth İçiçe Tarayıcı (Embedded Popup Window) Geri Getirildi**:
+  - Dış sistem tarayıcısının açılması ve sonrasında oturum çakışmaları ("bir şeyler ters gitti") ve yönlendirme kopuklukları ("tarayıcı gidiyor geri gelemiyor") nedeniyle akışın kilitlenmesi sorunu giderildi.
+  - v1.3.22 sürümündeki pürüzsüz çalışan uygulama içi kalıcı `BrowserWindow` modal diyaloğu ve modern Chrome User-Agent başlığı (`Mozilla/5.0...`) geri yüklendi.
+  - Yetkilendirme doğrudan Postacı içinde temiz bir pencerede tamamlanıyor, onaylandığı an pencere kendi kendine kapanıyor ve Postacı ana penceresi hiçbir yere gitmeden anında hesabı aktif ediyor.
+
 ## 1.4.8 — 2026-09-03
 
 - **Kapsamlı Çöp Kutusu, Silme Mantığı ve Senkronizasyon Hızlandırma Çözümü**:
