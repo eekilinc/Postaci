@@ -1509,23 +1509,75 @@ export class ImapService {
 
     try {
       const client = await this.getOrCreateClient(account);
-      const lock = await client.getMailboxLock(mailboxPath);
+      const resolvedPath = await this.resolveServerMailboxPath(client, account.id, mailboxPath || 'INBOX');
+      // If UID missing (e.g. after TRASH move it is 0), resolve via messageId
+      let uidToFetch: number | undefined = imapUid;
+      if (!uidToFetch) {
+        const email = getEmailById(emailId);
+        if (email?.messageId) {
+          const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
+          try {
+            const lockTmp = await client.getMailboxLock(resolvedPath);
+            try {
+              const res = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
+              if (Array.isArray(res) && res.length > 0) uidToFetch = res[0];
+            } finally { lockTmp.release(); }
+          } catch {}
+        }
+      }
+      if (!uidToFetch) {
+        console.warn(`fetchFullEmailBody: no UID for ${emailId} in ${resolvedPath}`);
+        return null;
+      }
+      const lock = await Promise.race([
+        client.getMailboxLock(resolvedPath),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${resolvedPath}`)), 6000))
+      ]);
       try {
-        const message = await client.fetchOne(imapUid, {
+        const message = await client.fetchOne(uidToFetch, {
           source: true,
           envelope: true,
           flags: true,
           bodyStructure: true,
         }, { uid: true });
 
-        if (!message || !message.source) return null;
+        if (!message || !(message as any).source) {
+          // Fallback: try by messageId search inside same mailbox
+          const email = getEmailById(emailId);
+          if (email?.messageId) {
+            const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
+            try {
+              const res = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
+              const altUid = Array.isArray(res) && res.length > 0 ? res[0] : null;
+              if (altUid && altUid !== uidToFetch) {
+                const altMsg: any = await client.fetchOne(altUid, { source: true }, { uid: true });
+                if (altMsg?.source) {
+                  const parsedAlt: any = await simpleParser(altMsg.source);
+                  const bodyTextAlt = parsedAlt.textAsHtml ? '' : (parsedAlt.text || '');
+                  const textAlt = parsedAlt.text || '';
+                  const htmlAlt = parsedAlt.html || (textAlt ? `<p>${textAlt.replace(/\n/g, '<br>')}</p>` : '<p>(İçerik yok)</p>');
+                  const snippetAlt = (textAlt || parsedAlt.subject || '').substring(0, 150).replace(/\s+/g, ' ');
+                  const attachmentsAlt: Attachment[] = (parsedAlt.attachments || []).map((att: any) => ({
+                    id: uuidv4(), filename: att.filename || 'ek_dosya', contentType: att.contentType, size: att.size, isInline: !!(att as any).related, contentId: (att as any).cid, contentBase64: att.content ? att.content.toString('base64') : undefined
+                  }));
+                  updateEmailBody(emailId, { bodyText: textAlt, bodyHtml: htmlAlt, snippet: snippetAlt, attachments: attachmentsAlt, hasFullBody: true });
+                  return getEmailById(emailId) || null;
+                }
+              }
+            } catch {}
+          }
+          return null;
+        }
 
-        const parsed = await simpleParser(message.source);
-        const bodyText = parsed.text || '';
-        const bodyHtml = parsed.html || `<p>${bodyText}</p>`;
+        const parsed: any = await simpleParser((message as any).source);
+        const bodyTextRaw = parsed.text || '';
+        const bodyHtmlRaw = parsed.html || '';
+        // Ensure at least one representation exists
+        const bodyText = bodyTextRaw || (bodyHtmlRaw ? bodyHtmlRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '');
+        const bodyHtml = bodyHtmlRaw || (bodyTextRaw ? `<p>${bodyTextRaw.replace(/\n/g, '<br>')}</p>` : '<p>(İçerik yok)</p>');
         const snippet = (bodyText || parsed.subject || '').substring(0, 150).replace(/\s+/g, ' ');
 
-        const attachments: Attachment[] = (parsed.attachments || []).map(att => ({
+        const attachments: Attachment[] = (parsed.attachments || []).map((att: any) => ({
           id: uuidv4(),
           filename: att.filename || 'ek_dosya',
           contentType: att.contentType,

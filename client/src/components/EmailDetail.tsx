@@ -222,10 +222,14 @@ export const EmailDetail: React.FC = () => {
     }
   };
 
-  const sanitizedBody = sanitizeEmailHtml(selectedEmail.bodyHtml || selectedEmail.bodyText.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]!)).replace(/\n/g, '<br>'), selectedEmail.attachments || [], {
+  const rawBody = selectedEmail.bodyHtml?.trim() || selectedEmail.bodyText?.trim() || '';
+  const isSnippetOnly = !selectedEmail.hasFullBody && (rawBody === `<p>${selectedEmail.snippet}</p>` || rawBody === selectedEmail.snippet);
+  const bodyForSanitize = rawBody || selectedEmail.snippet || '(İçerik yok)';
+  const sanitizedBodyRaw = sanitizeEmailHtml(bodyForSanitize.includes('<') ? bodyForSanitize : bodyForSanitize.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]!)).replace(/\n/g, '<br>'), selectedEmail.attachments || [], {
     blockExternalImages: privacy.blockExternalImages && !loadRemoteImages,
     blockTrackingPixels: privacy.blockTrackingPixels,
   });
+  const sanitizedBody = sanitizedBodyRaw?.trim() ? sanitizedBodyRaw : '<p style="color:#94a3b8;font-style:italic;">(Gövde alınamadı — lütfen yenileyin veya IMAP bağlantısını kontrol edin)</p>';
 
   const formatFullDate = (dateStr: string) => {
     try {
@@ -1001,6 +1005,12 @@ export const EmailDetail: React.FC = () => {
           </div>
         )}
 
+        {/* Loading indicator when body is still snippet-only (on-demand fetch in progress) */}
+        {!selectedEmail.hasFullBody && isSnippetOnly && (
+          <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Clock size={14} color="var(--accent-primary)" /> Gövde sunucudan getiriliyor… Eğer uzun süre görünmezse IMAP bağlantınızı ve posta kutusu yolunu kontrol edin.
+          </div>
+        )}
         {/* Email Body Content */}
         <iframe
           title="E-posta içeriği"

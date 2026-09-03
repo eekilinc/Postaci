@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/eekilinc/Postaci/releases/latest"><strong>↓ Son Sürümü İndir (v1.4.3)</strong></a>
+  <a href="https://github.com/eekilinc/Postaci/releases/latest"><strong>↓ Son Sürümü İndir (v1.4.4)</strong></a>
   · <a href="#-kurulum">Kurulum</a>
   · <a href="CHANGELOG.md">Sürüm Notları</a>
   · <a href="#-hesaplar-ve-google-oauth">OAuth</a>
@@ -55,10 +55,11 @@ Postacı, tarayıcı tabanlı e-postanın ötesinde, çok hesaplı IMAP senkroni
 
 ---
 
-## 🎉 1.4.3 ile Gelen Yenilikler
+## 🎉 1.4.4 ile Gelen Yenilikler
 
 Kalıcı paket korunur; önceki sürümleri kaldırmadan güncelleyebilirsiniz:
 
+- 📄 **Gövde Görünmüyor Düzeltmesi:** `fetchFullEmailBody` artık `mailboxPath` çözümlüyor ve `imapUid=0` ise `messageId` ile buluyor; `GET /api/emails/:id` ve `EmailDetail` boş gövdeye `snippet` fallback + yükleniyor uyarısı gösteriyor.
 - 🗑️ **Güvenilir Silme → Çöp Kutusu:** `syncUpdateToRemote` artık IMAP `MOVE` işlemini **senkron** bekleyip `502` ile hata döndürüyor; arka plan fire-and-forget kaldırıldı — “bazen çöp kutusuna gitmiyor” hatası düzeltildi.
 - 🔄 **Stale UID Dayanıklılığı:** `moveMessageOnServer` / `deleteMessageOnServer` / `updateFlagsOnServer` için `messageId` ile yeniden arama ve retry mantığı; IMAP kilit timeout ve `requireImapSuccess` kontrolleri eklendi.
 - 📦 **Yerel Silme Takibi:** `TRASH`'a taşınan mail `deleted_records`'a yazılıyor — senkronizasyonda geri dirilme engellendi (`isDeletedLocally` koruması).
@@ -72,8 +73,8 @@ Kalıcı paket korunur; önceki sürümleri kaldırmadan güncelleyebilirsiniz:
 
 1. **[Son Sürümü Açın](https://github.com/eekilinc/Postaci/releases/latest)**
 2. İşletim sisteminize göre indirin:
-   - **Windows:** `Postaci-Setup-1.4.3.exe` (NSIS) veya `Postaci-Setup-1.4.3.zip`
-   - **Linux:** `Postaci-1.4.3.AppImage` veya `postaci_1.4.3_amd64.deb`
+   - **Windows:** `Postaci-Setup-1.4.4.exe` (NSIS) veya `Postaci-Setup-1.4.4.zip`
+   - **Linux:** `Postaci-1.4.4.AppImage` veya `postaci_1.4.4_amd64.deb`
 3. Kurun ve Ayarlar → E-Posta Hesapları’ndan hesabınızı ekleyin.
 
 ### 2. Geliştiriciler İçin (Kaynaktan)

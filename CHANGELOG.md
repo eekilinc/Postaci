@@ -1,5 +1,11 @@
 # Değişiklik kaydı
 
+## 1.4.4 — 2026-09-03
+
+- Gövde görünmüyor düzeltmesi: `fetchFullEmailBody` artık `mailboxPath`'i çözümlüyor ve `imapUid=0` durumunda `messageId` ile yeniden arama yapıyor; `GET /api/emails/:id` artık `messageId` ile de tetikleniyor.
+- İstemci gövde dayanıklılığı: `EmailDetail` ham gövde boşsa `snippet` fallback ve boş sanitizasyon koruması, `hasFullBody=false` için yükleniyor uyarısı eklendi.
+- IMAP gövde ayrıştırma: `text`/`html` en az biri garanti, `hasFullBody` doğru işaretleniyor.
+
 ## 1.4.3 — 2026-09-03
 
 - Build düzeltmesi: `server/services/oauthAttemptStatus.ts` ve ilgili OAuth/test dosyaları repoya eklendi — `tsc` hatası giderildi.

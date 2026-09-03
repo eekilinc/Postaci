@@ -334,14 +334,14 @@ app.get('/api/emails/:id', async (req: Request, res: Response) => {
     let email = getEmailById(req.params.id);
     if (!email) return res.status(404).json({ error: 'E-posta bulunamadı.' });
 
-    // On-demand full email body fetch if body was not preloaded
-    if (!email.hasFullBody && email.imapUid && email.accountId) {
+    // On-demand full email body fetch if body was not preloaded (UID 0 → fallback via messageId)
+    if (!email.hasFullBody && email.accountId && (email.imapUid || email.messageId)) {
       const account = getAccountById(email.accountId);
       if (account && account.provider !== 'demo') {
         const fullEmail = await ImapService.fetchFullEmailBody(
           email.accountId,
           email.mailboxPath || 'INBOX',
-          email.imapUid,
+          email.imapUid || 0,
           email.id
         );
         if (fullEmail) {
