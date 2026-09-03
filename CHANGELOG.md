@@ -1,5 +1,12 @@
 # Değişiklik kaydı
 
+## 1.4.10 — 2026-09-04
+
+- **Google OAuth Güvenlik Politikası & Sabit Port (3001) Uyumluluğu**:
+  - Google'ın tüm gömülü tarayıcı pencerelerini (Electron/CEF) "Bu tarayıcı veya uygulama güvenli olmayabilir" diyerek engellemesi nedeniyle, yetkilendirme RFC 8252 standartlarına uygun olarak kullanıcının güvenli sistem tarayıcısına yönlendirildi.
+  - Masaüstü sürümünde portun rastgele seçilip Google Cloud Console'daki yönlendirme URI'si ile uyuşmaması ("bir şeyler ters gitti") sorunu giderildi; masaüstü uygulaması kalıcı olarak standart `3001` portuna sabitlendi (`http://127.0.0.1:3001/api/auth/google/callback`).
+  - Yetkilendirme tamamlandığında callback sayfasının Postacı'yı öne getirip tarayıcı sekmesini otomatik kapatması sağlandı.
+
 ## 1.4.9 — 2026-09-04
 
 - **Google OAuth İçiçe Tarayıcı (Embedded Popup Window) Geri Getirildi**:

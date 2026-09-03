@@ -82,6 +82,12 @@ router.get('/api/auth/google/callback', async (req: Request, res: Response) => {
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <meta http-equiv="refresh" content="1;url=postaci://oauth-complete">
+          <script>
+            setTimeout(function() {
+              try { window.location.href = 'postaci://oauth-complete'; } catch(e) {}
+              setTimeout(function() { try { window.close(); } catch(e) {} }, 1000);
+            }, 800);
+          </script>
           <title>Google Girişi Başarılı — Postacı</title>
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
