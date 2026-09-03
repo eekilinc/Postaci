@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/eekilinc/Postaci/releases/latest"><strong>↓ Son Sürümü İndir (v1.4.2)</strong></a>
+  <a href="https://github.com/eekilinc/Postaci/releases/latest"><strong>↓ Son Sürümü İndir (v1.4.3)</strong></a>
   · <a href="#-kurulum">Kurulum</a>
   · <a href="CHANGELOG.md">Sürüm Notları</a>
   · <a href="#-hesaplar-ve-google-oauth">OAuth</a>
@@ -55,7 +55,7 @@ Postacı, tarayıcı tabanlı e-postanın ötesinde, çok hesaplı IMAP senkroni
 
 ---
 
-## 🎉 1.4.2 ile Gelen Yenilikler
+## 🎉 1.4.3 ile Gelen Yenilikler
 
 Kalıcı paket korunur; önceki sürümleri kaldırmadan güncelleyebilirsiniz:
 
@@ -72,8 +72,8 @@ Kalıcı paket korunur; önceki sürümleri kaldırmadan güncelleyebilirsiniz:
 
 1. **[Son Sürümü Açın](https://github.com/eekilinc/Postaci/releases/latest)**
 2. İşletim sisteminize göre indirin:
-   - **Windows:** `Postaci-Setup-1.4.2.exe` (NSIS) veya `Postaci-Setup-1.4.2.zip`
-   - **Linux:** `Postaci-1.4.2.AppImage` veya `postaci_1.4.2_amd64.deb`
+   - **Windows:** `Postaci-Setup-1.4.3.exe` (NSIS) veya `Postaci-Setup-1.4.3.zip`
+   - **Linux:** `Postaci-1.4.3.AppImage` veya `postaci_1.4.3_amd64.deb`
 3. Kurun ve Ayarlar → E-Posta Hesapları’ndan hesabınızı ekleyin.
 
 ### 2. Geliştiriciler İçin (Kaynaktan)

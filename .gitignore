@@ -55,3 +55,11 @@ postaci_store.json
 *.njsproj
 *.sln
 *.sw?
+
+# Local build artefacts & 3D prints (not committed)
+.meshdeps/
+ucak_govde_750mm_gecmeli/
+ucak_govde_750mm_gecmeli.zip
+ucak_govde_inceleme.png
+ucak_govde_original.stl
+*.Zone.Identifier

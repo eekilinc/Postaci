@@ -1,5 +1,10 @@
 # Değişiklik kaydı
 
+## 1.4.3 — 2026-09-03
+
+- Build düzeltmesi: `server/services/oauthAttemptStatus.ts` ve ilgili OAuth/test dosyaları repoya eklendi — `tsc` hatası giderildi.
+- `.gitignore` güncellendi (`.meshdeps/`, `ucak_govde_*` artefaktları hariç).
+
 ## 1.4.2 — 2026-09-03
 
 - Silme → Çöp Kutusu güvenilirliği: IMAP `MOVE` artık senkron ve `502` ile hata bildiriyor; fire-and-forget kaldırıldı.
