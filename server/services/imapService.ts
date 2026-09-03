@@ -3,7 +3,7 @@ import { getPreferences } from './preferences.js';
 import { ImapFlow } from 'imapflow';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { Account, Email, Attachment } from '../types.js';
-import { saveEmail, saveEmailWithStatus, getAccounts, getAccountById, getEmailById, isDeletedLocally, registerServerFolder, pruneMissingServerUids, updateEmailFlags, syncFolderReadFlags, saveEmailsBatch, updateEmailBody, getEmailMaxUid } from './db.js';
+import { saveEmail, saveEmailWithStatus, getAccounts, getAccountById, getEmailById, isDeletedLocally, registerServerFolder, pruneMissingServerUids, updateEmailFlags, syncFolderReadFlags, saveEmailsBatch, updateEmailBody, getEmailMaxUid, getEmailsNeedingBodies } from './db.js';
 import { OAuthService } from './oauthService.js';
 import { v4 as uuidv4 } from 'uuid';
 import dns from 'dns';
@@ -1396,69 +1396,74 @@ export class ImapService {
               }
             }
 
-            // Preload bodies for top 10 newest unseen emails and top 5 recent emails
-            if (targetFolder === 'INBOX' && envelopeEmails.length > 0) {
-              const unreadRecent = envelopeEmails
+            // TIER 2: Fast Pre-load of top 30 email bodies (prioritizing unread, then recent)
+            if (envelopeEmails.length > 0) {
+              const unreadCandidates = envelopeEmails
                 .filter(e => !e.isRead && e.imapUid)
                 .sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0))
-                .slice(0, 10);
-              for (const em of unreadRecent) {
+                .slice(0, 20);
+              for (const em of unreadCandidates) {
                 if (em.imapUid && !uidsToPreloadBody.includes(em.imapUid)) uidsToPreloadBody.push(em.imapUid);
               }
-              const allRecent = envelopeEmails
+              const recentCandidates = envelopeEmails
                 .filter(e => e.imapUid)
                 .sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0))
-                .slice(0, 5);
-              for (const em of allRecent) {
-                if (em.imapUid && !uidsToPreloadBody.includes(em.imapUid)) uidsToPreloadBody.push(em.imapUid);
+                .slice(0, 20);
+              for (const em of recentCandidates) {
+                if (em.imapUid && !uidsToPreloadBody.includes(em.imapUid) && uidsToPreloadBody.length < 30) {
+                  uidsToPreloadBody.push(em.imapUid);
+                }
               }
             }
 
-              // TIER 2: Fast Pre-load of top 2 latest unseen email bodies
-              if (uidsToPreloadBody.length > 0) {
-                try {
-                  const fullMessages = client.fetch(uidsToPreloadBody, {
-                    source: true,
-                    uid: true
-                  }, { uid: true });
+            if (uidsToPreloadBody.length > 0) {
+              try {
+                const fullMessages = client.fetch(uidsToPreloadBody, {
+                  source: true,
+                  uid: true
+                }, { uid: true });
 
-                  for await (const fm of fullMessages) {
-                    if (fm.source && fm.uid) {
-                      try {
-                        const parsed = await simpleParser(fm.source);
-                        const bText = parsed.text || '';
-                        const bHtml = parsed.html || `<p>${bText}</p>`;
-                        const bSnippet = (bText || parsed.subject || '').substring(0, 150).replace(/\s+/g, ' ');
-                        
-                        const parsedAttachments: Attachment[] = (parsed.attachments || []).map(att => ({
-                          id: uuidv4(),
-                          filename: att.filename || 'ek_dosya',
-                          contentType: att.contentType,
-                          size: att.size,
-                          isInline: att.related,
-                          contentId: att.cid,
-                          contentBase64: att.content ? att.content.toString('base64') : undefined
-                        }));
+                for await (const fm of fullMessages) {
+                  if (fm.source && fm.uid) {
+                    try {
+                      const parsed = await simpleParser(fm.source);
+                      const bText = parsed.text || '';
+                      const bHtml = parsed.html || `<p>${bText}</p>`;
+                      const bSnippet = (bText || parsed.subject || '').substring(0, 150).replace(/\s+/g, ' ');
+                      
+                      const parsedAttachments: Attachment[] = (parsed.attachments || []).map(att => ({
+                        id: uuidv4(),
+                        filename: att.filename || 'ek_dosya',
+                        contentType: att.contentType,
+                        size: att.size,
+                        isInline: att.related,
+                        contentId: att.cid,
+                        contentBase64: att.content ? att.content.toString('base64') : undefined
+                      }));
 
-                        const targetEmail = envelopeEmails.find(e => e.imapUid === fm.uid);
-                        if (targetEmail) {
-                          updateEmailBody(targetEmail.id, {
-                            bodyText: bText,
-                            bodyHtml: bHtml,
-                            snippet: bSnippet,
-                            attachments: parsedAttachments,
-                            hasFullBody: true
-                          });
+                      const targetEmail = envelopeEmails.find(e => e.imapUid === fm.uid);
+                      if (targetEmail) {
+                        updateEmailBody(targetEmail.id, {
+                          bodyText: bText,
+                          bodyHtml: bHtml,
+                          snippet: bSnippet,
+                          attachments: parsedAttachments,
+                          hasFullBody: true
+                        });
+                        if (this.broadcastCb) {
+                          const updated = getEmailById(targetEmail.id);
+                          if (updated) this.broadcastCb('email_updated', updated);
                         }
-                      } catch (pErr) {
-                        console.warn('Preload body parse error:', pErr);
                       }
+                    } catch (pErr) {
+                      console.warn('Preload body parse error:', pErr);
                     }
                   }
-                } catch (preloadErr) {
-                  console.warn('Preload full body fetch failed:', preloadErr);
                 }
+              } catch (preloadErr) {
+                console.warn('Preload full body fetch failed:', preloadErr);
               }
+            }
           } finally {
             lock.release();
           }
@@ -1495,91 +1500,202 @@ export class ImapService {
 
     try {
       const client = await this.getOrCreateClient(account);
-      const resolvedPath = await this.resolveServerMailboxPath(client, account.id, mailboxPath || 'INBOX');
-      // If UID missing (e.g. after TRASH move it is 0), resolve via messageId
-      let uidToFetch: number | undefined = imapUid;
-      if (!uidToFetch) {
-        const email = getEmailById(emailId);
-        if (email?.messageId) {
-          const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
-          try {
-            const lockTmp = await client.getMailboxLock(resolvedPath, { acquireTimeout: 15000 });
-            try {
-              const res = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
-              if (Array.isArray(res) && res.length > 0) uidToFetch = res[0];
-            } finally { lockTmp.release(); }
-          } catch {}
-        }
-      }
-      if (!uidToFetch) {
-        console.warn(`fetchFullEmailBody: no UID for ${emailId} in ${resolvedPath}`);
-        return null;
-      }
-      const lock = await client.getMailboxLock(resolvedPath, { acquireTimeout: 15000 });
-      try {
-        let message = await client.fetchOne(uidToFetch, {
-          source: true,
-          envelope: true,
-          flags: true,
-          bodyStructure: true,
-        }, { uid: true });
+      const email = getEmailById(emailId);
+      const targetMid = email?.messageId;
+      const cleanMid = targetMid ? targetMid.replace(/[<>]/g, '').trim() : '';
 
-        if (!message || !(message as any).source) {
-          // Fallback: try by messageId search inside same mailbox
-          const email = getEmailById(emailId);
-          if (email?.messageId) {
-            const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
+      // Determine candidate mailboxes: first requested, then INBOX, then [Gmail]/All Mail if Gmail
+      const isGmail = account.provider === 'gmail' || (account.imapHost && account.imapHost.includes('google'));
+      const candidatePaths: string[] = [mailboxPath || 'INBOX'];
+      if (candidatePaths[0].toUpperCase() !== 'INBOX') candidatePaths.push('INBOX');
+      if (isGmail && !candidatePaths.some(p => p.includes('All Mail') || p.includes('Tüm Postalar'))) {
+        candidatePaths.push('[Gmail]/All Mail');
+      }
+
+      for (const rawPath of candidatePaths) {
+        let resolvedPath = '';
+        try {
+          resolvedPath = await this.resolveServerMailboxPath(client, account.id, rawPath);
+        } catch {
+          continue;
+        }
+
+        let lock;
+        try {
+          lock = await client.getMailboxLock(resolvedPath, { acquireTimeout: 10000 });
+        } catch (lockErr) {
+          console.warn(`Could not acquire lock on ${resolvedPath} for body fetch:`, lockErr);
+          continue;
+        }
+
+        try {
+          let message: any = null;
+          const uid = (rawPath === (mailboxPath || 'INBOX')) ? imapUid : undefined;
+
+          // 1. If we have a UID and this is the original mailbox, try fetchOne
+          if (uid && uid > 0) {
             try {
-              const res = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
-              const altUid = Array.isArray(res) && res.length > 0 ? res[0] : null;
-              if (altUid) {
-                const altMsg: any = await client.fetchOne(altUid, { source: true }, { uid: true });
-                if (altMsg?.source) {
-                  message = altMsg;
+              message = await client.fetchOne(uid, {
+                source: true,
+                envelope: true,
+                flags: true,
+                bodyStructure: true,
+              }, { uid: true });
+            } catch (uidErr) {
+              console.warn(`fetchOne with UID ${uid} on ${resolvedPath} failed, falling back to messageId search:`, uidErr);
+            }
+          }
+
+          // 2. If fetchOne failed or no UID, search by messageId
+          if ((!message || !message.source) && cleanMid) {
+            try {
+              let res = await client.search({ header: { 'message-id': `<${cleanMid}>` } }, { uid: true });
+              if (!Array.isArray(res) || res.length === 0) {
+                res = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
+              }
+              const foundUid = Array.isArray(res) && res.length > 0 ? res[res.length - 1] : null;
+              if (foundUid) {
+                try {
+                  const altMsg: any = await client.fetchOne(foundUid, { source: true }, { uid: true });
+                  if (altMsg?.source) {
+                    message = altMsg;
+                  }
+                } catch (altErr) {
+                  console.warn(`Failed to fetchOne for foundUid ${foundUid}:`, altErr);
                 }
               }
-            } catch {}
+            } catch (searchErr) {
+              console.warn(`Search by messageId on ${resolvedPath} failed:`, searchErr);
+            }
           }
+
+          if (message && message.source) {
+            const parsed: any = await simpleParser(message.source);
+            const bodyTextRaw = parsed.text || '';
+            const bodyHtmlRaw = parsed.html || '';
+            const bodyText = bodyTextRaw || (bodyHtmlRaw ? bodyHtmlRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '');
+            const bodyHtml = bodyHtmlRaw || (bodyTextRaw ? `<p>${bodyTextRaw.replace(/\n/g, '<br>')}</p>` : '<p>(İçerik yok)</p>');
+            const snippet = (bodyText || parsed.subject || '').substring(0, 150).replace(/\s+/g, ' ');
+
+            const attachments: Attachment[] = (parsed.attachments || []).map((att: any) => ({
+              id: uuidv4(),
+              filename: att.filename || 'ek_dosya',
+              contentType: att.contentType,
+              size: att.size,
+              isInline: att.related,
+              contentId: att.cid,
+              contentBase64: att.content ? att.content.toString('base64') : undefined
+            }));
+
+            const finalId = email?.id || emailId;
+            updateEmailBody(finalId, {
+              bodyText,
+              bodyHtml,
+              snippet,
+              attachments,
+              hasFullBody: true
+            });
+
+            const updated = getEmailById(finalId);
+            if (updated && this.broadcastCb) {
+              this.broadcastCb('email_updated', updated);
+            }
+            return updated || null;
+          }
+        } finally {
+          lock.release();
         }
-
-        if (!message || !(message as any).source) {
-          return null;
-        }
-
-        const parsed: any = await simpleParser((message as any).source);
-        const bodyTextRaw = parsed.text || '';
-        const bodyHtmlRaw = parsed.html || '';
-        // Ensure at least one representation exists
-        const bodyText = bodyTextRaw || (bodyHtmlRaw ? bodyHtmlRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '');
-        const bodyHtml = bodyHtmlRaw || (bodyTextRaw ? `<p>${bodyTextRaw.replace(/\n/g, '<br>')}</p>` : '<p>(İçerik yok)</p>');
-        const snippet = (bodyText || parsed.subject || '').substring(0, 150).replace(/\s+/g, ' ');
-
-        const attachments: Attachment[] = (parsed.attachments || []).map((att: any) => ({
-          id: uuidv4(),
-          filename: att.filename || 'ek_dosya',
-          contentType: att.contentType,
-          size: att.size,
-          isInline: att.related,
-          contentId: att.cid,
-          contentBase64: att.content ? att.content.toString('base64') : undefined
-        }));
-
-        updateEmailBody(emailId, {
-          bodyText,
-          bodyHtml,
-          snippet,
-          attachments,
-          hasFullBody: true
-        });
-
-        return getEmailById(emailId) || null;
-      } finally {
-        lock.release();
       }
+
+      console.warn(`fetchFullEmailBody: could not retrieve body for ${emailId} across candidate mailboxes`);
+      return null;
     } catch (err) {
       console.warn(`Could not fetch full body on demand for email ${emailId}:`, err);
       return null;
     }
+  }
+
+  public static async syncPendingEmailBodies(accountId?: string): Promise<number> {
+    const emailsNeeding = getEmailsNeedingBodies(25, accountId);
+    if (emailsNeeding.length === 0) return 0;
+
+    let updatedCount = 0;
+    const groups = new Map<string, Email[]>();
+    for (const em of emailsNeeding) {
+      if (!em.accountId || !em.imapUid) continue;
+      const key = `${em.accountId}:::${em.mailboxPath || 'INBOX'}`;
+      const list = groups.get(key) || [];
+      list.push(em);
+      groups.set(key, list);
+    }
+
+    for (const [key, emList] of groups.entries()) {
+      const [accId, mbPath] = key.split(':::');
+      const account = getAccountById(accId);
+      if (!account || account.provider === 'demo') continue;
+
+      try {
+        const client = await this.getOrCreateClient(account);
+        const resolvedPath = await this.resolveServerMailboxPath(client, account.id, mbPath);
+        let lock;
+        try {
+          lock = await client.getMailboxLock(resolvedPath, { acquireTimeout: 8000 });
+        } catch {
+          continue;
+        }
+
+        try {
+          const uids = emList.map(e => e.imapUid!).filter(Boolean);
+          if (uids.length === 0) continue;
+
+          const messages = client.fetch(uids, { source: true, uid: true }, { uid: true });
+          for await (const fm of messages) {
+            if (fm.source && fm.uid) {
+              try {
+                const parsed = await simpleParser(fm.source);
+                const bText = parsed.text || '';
+                const bHtml = parsed.html || `<p>${bText}</p>`;
+                const bSnippet = (bText || parsed.subject || '').substring(0, 150).replace(/\s+/g, ' ');
+
+                const parsedAttachments: Attachment[] = (parsed.attachments || []).map(att => ({
+                  id: uuidv4(),
+                  filename: att.filename || 'ek_dosya',
+                  contentType: att.contentType,
+                  size: att.size,
+                  isInline: att.related,
+                  contentId: att.cid,
+                  contentBase64: att.content ? att.content.toString('base64') : undefined
+                }));
+
+                const target = emList.find(e => e.imapUid === fm.uid);
+                if (target) {
+                  updateEmailBody(target.id, {
+                    bodyText: bText,
+                    bodyHtml: bHtml,
+                    snippet: bSnippet,
+                    attachments: parsedAttachments,
+                    hasFullBody: true
+                  });
+                  updatedCount++;
+                  if (this.broadcastCb) {
+                    const up = getEmailById(target.id);
+                    if (up) this.broadcastCb('email_updated', up);
+                  }
+                }
+              } catch (pErr) {
+                console.warn('Background body parse error:', pErr);
+              }
+            }
+          }
+        } finally {
+          lock.release();
+        }
+      } catch (grpErr) {
+        console.warn(`Background body fetch failed for ${key}:`, grpErr);
+      }
+    }
+
+    return updatedCount;
   }
 
   public static async syncMailbox(accountId: string, mailboxPath: string, older = false): Promise<{ syncedCount: number; hasMoreOlder?: boolean }> {
@@ -1775,6 +1891,11 @@ export class ImapService {
     this.fullSyncTimer = setInterval(() => {
       this.runBackgroundSyncCycle(false);
     }, 90000);
+
+    // Continuous background body worker: downloads bodies for older or pending emails
+    setInterval(() => {
+      this.syncPendingEmailBodies().catch(() => {});
+    }, 20000);
   }
 
   public static async runBackgroundSyncCycle(onlyInbox = true) {

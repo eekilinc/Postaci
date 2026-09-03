@@ -467,7 +467,15 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         debouncedRefresh();
       });
 
-      eventSource.addEventListener('email_updated', () => {
+      eventSource.addEventListener('email_updated', (event: MessageEvent) => {
+        try {
+          const updated = JSON.parse(event.data);
+          if (updated && updated.id) {
+            const isMatching = (eId: string) => eId === updated.id || decodeURIComponent(eId) === decodeURIComponent(updated.id);
+            setEmails(prev => prev.map(e => isMatching(e.id) ? { ...e, ...updated } : e));
+            setThreadEmails(prev => prev.map(e => isMatching(e.id) ? { ...e, ...updated } : e));
+          }
+        } catch {}
         debouncedRefresh();
       });
 

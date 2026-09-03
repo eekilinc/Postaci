@@ -828,11 +828,11 @@ function parseEmailRow(r: any, isListView = false): Email {
   }
 
   const rawBodyText = r.bodyText || '';
-  const bodyText = (isListView && rawBodyText.length > 500)
+  const bodyText = (isListView && !r.hasFullBody && rawBodyText.length > 500)
     ? rawBodyText.substring(0, 500)
     : rawBodyText;
 
-  const bodyHtml = isListView
+  const bodyHtml = (isListView && !r.hasFullBody)
     ? (r.snippet ? `<p>${r.snippet}</p>` : '')
     : r.bodyHtml;
 
@@ -1015,10 +1015,37 @@ export function getEmails(params: {
 }
 
 export function getEmailById(id: string): Email | undefined {
+  if (!id) return undefined;
   const rawId = decodeURIComponent(id);
+  let encId = id;
+  try { encId = encodeURIComponent(id); } catch {}
+
+  const imapMatch = id.match(/^(imap-[^-]+-)(.*)$/);
+  let specialEncId = id;
+  let specialDecId = id;
+  let messageIdCandidate = '';
+  if (imapMatch) {
+    try {
+      specialDecId = imapMatch[1] + decodeURIComponent(imapMatch[2]);
+      specialEncId = imapMatch[1] + encodeURIComponent(decodeURIComponent(imapMatch[2]));
+      messageIdCandidate = decodeURIComponent(imapMatch[2]);
+    } catch {}
+  }
+  const cleanMid = messageIdCandidate ? messageIdCandidate.replace(/[<>]/g, '').trim() : '';
+
   if (!isNativeSqlite) {
     const activeAccountIds = new Set(memStore.accounts.map(a => a.id));
-    const found = memStore.emails.find(e => activeAccountIds.has(e.accountId) && (e.id === id || e.id === rawId || decodeURIComponent(e.id) === rawId || (e.messageId && (e.messageId === id || e.messageId === rawId))));
+    const found = memStore.emails.find(e => {
+      if (!activeAccountIds.has(e.accountId)) return false;
+      if (e.id === id || e.id === rawId || e.id === encId || e.id === specialEncId || e.id === specialDecId) return true;
+      if (decodeURIComponent(e.id) === rawId || decodeURIComponent(e.id) === specialDecId) return true;
+      if (e.messageId) {
+        const eClean = e.messageId.replace(/[<>]/g, '').trim();
+        if (cleanMid && eClean === cleanMid) return true;
+        if (e.messageId === id || e.messageId === rawId || e.messageId === messageIdCandidate) return true;
+      }
+      return false;
+    });
     if (!found) return undefined;
     const acc = memStore.accounts.find(a => a.id === found.accountId);
     return {
@@ -1034,12 +1061,45 @@ export function getEmailById(id: string): Email | undefined {
       accounts.color AS acc_color
     FROM emails
     INNER JOIN accounts ON emails.accountId = accounts.id
-    WHERE emails.id = ? OR emails.id = ? OR emails.messageId = ?
+    WHERE emails.id = ? OR emails.id = ? OR emails.id = ? OR emails.id = ? OR emails.id = ?
+       OR (emails.messageId IS NOT NULL AND (emails.messageId = ? OR emails.messageId = ? OR emails.messageId = ? OR emails.messageId = ?))
     LIMIT 1
   `;
-  const row = db.prepare(query).get(id, rawId, id);
+  const row = db.prepare(query).get(
+    id,
+    rawId,
+    encId,
+    specialEncId,
+    specialDecId,
+    messageIdCandidate || id,
+    cleanMid ? `<${cleanMid}>` : (messageIdCandidate || id),
+    cleanMid || id,
+    rawId
+  );
   if (!row) return undefined;
   return parseEmailRow(row);
+}
+
+export function getEmailsNeedingBodies(limit = 25, accountId?: string): Email[] {
+  if (!isNativeSqlite) {
+    return memStore.emails
+      .filter(e => (!accountId || e.accountId === accountId) && (!e.hasFullBody || e.bodyText === e.snippet) && e.imapUid && !e.isDeleted)
+      .slice(0, limit);
+  }
+  const query = `
+    SELECT emails.*, accounts.name AS acc_name, accounts.email AS acc_email, accounts.color AS acc_color
+    FROM emails
+    INNER JOIN accounts ON emails.accountId = accounts.id
+    WHERE (emails.hasFullBody = 0 OR emails.hasFullBody IS NULL OR emails.bodyText = emails.snippet)
+      AND emails.imapUid IS NOT NULL
+      AND emails.imapUid > 0
+      AND emails.isDeleted = 0
+      ${accountId ? 'AND emails.accountId = ?' : ''}
+    ORDER BY emails.date DESC
+    LIMIT ?
+  `;
+  const rows = accountId ? db.prepare(query).all(accountId, limit) : db.prepare(query).all(limit);
+  return (rows as any[]).map(r => parseEmailRow(r, false));
 }
 
 export function getEmailByMessageId(messageId: string, accountId?: string): Email | undefined {
@@ -1649,12 +1709,21 @@ export function updateEmailBody(id: string, updates: {
   attachments?: Attachment[];
   hasFullBody?: boolean;
 }): boolean {
+  const target = getEmailById(id);
+  const targetId = target ? target.id : id;
   const rawId = decodeURIComponent(id);
   let encId = id;
   try { encId = encodeURIComponent(id); } catch {}
+  const targetRawId = decodeURIComponent(targetId);
+  const targetEncId = encodeURIComponent(targetId);
+  const cleanMid = target?.messageId ? target.messageId.replace(/[<>]/g, '').trim() : '';
 
   if (!isNativeSqlite) {
-    const e = memStore.emails.find(m => m.id === id || m.id === rawId || m.id === encId || decodeURIComponent(m.id) === rawId || (m.messageId && (m.messageId === id || m.messageId === rawId)));
+    const e = memStore.emails.find(m => 
+      m.id === targetId || m.id === id || m.id === rawId || m.id === encId ||
+      decodeURIComponent(m.id) === rawId || decodeURIComponent(m.id) === targetRawId ||
+      (m.messageId && (m.messageId === id || m.messageId === rawId || (cleanMid && m.messageId.replace(/[<>]/g, '').trim() === cleanMid)))
+    );
     if (e) {
       e.bodyText = updates.bodyText;
       e.bodyHtml = updates.bodyHtml;
@@ -1672,12 +1741,17 @@ export function updateEmailBody(id: string, updates: {
       UPDATE emails 
       SET bodyText = @bodyText, bodyHtml = @bodyHtml, snippet = COALESCE(@snippet, snippet),
           attachments_json = COALESCE(@attachments_json, attachments_json), hasFullBody = @hasFullBody
-      WHERE id = @id OR id = @rawId OR id = @encId OR (messageId IS NOT NULL AND (messageId = @id OR messageId = @rawId))
+      WHERE id = @targetId OR id = @id OR id = @rawId OR id = @encId OR id = @targetEncId
+         OR (messageId IS NOT NULL AND (messageId = @cleanMid OR messageId = @bracketMid OR messageId = @id OR messageId = @rawId))
     `);
     const res = stmt.run({
+      targetId,
       id,
       rawId,
       encId,
+      targetEncId,
+      cleanMid,
+      bracketMid: cleanMid ? `<${cleanMid}>` : '',
       bodyText: updates.bodyText,
       bodyHtml: updates.bodyHtml,
       snippet: updates.snippet || null,

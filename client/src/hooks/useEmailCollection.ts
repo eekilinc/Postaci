@@ -37,7 +37,27 @@ export function useEmailCollection(query: EmailQuery, select: Dispatch<SetStateA
       const unique = [...new Map(items.map(e => [e.id, e])).values()];
       folderCacheRef.current.set(queryKey, unique);
       if (folderCacheRef.current.size > 30) folderCacheRef.current.delete(folderCacheRef.current.keys().next().value!);
-      setEmails(unique); setHasMoreEmails(more);
+      setEmails(prev => {
+        const prevMap = new Map<string, Email>();
+        for (const p of prev) {
+          prevMap.set(p.id, p);
+          try { prevMap.set(decodeURIComponent(p.id), p); } catch {}
+        }
+        return unique.map(item => {
+          const existing = prevMap.get(item.id) || prevMap.get(decodeURIComponent(item.id));
+          if (existing && existing.hasFullBody && (!item.hasFullBody || item.bodyHtml === `<p>${item.snippet}</p>`)) {
+            return {
+              ...item,
+              bodyText: existing.bodyText,
+              bodyHtml: existing.bodyHtml,
+              hasFullBody: true,
+              attachments: existing.attachments
+            };
+          }
+          return item;
+        });
+      });
+      setHasMoreEmails(more);
       select(previous => previous && unique.some(e => e.id === previous) ? previous : autoSelectFirst ? unique[0]?.id || null : null);
     } catch (err: any) {
       if (!abort.signal.aborted && sequence === active.current.sequence) setListError(err.message || 'Posta listesi yüklenemedi.');

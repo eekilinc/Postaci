@@ -1,5 +1,15 @@
 # Değişiklik kaydı
 
+## 1.4.6 — 2026-09-03
+
+- **Kalıcı E-posta Gövdesi Çözümü (Failsafe Body Retrieval & Persistent Offline Cache)**:
+  - **Express Route Param Eşleştirme Düzeltmesi**: Express `:id` parametresini otomatik olarak decode ederken (`%3C` → `<`), SQLite veritabanındaki URL-encoded ID ile uyuşmazlık oluşması ve `GET /api/emails/:id` sorgusunun 404 dönmesine yol açan kritik hata giderildi. `getEmailById` artık hem orijinal, hem decode edilmiş hem de re-encoded ID ve `messageId` varyantlarını tam kapsayıcı şekilde eşleştiriyor.
+  - **Liste Yenilemede Gövde Korunması**: `useEmailCollection` kancasında liste güncellemeleri veya arka plan senkronizasyonlarında daha önce yüklenmiş tam gövdenin (`hasFullBody=true`, `bodyHtml`) özet (`snippet`) HTML'i ile ezilmesi engellendi.
+  - **Senkronizasyon Sırasında 30 İletiye Kadar Otomatik Gövde İndirme**: `syncAccount` artık sadece INBOX için değil, senkronize edilen tüm klasörler için en yeni 30 e-postanın tam gövdesini ve eklerini IMAP üzerinden hemen indirip SQLite'a kaydediyor.
+  - **Sürekli Arka Plan Gövde İndirici (Background Body Worker)**: `syncPendingEmailBodies` servisi SQLite'ta gövdesi henüz bulunmayan iletileri arka planda 20 sn aralıklarla IMAP'ten toplu (`fetch`) olarak indirerek tüm iletilerin çevrimdışı ve anında açılabilir olmasını sağlıyor.
+  - **Çoklu Klasör & Arama Yedeklemesi (Multi-Candidate Body Fallback)**: `fetchFullEmailBody` artık `client.fetchOne` çağrısını izole `try/catch` içinde çalıştırıyor; UID uyuşmazlığında veya posta kutusu taşınmasında fonksiyon iptal olmak yerine Message-ID ile (`<...>` ve düz formatta) mevcut klasörde, INBOX'ta ve Gmail için `[Gmail]/All Mail` altında arama yaparak gövdeyi mutlaka bulup getiriyor ve anında `email_updated` SSE bildirimi gönderiyor.
+  - **SQLite'ta Liste Görünümü Gövde Saklama**: `parseEmailRow` artık `hasFullBody=1` olan iletilerin gerçek `bodyHtml` içeriğini koruyor; listeye tıklandığında ağ beklemesi olmadan gövde anında ekrana basılıyor.
+
 ## 1.4.5 — 2026-09-03
 
 - E-posta gövdesi görünürlüğü: ImapFlow `Promise.race` kilit deadlock'ı giderildi (`acquireTimeout: 15000` kullanıldı); `GET /api/emails/:id` üzerinde gövde eksik veya sadece özet ise otomatik IMAP tam gövde çekme tetiklendi; `updateEmailBody` URL-encoded/raw/messageId esnek eşleştirmesi sağlandı; `syncAccount` en yeni 10 okunmamış ve 5 gelen kutusu e-postası için gövde önceden yükleniyor.

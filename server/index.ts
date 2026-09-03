@@ -348,6 +348,7 @@ app.get('/api/emails/:id', async (req: Request, res: Response) => {
     if (isBodyMissing && email.accountId && (email.imapUid || email.messageId)) {
       const account = getAccountById(email.accountId);
       if (account && account.provider !== 'demo') {
+        console.log(`[BodyFetch] On-demand body requested for ${email.id} ("${email.subject}") in ${email.mailboxPath || 'INBOX'}`);
         const fullEmail = await ImapService.fetchFullEmailBody(
           email.accountId,
           email.mailboxPath || 'INBOX',
@@ -355,7 +356,10 @@ app.get('/api/emails/:id', async (req: Request, res: Response) => {
           email.id
         );
         if (fullEmail) {
+          console.log(`[BodyFetch] Successfully retrieved body for ${email.id}`);
           email = fullEmail;
+        } else {
+          console.warn(`[BodyFetch] Could not retrieve body on-demand for ${email.id}`);
         }
       }
     }

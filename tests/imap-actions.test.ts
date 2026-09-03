@@ -128,3 +128,37 @@ test('fetchFullEmailBody retrieves body source and updates email in database', a
   assert.ok(fullEmail.bodyHtml.includes('Actual full HTML body from IMAP'));
 });
 
+test('getEmailById matches when Express decodes URI-encoded ID param', () => {
+  const mid = '<20260903.express-test@domain.com>';
+  const storedId = `imap-${account.id}-${encodeURIComponent(mid)}`;
+  db.saveEmail({
+    ...email(105),
+    id: storedId,
+    messageId: mid,
+    bodyText: 'express snippet',
+    bodyHtml: '<p>express snippet</p>',
+    snippet: 'express snippet',
+    hasFullBody: false,
+  });
+
+  // Express decodes :id parameter in routes
+  const decodedExpressParam = decodeURIComponent(storedId);
+  assert.notEqual(decodedExpressParam, storedId);
+
+  const found = db.getEmailById(decodedExpressParam);
+  assert.ok(found, 'Should find the email record even when Express decodes the route parameter');
+  assert.equal(found.id, storedId);
+  assert.equal(found.messageId, mid);
+});
+
+test('getEmailsNeedingBodies identifies body-less emails and syncPendingEmailBodies processes them', async () => {
+  const mail1 = email(110);
+  const mail2 = email(111);
+  db.saveEmail({ ...mail1, hasFullBody: false, bodyText: mail1.snippet });
+  db.saveEmail({ ...mail2, hasFullBody: true, bodyText: 'Already full body' });
+
+  const needing = db.getEmailsNeedingBodies(10, account.id);
+  assert.ok(needing.some(e => e.id === mail1.id));
+  assert.ok(!needing.some(e => e.id === mail2.id));
+});
+
