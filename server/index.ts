@@ -406,7 +406,7 @@ async function syncUpdateToRemote(email: Email, updates: Record<string, any>): P
     // UID is per-mailbox; after a successful MOVE the old UID is stale in the new folder.
     // Clear it so subsequent ops (e.g. permanent delete from TRASH) use messageId fallback
     // and so the next sync can assign the correct new UID.
-    return { ...updates, mailboxPath: targetFolder, imapUid: 0 };
+    return { ...updates, folder: targetFolder, isDeleted: targetFolder === 'TRASH' ? true : (updates.isDeleted ?? false), mailboxPath: targetFolder, imapUid: 0 };
   }
 
   return updates;

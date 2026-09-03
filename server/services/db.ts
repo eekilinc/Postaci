@@ -1328,9 +1328,9 @@ export function pruneMissingServerUids(
     for (const e of memStore.emails) {
       if (e.accountId === accountId) {
         if (isTrashMailbox && (e.folder === 'TRASH' || e.isDeleted)) {
-          if (validUids.length === 0) {
-            removedIds.push(e.id);
-          } else if (!e.imapUid || !validSet.has(e.imapUid)) {
+          // Only prune TRASH items that actually had a server UID (imapUid > 0)
+          // Locally moved items (imapUid <= 0 or null) must NOT be pruned!
+          if (e.imapUid && e.imapUid > 0 && !validSet.has(e.imapUid)) {
             removedIds.push(e.id);
           }
         } else if (
@@ -1357,13 +1357,16 @@ export function pruneMissingServerUids(
   try {
     let idsToDelete: string[] = [];
     if (isTrashMailbox) {
+      // Only prune TRASH records that actually had an assigned server UID (imapUid > 0)
+      // Newly moved local items with imapUid = 0 or NULL are waiting for server UID assignment
+      // and must NEVER be pruned!
       if (validUids.length === 0) {
-        const rows = db.prepare(`SELECT id FROM emails WHERE accountId = ? AND (folder = 'TRASH' OR isDeleted = 1)`).all(accountId) as any[];
+        const rows = db.prepare(`SELECT id FROM emails WHERE accountId = ? AND (folder = 'TRASH' OR isDeleted = 1) AND imapUid > 0`).all(accountId) as any[];
         idsToDelete = rows.map(r => r.id);
       } else {
-        const rows = db.prepare(`SELECT id, imapUid FROM emails WHERE accountId = ? AND (folder = 'TRASH' OR isDeleted = 1)`).all(accountId) as any[];
+        const rows = db.prepare(`SELECT id, imapUid FROM emails WHERE accountId = ? AND (folder = 'TRASH' OR isDeleted = 1) AND imapUid > 0`).all(accountId) as any[];
         for (const row of rows) {
-          if (!row.imapUid || !validSet.has(row.imapUid)) {
+          if (!validSet.has(row.imapUid)) {
             idsToDelete.push(row.id);
           }
         }
@@ -1565,7 +1568,7 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
   if (!isNativeSqlite) {
     const newEmails: Email[] = [];
     for (const email of validEmails) {
-      if (isFromImapSync && isDeletedLocally(email.id, email.messageId, email.accountId, email.imapUid, email.mailboxPath)) {
+      if (isFromImapSync && email.folder !== 'TRASH' && !email.isDeleted && isDeletedLocally(email.id, email.messageId, email.accountId, email.imapUid, email.mailboxPath)) {
         continue;
       }
       const idx = memStore.emails.findIndex(e => e.id === email.id || (email.messageId && e.messageId === email.messageId && e.accountId === email.accountId));
@@ -1626,7 +1629,7 @@ export function saveEmailsBatch(emails: Email[], isFromImapSync = false): { save
   const newEmails: Email[] = [];
   const runTx = db.transaction((items: Email[]) => {
     for (const email of items) {
-      if (isFromImapSync && isDeletedLocally(email.id, email.messageId, email.accountId, email.imapUid, email.mailboxPath)) {
+      if (isFromImapSync && email.folder !== 'TRASH' && !email.isDeleted && isDeletedLocally(email.id, email.messageId, email.accountId, email.imapUid, email.mailboxPath)) {
         continue;
       }
 

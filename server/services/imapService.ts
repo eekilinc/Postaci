@@ -22,6 +22,23 @@ function parseSafeIsoDate(raw: any): string {
   return new Date().toISOString();
 }
 
+/**
+ * Decodes RFC 3501 modified UTF-7 encoded mailbox names (e.g. &AMcA9g-p Kutusu -> Çöp Kutusu)
+ */
+export function decodeImapUtf7(str: string): string {
+  if (!str) return '';
+  return str.replace(/&([A-Za-z0-9+,]+)-/g, (_, b64) => {
+    try {
+      const stdB64 = b64.replace(/,/g, '/');
+      const buf = Buffer.from(stdB64, 'base64');
+      buf.swap16();
+      return buf.toString('utf16le');
+    } catch {
+      return _;
+    }
+  }).replace(/&-(?!-)/g, '&');
+}
+
 export interface MailboxState {
   uidValidity?: bigint | number;
   highestKnownUid: number;
@@ -443,69 +460,75 @@ export class ImapService {
     return { success: false, message: helpfulMsg };
   }
 
+  public static decodeMailboxName(nameOrPath: string): string {
+    return decodeImapUtf7(nameOrPath);
+  }
+
   private static mapMailboxToFolder(mb: { path: string; specialUse?: string; name: string }): { folder: string; isCustom: boolean; cleanName: string } {
     const special = mb.specialUse || '';
-    const p = mb.path.toLowerCase();
-    const n = mb.name.toLowerCase();
+    const rawP = mb.path.toLowerCase();
+    const rawN = mb.name.toLowerCase();
+    const decP = decodeImapUtf7(mb.path).toLowerCase();
+    const decN = decodeImapUtf7(mb.name).toLowerCase();
 
     // --- Gmail special folder path detection (e.g. [Gmail]/Trash, [Gmail]/Sent Mail) ---
     // Gmail uses XLIST / RFC 6154 special-use flags but also has predictable paths
-    const isGmailPath = p.includes('[gmail]') || p.includes('[google mail]');
+    const isGmailPath = rawP.includes('[gmail]') || rawP.includes('[google mail]') || decP.includes('[gmail]') || decP.includes('[google mail]');
     if (isGmailPath) {
-      if (/trash|çöp|bin/i.test(p) || /trash|çöp|bin/i.test(n)) {
+      if (/trash|çöp|cop|bin|deleted|silinmiş|silinmis/i.test(decP) || /trash|çöp|cop|bin|deleted|silinmiş|silinmis/i.test(decN) || /trash|bin/i.test(rawP) || /trash|bin/i.test(rawN)) {
         return { folder: 'TRASH', isCustom: false, cleanName: 'Çöp Kutusu' };
       }
-      if (/sent/i.test(p) || /sent/i.test(n)) {
+      if (/sent|gönderilen|gonderilen/i.test(decP) || /sent|gönderilen|gonderilen/i.test(decN) || /sent/i.test(rawP) || /sent/i.test(rawN)) {
         return { folder: 'SENT', isCustom: false, cleanName: 'Gönderilenler' };
       }
-      if (/draft/i.test(p) || /draft/i.test(n) || /taslak/i.test(n)) {
+      if (/draft|taslak/i.test(decP) || /draft|taslak/i.test(decN) || /draft/i.test(rawP) || /draft/i.test(rawN)) {
         return { folder: 'DRAFTS', isCustom: false, cleanName: 'Taslaklar' };
       }
-      if (/spam|junk/i.test(p) || /spam|junk/i.test(n)) {
+      if (/spam|junk|istenmeyen/i.test(decP) || /spam|junk|istenmeyen/i.test(decN) || /spam|junk/i.test(rawP) || /spam|junk/i.test(rawN)) {
         return { folder: 'SPAM', isCustom: false, cleanName: 'İstenmeyen' };
       }
-      if (/all mail|tüm|arsiv|archive/i.test(p) || /all mail|tüm|arsiv|archive/i.test(n)) {
+      if (/all mail|tüm|arsiv|archive/i.test(decP) || /all mail|tüm|arsiv|archive/i.test(decN) || /all mail|archive/i.test(rawP) || /all mail|archive/i.test(rawN)) {
         // Gmail All Mail is the master archive — skip syncing it to avoid duplicates with INBOX
         return { folder: 'ARCHIVE', isCustom: false, cleanName: 'Arşiv' };
       }
-      if (/starred/i.test(p) || /starred/i.test(n)) {
+      if (/starred/i.test(rawP) || /starred/i.test(rawN) || /yıldızlı|yildizli/i.test(decP)) {
         // Skip Gmail Starred virtual folder (we manage stars locally)
-        let cleanName = mb.name || mb.path;
+        let cleanName = decodeImapUtf7(mb.name || mb.path);
         cleanName = cleanName.replace(/^\[.*?\][./\\]/i, '').trim() || cleanName;
         return { folder: cleanName, isCustom: true, cleanName };
       }
-      if (/important/i.test(p) || /important/i.test(n)) {
+      if (/important/i.test(rawP) || /important/i.test(rawN) || /önemli|onemli/i.test(decP)) {
         // Skip Gmail Important virtual folder
-        let cleanName = mb.name || mb.path;
+        let cleanName = decodeImapUtf7(mb.name || mb.path);
         cleanName = cleanName.replace(/^\[.*?\][./\\]/i, '').trim() || cleanName;
         return { folder: cleanName, isCustom: true, cleanName };
       }
     }
 
-    // --- Standard IMAP special-use attribute mapping ---
-    if (special === '\\Sent' || /sent|gönderilen|gonderilen/i.test(p) || /sent|gönderilen|gonderilen/i.test(n)) {
+    // --- Standard IMAP special-use attribute mapping & Turkish names ---
+    if (special === '\\Sent' || /sent|gönderilen|gonderilen/i.test(decP) || /sent|gönderilen|gonderilen/i.test(decN) || /sent/i.test(rawP) || /sent/i.test(rawN)) {
       return { folder: 'SENT', isCustom: false, cleanName: 'Gönderilenler' };
     }
-    if (special === '\\Drafts' || /draft|taslak/i.test(p) || /draft|taslak/i.test(n)) {
+    if (special === '\\Drafts' || /draft|taslak/i.test(decP) || /draft|taslak/i.test(decN) || /draft/i.test(rawP) || /draft/i.test(rawN)) {
       return { folder: 'DRAFTS', isCustom: false, cleanName: 'Taslaklar' };
     }
-    if (special === '\\Trash' || /trash|çöp|cop|deleted|silinmiş|silinmis/i.test(p) || /trash|çöp|cop|deleted|silinmiş|silinmis/i.test(n)) {
+    if (special === '\\Trash' || /trash|çöp|cop|deleted|silinmiş|silinmis|bin/i.test(decP) || /trash|çöp|cop|deleted|silinmiş|silinmis|bin/i.test(decN) || /trash|cop|deleted|bin/i.test(rawP) || /trash|cop|deleted|bin/i.test(rawN)) {
       return { folder: 'TRASH', isCustom: false, cleanName: 'Çöp Kutusu' };
     }
-    if (special === '\\Junk' || /spam|junk|istenmeyen/i.test(p) || /spam|junk|istenmeyen/i.test(n)) {
+    if (special === '\\Junk' || /spam|junk|istenmeyen/i.test(decP) || /spam|junk|istenmeyen/i.test(decN) || /spam|junk/i.test(rawP) || /spam|junk/i.test(rawN)) {
       return { folder: 'SPAM', isCustom: false, cleanName: 'İstenmeyen' };
     }
-    if (special === '\\Archive' || special === '\\All' || /archive|arşiv|arsiv|all mail/i.test(p) || /archive|arşiv|arsiv|all mail/i.test(n)) {
+    if (special === '\\Archive' || special === '\\All' || /archive|arşiv|arsiv|all mail/i.test(decP) || /archive|arşiv|arsiv|all mail/i.test(decN) || /archive|all mail/i.test(rawP) || /archive|all mail/i.test(rawN)) {
       return { folder: 'ARCHIVE', isCustom: false, cleanName: 'Arşiv' };
     }
-    if (p === 'inbox' || n === 'inbox' || /gelen/i.test(n)) {
+    if (rawP === 'inbox' || rawN === 'inbox' || decP === 'inbox' || decN === 'inbox' || /gelen/i.test(decN) || /gelen/i.test(decP)) {
       return { folder: 'INBOX', isCustom: false, cleanName: 'Gelen Kutusu' };
     }
 
     // Custom folder clean display name
-    let cleanName = mb.name || mb.path;
+    let cleanName = decodeImapUtf7(mb.name || mb.path);
     cleanName = cleanName.replace(/^INBOX[./\\]/i, '').replace(/^\[.*?\][./\\]/i, '').trim();
-    if (!cleanName) cleanName = mb.path;
+    if (!cleanName) cleanName = decodeImapUtf7(mb.path);
 
     return { folder: cleanName, isCustom: true, cleanName };
   }
@@ -519,8 +542,13 @@ export class ImapService {
       const targetPath = await this.resolveServerMailboxPath(client, account.id, targetFolder);
       const sourcePath = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
 
-      // If we couldn't resolve the target path (returned the raw input), the folder doesn't exist
-      if (targetPath === targetFolder.toUpperCase() && targetFolder !== 'INBOX') {
+      // Check if target folder exists on server (or is INBOX / resolved)
+      const cachedMailboxes = this.mailboxListCache.get(account.id)?.mailboxes || [];
+      const targetFound = targetFolder === 'INBOX' || cachedMailboxes.some((m: any) =>
+        m.path === targetPath || decodeImapUtf7(m.path) === targetPath || m.path.toLowerCase() === targetPath.toLowerCase()
+      );
+
+      if (!targetFound && targetPath === targetFolder.toUpperCase() && targetFolder !== 'INBOX') {
         console.warn(`Target folder "${targetFolder}" not found on server for account ${account.email}, resolved to: ${targetPath}`);
         return false;
       }
@@ -529,17 +557,26 @@ export class ImapService {
 
       const lock = await client.getMailboxLock(sourcePath, { acquireTimeout: 15000 });
       try {
+        const findUid = async (msgId?: string): Promise<number | null> => {
+          if (!msgId) return null;
+          const cleanMid = msgId.replace(/[<>]/g, '').trim();
+          for (const query of [{ header: { 'message-id': `<${cleanMid}>` } }, { header: { 'message-id': cleanMid } }]) {
+            try {
+              const res = await client.search(query, { uid: true });
+              if (res && res.length > 0) return res[0];
+            } catch {}
+          }
+          return null;
+        };
+
         let uidToMove = email.imapUid;
         let searchedByMessageId = false;
 
         if (!uidToMove && email.messageId) {
-          const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
-          try {
-            const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
-            if (searchResults && searchResults.length > 0) uidToMove = searchResults[0];
+          const found = await findUid(email.messageId);
+          if (found) {
+            uidToMove = found;
             searchedByMessageId = true;
-          } catch (searchErr) {
-            console.warn(`Search by messageId failed for ${account.email}:`, searchErr);
           }
         }
 
@@ -556,8 +593,12 @@ export class ImapService {
             console.warn(`messageMove failed for ${account.email} uid ${uid}, trying copy+delete fallback:`, moveErr);
             try {
               this.requireImapSuccess(await client.messageCopy(String(uid), targetPath, { uid: true }), 'IMAP komutu');
-              this.requireImapSuccess(await client.messageFlagsAdd(String(uid), ['\\Deleted'], { uid: true }), 'IMAP komutu');
-              this.requireImapSuccess(await client.messageDelete(String(uid), { uid: true }), 'IMAP komutu');
+              try {
+                await client.messageFlagsAdd(String(uid), ['\\Deleted'], { uid: true });
+                await client.messageDelete(String(uid), { uid: true });
+              } catch (delErr) {
+                console.warn(`Post-copy delete warning for ${account.email} uid ${uid}:`, delErr);
+              }
               return true;
             } catch (fallbackErr) {
               console.warn(`Copy+delete fallback also failed for ${account.email} uid ${uid}:`, fallbackErr);
@@ -570,15 +611,11 @@ export class ImapService {
 
         // If UID was stale (present but move failed), retry via messageId search
         if (!searchedByMessageId && email.messageId) {
-          const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
-          try {
-            const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
-            const newUid = searchResults && searchResults.length > 0 ? searchResults[0] : null;
-            if (newUid && newUid !== uidToMove) {
-              console.warn(`Stale UID ${uidToMove} failed, retrying move with resolved UID ${newUid} for ${account.email}`);
-              if (await tryMove(newUid)) return true;
-            }
-          } catch (e) { console.warn(`Retry search by messageId failed for move ${account.email}:`, e); }
+          const newUid = await findUid(email.messageId);
+          if (newUid && newUid !== uidToMove) {
+            console.warn(`Stale UID ${uidToMove} failed, retrying move with resolved UID ${newUid} for ${account.email}`);
+            if (await tryMove(newUid)) return true;
+          }
         }
       } finally {
         lock.release();
@@ -597,8 +634,13 @@ export class ImapService {
       const client = await this.getOrCreateClient(account);
       const targetPath = await this.resolveServerMailboxPath(client, account.id, targetFolder);
 
-      // If we couldn't resolve the target path (returned the raw input), the folder doesn't exist
-      if (targetPath === targetFolder.toUpperCase() && targetFolder !== 'INBOX') {
+      // Check if target folder exists on server (or is INBOX / resolved)
+      const cachedMailboxes = this.mailboxListCache.get(account.id)?.mailboxes || [];
+      const targetFound = targetFolder === 'INBOX' || cachedMailboxes.some((m: any) =>
+        m.path === targetPath || decodeImapUtf7(m.path) === targetPath || m.path.toLowerCase() === targetPath.toLowerCase()
+      );
+
+      if (!targetFound && targetPath === targetFolder.toUpperCase() && targetFolder !== 'INBOX') {
         console.warn(`Target folder "${targetFolder}" not found on server for account ${account.email}, resolved to: ${targetPath}`);
         return false;
       }
@@ -625,8 +667,10 @@ export class ImapService {
               console.warn(`Bulk messageMove failed for ${account.email}, trying copy+delete fallback:`, moveErr);
               try {
                 this.requireImapSuccess(await client.messageCopy(uidStr, targetPath, { uid: true }), 'IMAP komutu');
-                this.requireImapSuccess(await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true }), 'IMAP komutu');
-                this.requireImapSuccess(await client.messageDelete(uidStr, { uid: true }), 'IMAP komutu');
+                try {
+                  await client.messageFlagsAdd(uidStr, ['\\Deleted'], { uid: true });
+                  await client.messageDelete(uidStr, { uid: true });
+                } catch {}
               } catch (fallbackErr) {
                 console.warn(`Bulk copy+delete fallback also failed for ${account.email}:`, fallbackErr);
               }
@@ -676,13 +720,21 @@ export class ImapService {
 
       const lock = await client.getMailboxLock(sourcePath, { acquireTimeout: 15000 });
       try {
+        const findUid = async (msgId?: string): Promise<number | null> => {
+          if (!msgId) return null;
+          const cleanMid = msgId.replace(/[<>]/g, '').trim();
+          for (const query of [{ header: { 'message-id': `<${cleanMid}>` } }, { header: { 'message-id': cleanMid } }]) {
+            try {
+              const res = await client.search(query, { uid: true });
+              if (res && res.length > 0) return res[0];
+            } catch {}
+          }
+          return null;
+        };
+
         let uidToDelete = email.imapUid;
         if (!uidToDelete && email.messageId) {
-          const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
-          try {
-            const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
-            if (searchResults && searchResults.length > 0) uidToDelete = searchResults[0];
-          } catch (e) { console.warn(`Search by messageId failed for delete ${account.email}:`, e); }
+          uidToDelete = (await findUid(email.messageId)) || undefined;
         }
 
         if (uidToDelete) {
@@ -693,17 +745,13 @@ export class ImapService {
           }
           // UID existed but delete failed — likely stale UID (moved folder). Retry via messageId search
           if (email.messageId) {
-            const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
-            try {
-              const searchResults = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
-              const newUid = searchResults && searchResults.length > 0 ? searchResults[0] : null;
-              if (newUid && newUid !== uidToDelete) {
-                console.warn(`Stale UID ${uidToDelete} failed, retrying delete with resolved UID ${newUid} for ${account.email}`);
-                if (await tryDeleteWithUid(client, newUid, sourcePath, isGmailAccount, email.folder, !!email.isDeleted, trashPath)) {
-                  return true;
-                }
+            const newUid = await findUid(email.messageId);
+            if (newUid && newUid !== uidToDelete) {
+              console.warn(`Stale UID ${uidToDelete} failed, retrying delete with resolved UID ${newUid} for ${account.email}`);
+              if (await tryDeleteWithUid(client, newUid, sourcePath, isGmailAccount, email.folder, !!email.isDeleted, trashPath)) {
+                return true;
               }
-            } catch (e) { console.warn(`Retry search by messageId failed for delete ${account.email}:`, e); }
+            }
           }
         } else {
           console.warn(`No UID available to delete message for ${account.email}, email: ${email.id}`);
@@ -947,8 +995,16 @@ export class ImapService {
       }
     }
 
-    // Direct match by path or name
-    const exact = mailboxes.find(m => m.path.toLowerCase() === folderNameOrPath.toLowerCase() || m.name.toLowerCase() === folderNameOrPath.toLowerCase());
+    // Direct match by path or name (raw and decoded)
+    const lowerTarget = folderNameOrPath.toLowerCase();
+    const exact = mailboxes.find(m => {
+      const decP = decodeImapUtf7(m.path).toLowerCase();
+      const decN = decodeImapUtf7(m.name).toLowerCase();
+      return m.path.toLowerCase() === lowerTarget ||
+             m.name.toLowerCase() === lowerTarget ||
+             decP === lowerTarget ||
+             decN === lowerTarget;
+    });
     if (exact) return exact.path;
 
     // Semantic match
@@ -957,6 +1013,28 @@ export class ImapService {
       const mapped = this.mapMailboxToFolder(mb);
       if (mapped.folder.toUpperCase() === targetFolder) {
         return mb.path;
+      }
+    }
+
+    // Fallback for TRASH: look for any mailbox that matches trash semantics
+    if (targetFolder === 'TRASH') {
+      const trashMb = mailboxes.find(m => {
+        const decP = decodeImapUtf7(m.path).toLowerCase();
+        const decN = decodeImapUtf7(m.name).toLowerCase();
+        return /trash|çöp|cop|deleted|silinmiş|silinmis|bin/i.test(decP) ||
+               /trash|çöp|cop|deleted|silinmiş|silinmis|bin/i.test(decN) ||
+               /trash|bin/i.test(m.path) || /trash|bin/i.test(m.name);
+      });
+      if (trashMb) return trashMb.path;
+
+      // If no trash folder exists on server at all, attempt to create 'Trash'
+      try {
+        await client.mailboxCreate('Trash');
+        const updated = await client.list();
+        this.mailboxListCache.set(accountId, { mailboxes: updated, cachedAt: Date.now() });
+        return 'Trash';
+      } catch (createErr) {
+        console.warn(`Could not create Trash mailbox on server for account ${accountId}:`, createErr);
       }
     }
 
@@ -1189,7 +1267,7 @@ export class ImapService {
                         ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
                         : `imap-${account.id}-${mb.path}-${message.uid || uuidv4()}`;
 
-                      if (isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
+                      if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
                         continue;
                       }
 
@@ -1312,7 +1390,7 @@ export class ImapService {
                       ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
                       : `imap-${account.id}-${mb.path}-${message.uid || uuidv4()}`;
 
-                    if (isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
+                    if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, mb.path)) {
                       continue;
                     }
 
@@ -1768,7 +1846,7 @@ export class ImapService {
                     ? `imap-${account.id}-${encodeURIComponent(rawMid)}`
                     : `imap-${account.id}-${resolvedPath}-${message.uid || uuidv4()}`;
 
-                  if (isDeletedLocally(emailId, rawMid, account.id, message.uid, resolvedPath)) {
+                  if (targetFolder !== 'TRASH' && isDeletedLocally(emailId, rawMid, account.id, message.uid, resolvedPath)) {
                     continue;
                   }
 

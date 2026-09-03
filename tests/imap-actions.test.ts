@@ -162,3 +162,63 @@ test('getEmailsNeedingBodies identifies body-less emails and syncPendingEmailBod
   assert.ok(!needing.some(e => e.id === mail2.id));
 });
 
+test('decodeImapUtf7 correctly decodes Turkish IMAP folder names', async () => {
+  const { decodeImapUtf7 } = await import('../server/services/imapService.js');
+  assert.equal(decodeImapUtf7('&AMcA9g-p Kutusu'), 'Çöp Kutusu');
+  assert.equal(decodeImapUtf7('[Gmail]/&AMcA9g-p Kutusu'), '[Gmail]/Çöp Kutusu');
+  assert.equal(decodeImapUtf7('G&APY-nderilenler'), 'Gönderilenler');
+  assert.equal(decodeImapUtf7('T&APw-m Postalar'), 'Tüm Postalar');
+});
+
+test('resolveServerMailboxPath resolves TRASH for Turkish UTF-7 mailbox names', async () => {
+  const fakeClientWithTurkishTrash = {
+    list: async () => [
+      { path: 'INBOX', name: 'INBOX', specialUse: '\\Inbox' },
+      { path: '[Gmail]/&AMcA9g-p Kutusu', name: '&AMcA9g-p Kutusu' },
+    ],
+  };
+  const resolved = await ImapService.resolveServerMailboxPath(fakeClientWithTurkishTrash as any, 'turkish-acc-id', 'TRASH');
+  assert.equal(resolved, '[Gmail]/&AMcA9g-p Kutusu');
+});
+
+test('pruneMissingServerUids preserves TRASH emails with imapUid = 0 (newly moved)', () => {
+  const movedMail = email(200);
+  db.saveEmail({
+    ...movedMail,
+    folder: 'TRASH',
+    isDeleted: true,
+    imapUid: 0,
+  });
+
+  // Server TRASH sync returns only UID 50
+  const deletedCount = db.pruneMissingServerUids(account.id, 'Trash', [50], 1, 'TRASH');
+  assert.equal(deletedCount, 0, 'Should not delete newly moved email with imapUid: 0');
+
+  const record = db.getEmailById(movedMail.id);
+  assert.ok(record, 'Email with imapUid: 0 should still exist in TRASH');
+  assert.equal(record.folder, 'TRASH');
+});
+
+test('saveEmailsBatch preserves TRASH emails during sync even if marked deleted locally', () => {
+  const trashMail = email(205);
+  // Mark deleted locally to prevent resurrection in INBOX
+  db.markDeletedLocally({ id: trashMail.id, messageId: trashMail.messageId, accountId: account.id });
+
+  // Sync arrives for TRASH mailbox
+  const { savedCount, newEmails } = db.saveEmailsBatch([
+    {
+      ...trashMail,
+      folder: 'TRASH',
+      isDeleted: true,
+      imapUid: 55,
+      mailboxPath: 'Trash',
+    }
+  ], true);
+
+  assert.equal(savedCount, 1);
+  const found = db.getEmailById(trashMail.id);
+  assert.ok(found, 'Email should be saved in TRASH even if in deleted_records');
+  assert.equal(found.folder, 'TRASH');
+});
+
+

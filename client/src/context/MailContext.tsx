@@ -241,9 +241,13 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const lastSyncedFolderRef = useRef<string | null>(null);
 
-  const pruneFromCache = useCallback((emailIds: string[]) => {
+  const pruneFromCache = useCallback((emailIds: string[], pruneTrash = true) => {
     const idSet = new Set(emailIds);
     for (const [key, list] of folderCacheRef.current.entries()) {
+      if (!pruneTrash && key.includes('"folder":"TRASH"')) {
+        folderCacheRef.current.delete(key);
+        continue;
+      }
       folderCacheRef.current.set(key, list.filter(e => !idSet.has(e.id)));
     }
   }, []);
@@ -708,7 +712,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSelectedEmailId(null);
       }
     }
-    pruneFromCache([id]);
+    pruneFromCache([id], isAlreadyTrash);
 
     // 0ms instant sidebar stats update
     if (isAlreadyTrash) {
@@ -916,7 +920,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Optimistic removal
     setEmails(prev => prev.filter(e => !idSet.has(e.id)));
-    pruneFromCache(ids);
+    pruneFromCache(ids, isTrash);
     clearCheckedEmails();
     setSelectedEmailId(prevId => (prevId && idSet.has(prevId) ? null : prevId));
 

@@ -1,5 +1,14 @@
 # Değişiklik kaydı
 
+## 1.4.7 — 2026-09-03
+
+- **Çöp Kutusu & E-posta Silme Süreci Kalıcı Mimari Çözümü (Robust IMAP Trash & Deletion Pipeline)**:
+  - **IMAP Modified UTF-7 Mailbox Çözümleyicisi (`decodeImapUtf7`)**: Türkçe IMAP sunucularında (Gmail Türkçe, üniversite sunucuları, cPanel vb.) klasör adlarının `&AMcA9g-p Kutusu` veya `Silinmi&AV8- &ANY-geler` gibi RFC 3501 UTF-7 formatında dönmesi nedeniyle Çöp Kutusu'nun tanınamaması ve taşıma işlemlerinin 502 hatası vermesi sorunu çözüldü. Klasör adları artık UTF-7'den otomatik çözümlenerek hem `TRASH` eşleştirmesinde hem de kullanıcı arayüzünde pürüzsüz Türkçe adlarla gösteriliyor.
+  - **Kritik Çöp Kutusu Temizleme Koruması (`pruneMissingServerUids`)**: İleti yerel olarak Çöp Kutusuna taşındığında (`imapUid: 0`), otomatik senkronizasyonun bu iletileri henüz sunucu UID'si atanmadı diye SQLite'tan hemen silmesi engellendi. Artık yalnızca gerçekten sunucuda var olmuş (`imapUid > 0`) ve sunucu listesinden düşmüş iletiler temizleniyor.
+  - **`isDeletedLocally` TRASH İstisnası**: Gelen kutusunda dirilmeyi önleyen silinme takip mekanizması (`isDeletedLocally`), Çöp Kutusu klasörü senkronize edilirken veya Çöp Kutusu'na kaydedilirken artık bypass ediliyor. Böylece silinen iletiler Çöp Kutusu'na başarıyla kaydedilip kullanıcı tarafından görüntülenebiliyor.
+  - **Güçlendirilmiş Sunucu Taşıma & Silme (`moveMessageOnServer` & `deleteMessageOnServer`)**: Sunucu `MOVE` desteğine sahip değilse `copy+delete` yedeği güvenli hale getirildi; kopyalama tamamlandığında kaynak klasördeki bayrak hataları silme işlemini başarısız kılmayacak şekilde yalıtıldı; Message-ID aramaları `<...>` ve yalın biçimlerde çift yönlü yapılıyor.
+  - **İstemci Önbellek Yönetimi**: İleti çöp kutusuna taşındığında Çöp Kutusu önbelleği otomatik geçersiz kılınarak kullanıcının Çöp Kutusu sekmesini açtığında taşınan iletileri anında ve eksiksiz görmesi sağlandı.
+
 ## 1.4.6 — 2026-09-03
 
 - **Kalıcı E-posta Gövdesi Çözümü (Failsafe Body Retrieval & Persistent Offline Cache)**:
