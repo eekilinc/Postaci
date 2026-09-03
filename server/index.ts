@@ -334,8 +334,18 @@ app.get('/api/emails/:id', async (req: Request, res: Response) => {
     let email = getEmailById(req.params.id);
     if (!email) return res.status(404).json({ error: 'E-posta bulunamadı.' });
 
-    // On-demand full email body fetch if body was not preloaded (UID 0 → fallback via messageId)
-    if (!email.hasFullBody && email.accountId && (email.imapUid || email.messageId)) {
+    // On-demand full email body fetch if body was not preloaded or only contains snippet
+    const rawBody = (email.bodyHtml || '').trim();
+    const rawText = (email.bodyText || '').trim();
+    const snippetHtml = `<p>${email.snippet}</p>`;
+    const isBodyMissing = !email.hasFullBody ||
+      !rawText ||
+      rawText === email.snippet ||
+      rawBody === snippetHtml ||
+      rawBody === email.snippet ||
+      (rawBody === `<p>${rawText}</p>` && rawText.length <= 150 && rawText === email.snippet);
+
+    if (isBodyMissing && email.accountId && (email.imapUid || email.messageId)) {
       const account = getAccountById(email.accountId);
       if (account && account.provider !== 'demo') {
         const fullEmail = await ImapService.fetchFullEmailBody(
@@ -402,7 +412,18 @@ app.patch('/api/emails/:id/flags', async (req: Request, res: Response) => {
   try {
     const mail = getEmailById(req.params.id);
     if (!mail) return res.status(404).json({ error: 'E-posta bulunamadı.' });
-    const updates = await syncUpdateToRemote(mail, req.body || {});
+
+    let updates = req.body || {};
+    try {
+      updates = await syncUpdateToRemote(mail, req.body || {});
+    } catch (syncErr: any) {
+      // If it's a flag change (e.g. mark read/star), don't block local update if remote IMAP had a transient error
+      if (updates.folder || updates.isDeleted) {
+        throw syncErr;
+      }
+      console.warn(`Remote flag sync warning for ${mail.id}:`, syncErr.message);
+    }
+
     const updated = updateEmailFlags(req.params.id, updates);
     if (!updated) return res.status(404).json({ error: 'E-posta bulunamadı.' });
     broadcastSSE('email_updated', updated);

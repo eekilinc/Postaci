@@ -65,3 +65,66 @@ test('remote move succeeds only after the IMAP server confirms it', async () => 
   (ImapService as any).getOrCreateClient = async () => fakeClient();
   assert.equal(await ImapService.moveMessageOnServer(account.id, email(1), 'TRASH'), true);
 });
+
+test('remote flag updates apply \\Seen flag on IMAP server', async () => {
+  const flagsAdded: string[] = [];
+  (ImapService as any).getOrCreateClient = async () => fakeClient({
+    messageFlagsAdd: async (_uid: string, flags: string[]) => {
+      flagsAdded.push(...flags);
+      return true;
+    },
+  });
+  const res = await ImapService.updateFlagsOnServer(account.id, email(1), { isRead: true });
+  assert.equal(res, true);
+  assert.ok(flagsAdded.includes('\\Seen'));
+});
+
+test('updateEmailBody matches both URL-encoded and raw email IDs', () => {
+  const specialId = '<special-test-id@example.com>';
+  const encodedId = encodeURIComponent(specialId);
+  db.saveEmail({
+    ...email(99),
+    id: encodedId,
+    messageId: specialId,
+    bodyText: 'snippet only',
+    bodyHtml: '<p>snippet only</p>',
+    snippet: 'snippet only',
+    hasFullBody: false,
+  });
+
+  const updated = db.updateEmailBody(specialId, {
+    bodyText: 'Full body content here',
+    bodyHtml: '<p>Full body content here</p>',
+    hasFullBody: true,
+  });
+  assert.equal(updated, true);
+
+  const fetched = db.getEmailById(specialId);
+  assert.ok(fetched);
+  assert.equal(fetched.hasFullBody, true);
+  assert.equal(fetched.bodyText, 'Full body content here');
+});
+
+test('fetchFullEmailBody retrieves body source and updates email in database', async () => {
+  const mail = email(101);
+  db.saveEmail({
+    ...mail,
+    bodyText: mail.snippet,
+    bodyHtml: `<p>${mail.snippet}</p>`,
+    hasFullBody: false,
+  });
+
+  (ImapService as any).getOrCreateClient = async () => fakeClient({
+    fetchOne: async () => ({
+      source: Buffer.from(`From: sender@example.test\r\nTo: test@example.test\r\nSubject: Test Subject\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Actual full HTML body from IMAP</p>`),
+      envelope: {},
+      flags: new Set(),
+    }),
+  });
+
+  const fullEmail = await ImapService.fetchFullEmailBody(account.id, 'INBOX', mail.imapUid || 102, mail.id);
+  assert.ok(fullEmail);
+  assert.equal(fullEmail.hasFullBody, true);
+  assert.ok(fullEmail.bodyHtml.includes('Actual full HTML body from IMAP'));
+});
+

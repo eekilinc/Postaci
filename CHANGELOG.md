@@ -1,5 +1,11 @@
 # Değişiklik kaydı
 
+## 1.4.5 — 2026-09-03
+
+- E-posta gövdesi görünürlüğü: ImapFlow `Promise.race` kilit deadlock'ı giderildi (`acquireTimeout: 15000` kullanıldı); `GET /api/emails/:id` üzerinde gövde eksik veya sadece özet ise otomatik IMAP tam gövde çekme tetiklendi; `updateEmailBody` URL-encoded/raw/messageId esnek eşleştirmesi sağlandı; `syncAccount` en yeni 10 okunmamış ve 5 gelen kutusu e-postası için gövde önceden yükleniyor.
+- Otomatik okundu (`\Seen`) işaretleme: İletiye tıklandığında veya klavyeyle sonraki/önceki mesaja geçildiğinde anında yerel optimistik sayaç güncellemesi ve sunucu bayrak eşitlemesi sağlandı; kullanıcının manuel "okunmadı" tercihi oturum boyunca korundu; bayrak güncellemelerinde sunucu ağ gecikmelerine karşı hata dayanıklılığı sağlandı.
+- İstemci gövde yenileme: `EmailDetail` içine gövde henüz çekilmediğinde kullanıcıyı bilgilendiren ve anında gövdeyi yeniden getiren "Gövdeyi Yeniden Getir" düğmesi eklendi.
+
 ## 1.4.4 — 2026-09-03
 
 - Gövde görünmüyor düzeltmesi: `fetchFullEmailBody` artık `mailboxPath`'i çözümlüyor ve `imapUid=0` durumunda `messageId` ile yeniden arama yapıyor; `GET /api/emails/:id` artık `messageId` ile de tetikleniyor.

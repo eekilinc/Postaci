@@ -72,6 +72,8 @@ interface MailContextType {
   bulkDelete: () => Promise<void>;
   bulkMarkRead: (read: boolean) => Promise<void>;
   emptyTrashFolder: () => Promise<void>;
+  markAsRead: (id: string) => Promise<void>;
+  reloadEmailBody: (id: string) => Promise<void>;
   triggerSync: () => Promise<void>;
 }
 
@@ -322,6 +324,8 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  const manuallyUnreadIdRef = useRef<string | null>(null);
+
   // Load Thread when selectedEmailId changes (without depending on whole emails array)
   useEffect(() => {
     if (!selectedEmailId) {
@@ -329,12 +333,26 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    // Auto mark as read if not manually marked unread by the user
+    if (manuallyUnreadIdRef.current !== selectedEmailId) {
+      const isMatching = (eId: string) => eId === selectedEmailId || decodeURIComponent(eId) === decodeURIComponent(selectedEmailId);
+      const cur = emails.find(e => isMatching(e.id));
+      if (cur && !cur.isRead) {
+        markAsRead(selectedEmailId);
+      }
+    }
+
     let cancelled = false;
     api.getEmailById(selectedEmailId).then(async fetched => {
       if (cancelled) return;
-      setEmails(prev => prev.map(e => e.id === fetched.id ? { ...e, ...fetched } : e));
+      const isMatching = (eId: string) => eId === fetched.id || decodeURIComponent(eId) === decodeURIComponent(fetched.id);
+      setEmails(prev => prev.map(e => isMatching(e.id) ? { ...e, ...fetched } : e));
       const thread = fetched.threadId ? await api.getEmailThread(fetched.threadId) : [fetched];
       if (!cancelled) setThreadEmails(thread);
+      // Ensure fetched email is marked as read if it was unread on server
+      if (!fetched.isRead && manuallyUnreadIdRef.current !== selectedEmailId) {
+        markAsRead(fetched.id);
+      }
     }).catch(() => { if (!cancelled) setThreadEmails([]); });
     return () => { cancelled = true; };
   }, [selectedEmailId]);
@@ -476,26 +494,6 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const selectEmail = (id: string | null) => {
-    setSelectedEmailId(id);
-  };
-
-  const nextEmail = () => {
-    if (!emails.length) return;
-    const currentIndex = emails.findIndex(e => e.id === selectedEmailId);
-    if (currentIndex < emails.length - 1) {
-      setSelectedEmailId(emails[currentIndex + 1].id);
-    }
-  };
-
-  const prevEmail = () => {
-    if (!emails.length) return;
-    const currentIndex = emails.findIndex(e => e.id === selectedEmailId);
-    if (currentIndex > 0) {
-      setSelectedEmailId(emails[currentIndex - 1].id);
-    }
-  };
-
   const adjustFolderStats = useCallback((adjustments: Array<{ folder: string; countDelta: number; unreadDelta?: number }>) => {
     setFolderStats(prev => {
       const copy = prev.map(s => ({ ...s }));
@@ -522,21 +520,98 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }));
   }, []);
 
+  const markAsRead = useCallback(async (id: string) => {
+    if (!id) return;
+    const isMatching = (eId: string) => eId === id || decodeURIComponent(eId) === decodeURIComponent(id);
+    const cur = emails.find(e => isMatching(e.id));
+    if (cur && cur.isRead) return;
+
+    // Optimistically update local emails & threads
+    setEmails(prev => prev.map(e => isMatching(e.id) ? { ...e, isRead: true } : e));
+    setThreadEmails(prev => prev.map(e => isMatching(e.id) ? { ...e, isRead: true } : e));
+
+    if (cur) {
+      adjustFolderStats([
+        { folder: cur.folder || activeFolder, countDelta: 0, unreadDelta: -1 }
+      ]);
+      if (cur.accountId && (cur.folder === 'INBOX' || activeFolder === 'INBOX')) {
+        adjustAccountUnread(cur.accountId, -1);
+      }
+    }
+
+    try {
+      await api.updateEmailFlags(id, { isRead: true });
+    } catch (err) {
+      console.warn('Sunucuda okundu olarak işaretlenemedi:', err);
+    }
+  }, [emails, activeFolder, adjustFolderStats, adjustAccountUnread]);
+
+  const selectEmail = (id: string | null) => {
+    if (id !== selectedEmailId) {
+      manuallyUnreadIdRef.current = null;
+    }
+    setSelectedEmailId(id);
+    if (id && manuallyUnreadIdRef.current !== id) {
+      markAsRead(id);
+    }
+  };
+
+  const nextEmail = () => {
+    if (!emails.length) return;
+    const currentIndex = emails.findIndex(e => e.id === selectedEmailId);
+    if (currentIndex < emails.length - 1) {
+      selectEmail(emails[currentIndex + 1].id);
+    }
+  };
+
+  const prevEmail = () => {
+    if (!emails.length) return;
+    const currentIndex = emails.findIndex(e => e.id === selectedEmailId);
+    if (currentIndex > 0) {
+      selectEmail(emails[currentIndex - 1].id);
+    }
+  };
+
   const toggleRead = async (id: string, currentStatus: boolean) => {
     const newStatus = !currentStatus;
-    const cur = emails.find(e => e.id === id);
-    setEmails(prev => prev.map(e => (e.id === id ? { ...e, isRead: newStatus } : e)));
+    if (!newStatus) {
+      manuallyUnreadIdRef.current = id;
+    } else if (manuallyUnreadIdRef.current === id) {
+      manuallyUnreadIdRef.current = null;
+    }
+    const isMatching = (eId: string) => eId === id || decodeURIComponent(eId) === decodeURIComponent(id);
+    const cur = emails.find(e => isMatching(e.id));
+    setEmails(prev => prev.map(e => (isMatching(e.id) ? { ...e, isRead: newStatus } : e)));
+    setThreadEmails(prev => prev.map(e => (isMatching(e.id) ? { ...e, isRead: newStatus } : e)));
     
     // 0ms instant stats adjustment
     adjustFolderStats([
-      { folder: activeFolder, countDelta: 0, unreadDelta: newStatus ? -1 : 1 }
+      { folder: cur?.folder || activeFolder, countDelta: 0, unreadDelta: newStatus ? -1 : 1 }
     ]);
     if (cur?.accountId && (cur.folder === 'INBOX' || activeFolder === 'INBOX')) {
       adjustAccountUnread(cur.accountId, newStatus ? -1 : 1);
     }
 
-    await api.updateEmailFlags(id, { isRead: newStatus });
-    refreshStats();
+    try {
+      await api.updateEmailFlags(id, { isRead: newStatus });
+      refreshStats();
+    } catch (err) {
+      console.warn('Bayrak güncellenemedi:', err);
+    }
+  };
+
+  const reloadEmailBody = async (id: string) => {
+    try {
+      const fetched = await api.getEmailById(id);
+      if (fetched) {
+        const isMatching = (eId: string) => eId === fetched.id || decodeURIComponent(eId) === decodeURIComponent(fetched.id);
+        setEmails(prev => prev.map(e => isMatching(e.id) ? { ...e, ...fetched } : e));
+        setThreadEmails(prev => prev.map(e => isMatching(e.id) ? { ...e, ...fetched } : e));
+      }
+    } catch (err) {
+      console.warn('E-posta gövdesi yenilenemedi:', err);
+      throw err;
+    }
   };
 
   const toggleStarred = async (id: string, currentStatus: boolean) => {
@@ -1178,7 +1253,7 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedEmailId, checkedEmailIds, emails, isComposerOpen, isSettingsOpen, isShortcutsOpen, isCommandPaletteOpen, nextEmail, prevEmail, deleteEmail, bulkDelete, archiveEmail, bulkArchive, selectAllEmails, clearCheckedEmails, toggleEmailCheck, openComposer, openReply, openForward, markAsSpam, togglePinned, toggleRead, toggleStarred]);
 
-  const selectedEmail = emails.find(e => e.id === selectedEmailId);
+  const selectedEmail = emails.find(e => e.id === selectedEmailId || decodeURIComponent(e.id) === decodeURIComponent(selectedEmailId || ''));
 
   return (
     <MailContext.Provider
@@ -1243,6 +1318,8 @@ export const MailProvider: React.FC<{ children: React.ReactNode }> = ({ children
         bulkDelete,
         bulkMarkRead,
         emptyTrashFolder,
+        markAsRead,
+        reloadEmailBody,
         triggerSync,
       }}
     >

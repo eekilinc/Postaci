@@ -29,7 +29,8 @@ import {
   ListTodo,
   CheckSquare,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  RotateCw
 } from 'lucide-react';
 import { sanitizeEmailHtml, emailDocument } from '../utils/emailHtml';
 import { useMail } from '../context/MailContext';
@@ -53,6 +54,7 @@ export const EmailDetail: React.FC = () => {
     openForward,
     viewLayout,
     selectEmail,
+    reloadEmailBody,
   } = useMail();
 
   const { theme } = useTheme();
@@ -87,6 +89,7 @@ export const EmailDetail: React.FC = () => {
   const [emailViewMode, setEmailViewMode] = useState<'smart_dark' | 'light_card' | 'original'>('smart_dark');
   const isLightCardMode = emailViewMode === 'light_card';
   const [isAiWidgetExpanded, setIsAiWidgetExpanded] = useState<boolean>(() => localStorage.getItem('postaci_ai_expanded') !== 'false');
+  const [isReloadingBody, setIsReloadingBody] = useState(false);
 
   const toggleAiWidget = () => {
     setIsAiWidgetExpanded(prev => {
@@ -222,8 +225,27 @@ export const EmailDetail: React.FC = () => {
     }
   };
 
+  const handleReloadBody = async () => {
+    if (!selectedEmail?.id) return;
+    setIsReloadingBody(true);
+    try {
+      await reloadEmailBody(selectedEmail.id);
+      success('E-posta içeriği güncellendi.');
+    } catch {
+      error('İçerik sunucudan alınamadı.');
+    } finally {
+      setIsReloadingBody(false);
+    }
+  };
+
   const rawBody = selectedEmail.bodyHtml?.trim() || selectedEmail.bodyText?.trim() || '';
-  const isSnippetOnly = !selectedEmail.hasFullBody && (rawBody === `<p>${selectedEmail.snippet}</p>` || rawBody === selectedEmail.snippet);
+  const snippetHtml = `<p>${selectedEmail.snippet}</p>`;
+  const isSnippetOnly = !selectedEmail.hasFullBody ||
+    !selectedEmail.bodyText?.trim() ||
+    selectedEmail.bodyText?.trim() === selectedEmail.snippet ||
+    rawBody === snippetHtml ||
+    rawBody === selectedEmail.snippet ||
+    (rawBody === `<p>${selectedEmail.bodyText?.trim()}</p>` && (selectedEmail.bodyText?.trim().length || 0) <= 150 && selectedEmail.bodyText?.trim() === selectedEmail.snippet);
   const bodyForSanitize = rawBody || selectedEmail.snippet || '(İçerik yok)';
   const sanitizedBodyRaw = sanitizeEmailHtml(bodyForSanitize.includes('<') ? bodyForSanitize : bodyForSanitize.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]!)).replace(/\n/g, '<br>'), selectedEmail.attachments || [], {
     blockExternalImages: privacy.blockExternalImages && !loadRemoteImages,
@@ -1006,9 +1028,33 @@ export const EmailDetail: React.FC = () => {
         )}
 
         {/* Loading indicator when body is still snippet-only (on-demand fetch in progress) */}
-        {!selectedEmail.hasFullBody && isSnippetOnly && (
-          <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Clock size={14} color="var(--accent-primary)" /> Gövde sunucudan getiriliyor… Eğer uzun süre görünmezse IMAP bağlantınızı ve posta kutusu yolunu kontrol edin.
+        {isSnippetOnly && (
+          <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Clock size={14} color="var(--accent-primary)" />
+              <span>Gövde sunucudan getiriliyor… Eğer uzun süre görünmezse sağdaki butona tıklayın.</span>
+            </div>
+            <button
+              onClick={handleReloadBody}
+              disabled={isReloadingBody}
+              style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--accent-primary)',
+                borderRadius: '6px',
+                padding: '4px 10px',
+                fontSize: '11px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <RotateCw size={12} className={isReloadingBody ? 'animate-spin' : ''} />
+              <span>{isReloadingBody ? 'Yükleniyor…' : 'Gövdeyi Yeniden Getir'}</span>
+            </button>
           </div>
         )}
         {/* Email Body Content */}

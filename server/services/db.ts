@@ -1649,8 +1649,12 @@ export function updateEmailBody(id: string, updates: {
   attachments?: Attachment[];
   hasFullBody?: boolean;
 }): boolean {
+  const rawId = decodeURIComponent(id);
+  let encId = id;
+  try { encId = encodeURIComponent(id); } catch {}
+
   if (!isNativeSqlite) {
-    const e = memStore.emails.find(m => m.id === id);
+    const e = memStore.emails.find(m => m.id === id || m.id === rawId || m.id === encId || decodeURIComponent(m.id) === rawId || (m.messageId && (m.messageId === id || m.messageId === rawId)));
     if (e) {
       e.bodyText = updates.bodyText;
       e.bodyHtml = updates.bodyHtml;
@@ -1668,10 +1672,12 @@ export function updateEmailBody(id: string, updates: {
       UPDATE emails 
       SET bodyText = @bodyText, bodyHtml = @bodyHtml, snippet = COALESCE(@snippet, snippet),
           attachments_json = COALESCE(@attachments_json, attachments_json), hasFullBody = @hasFullBody
-      WHERE id = @id
+      WHERE id = @id OR id = @rawId OR id = @encId OR (messageId IS NOT NULL AND (messageId = @id OR messageId = @rawId))
     `);
     const res = stmt.run({
       id,
+      rawId,
+      encId,
       bodyText: updates.bodyText,
       bodyHtml: updates.bodyHtml,
       snippet: updates.snippet || null,

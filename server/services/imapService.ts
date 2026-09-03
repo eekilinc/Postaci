@@ -527,10 +527,7 @@ export class ImapService {
 
       if (sourcePath === targetPath) return true;
 
-      const lock = await Promise.race([
-        client.getMailboxLock(sourcePath),
-        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${sourcePath}`)), 6000))
-      ]);
+      const lock = await client.getMailboxLock(sourcePath, { acquireTimeout: 15000 });
       try {
         let uidToMove = email.imapUid;
         let searchedByMessageId = false;
@@ -619,10 +616,7 @@ export class ImapService {
         if (sourcePath === targetPath) continue;
 
         try {
-          const lock = await Promise.race([
-            client.getMailboxLock(sourcePath),
-            new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${sourcePath}`)), 6000))
-          ]);
+          const lock = await client.getMailboxLock(sourcePath, { acquireTimeout: 15000 });
           try {
             const uidStr = uids.join(',');
             try {
@@ -680,10 +674,7 @@ export class ImapService {
       const client = await this.getOrCreateClient(account);
       const sourcePath = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
 
-      const lock = await Promise.race([
-        client.getMailboxLock(sourcePath),
-        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${sourcePath}`)), 6000))
-      ]);
+      const lock = await client.getMailboxLock(sourcePath, { acquireTimeout: 15000 });
       try {
         let uidToDelete = email.imapUid;
         if (!uidToDelete && email.messageId) {
@@ -745,10 +736,7 @@ export class ImapService {
       for (const [sourcePathRaw, uids] of groups.entries()) {
         const sourcePath = await this.resolveServerMailboxPath(client, account.id, sourcePathRaw);
         try {
-          const lock = await Promise.race([
-            client.getMailboxLock(sourcePath),
-            new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${sourcePath}`)), 6000))
-          ]);
+          const lock = await client.getMailboxLock(sourcePath, { acquireTimeout: 15000 });
           try {
             const uidStr = uids.join(',');
             if (isGmailAccount) {
@@ -792,10 +780,7 @@ export class ImapService {
     try {
       const client = await this.getOrCreateClient(account);
       const mailboxPath = await this.resolveServerMailboxPath(client, account.id, email.mailboxPath || 'INBOX');
-      const lock = await Promise.race([
-        client.getMailboxLock(mailboxPath),
-        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${mailboxPath}`)), 6000))
-      ]);
+      const lock = await client.getMailboxLock(mailboxPath, { acquireTimeout: 15000 });
       try {
         let uidToUpdate = email.imapUid;
         let searchedByMessageId = false;
@@ -872,10 +857,7 @@ export class ImapService {
       for (const [sourcePathRaw, uids] of groups.entries()) {
         const sourcePath = await this.resolveServerMailboxPath(client, account.id, sourcePathRaw);
         try {
-          const lock = await Promise.race([
-            client.getMailboxLock(sourcePath),
-            new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${sourcePath}`)), 6000))
-          ]);
+          const lock = await client.getMailboxLock(sourcePath, { acquireTimeout: 15000 });
           try {
             const uidStr = uids.join(',');
             if (flags.isRead !== undefined) {
@@ -1070,10 +1052,7 @@ export class ImapService {
         if (this.mailboxBlacklist.has(blacklistKey)) continue;
 
         try {
-          const lock = await Promise.race([
-            client.getMailboxLock(mb.path),
-            new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${mb.path}`)), 8000))
-          ]);
+          const lock = await client.getMailboxLock(mb.path, { acquireTimeout: 15000 });
           try {
             const stateKey = `${account.id}:::${mb.path}`;
             let state = this.mailboxStates.get(stateKey);
@@ -1417,14 +1396,21 @@ export class ImapService {
               }
             }
 
-            // Collect top 2 newest unseen emails to preload bodies in background (keeps CPU/memory near zero)
+            // Preload bodies for top 10 newest unseen emails and top 5 recent emails
             if (targetFolder === 'INBOX' && envelopeEmails.length > 0) {
               const unreadRecent = envelopeEmails
                 .filter(e => !e.isRead && e.imapUid)
                 .sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0))
-                .slice(0, 2);
+                .slice(0, 10);
               for (const em of unreadRecent) {
-                if (em.imapUid) uidsToPreloadBody.push(em.imapUid);
+                if (em.imapUid && !uidsToPreloadBody.includes(em.imapUid)) uidsToPreloadBody.push(em.imapUid);
+              }
+              const allRecent = envelopeEmails
+                .filter(e => e.imapUid)
+                .sort((a, b) => (b.imapUid || 0) - (a.imapUid || 0))
+                .slice(0, 5);
+              for (const em of allRecent) {
+                if (em.imapUid && !uidsToPreloadBody.includes(em.imapUid)) uidsToPreloadBody.push(em.imapUid);
               }
             }
 
@@ -1517,7 +1503,7 @@ export class ImapService {
         if (email?.messageId) {
           const cleanMid = email.messageId.replace(/[<>]/g, '').trim();
           try {
-            const lockTmp = await client.getMailboxLock(resolvedPath);
+            const lockTmp = await client.getMailboxLock(resolvedPath, { acquireTimeout: 15000 });
             try {
               const res = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
               if (Array.isArray(res) && res.length > 0) uidToFetch = res[0];
@@ -1529,12 +1515,9 @@ export class ImapService {
         console.warn(`fetchFullEmailBody: no UID for ${emailId} in ${resolvedPath}`);
         return null;
       }
-      const lock = await Promise.race([
-        client.getMailboxLock(resolvedPath),
-        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${resolvedPath}`)), 6000))
-      ]);
+      const lock = await client.getMailboxLock(resolvedPath, { acquireTimeout: 15000 });
       try {
-        const message = await client.fetchOne(uidToFetch, {
+        let message = await client.fetchOne(uidToFetch, {
           source: true,
           envelope: true,
           flags: true,
@@ -1549,23 +1532,17 @@ export class ImapService {
             try {
               const res = await client.search({ header: { 'message-id': cleanMid } }, { uid: true });
               const altUid = Array.isArray(res) && res.length > 0 ? res[0] : null;
-              if (altUid && altUid !== uidToFetch) {
+              if (altUid) {
                 const altMsg: any = await client.fetchOne(altUid, { source: true }, { uid: true });
                 if (altMsg?.source) {
-                  const parsedAlt: any = await simpleParser(altMsg.source);
-                  const bodyTextAlt = parsedAlt.textAsHtml ? '' : (parsedAlt.text || '');
-                  const textAlt = parsedAlt.text || '';
-                  const htmlAlt = parsedAlt.html || (textAlt ? `<p>${textAlt.replace(/\n/g, '<br>')}</p>` : '<p>(İçerik yok)</p>');
-                  const snippetAlt = (textAlt || parsedAlt.subject || '').substring(0, 150).replace(/\s+/g, ' ');
-                  const attachmentsAlt: Attachment[] = (parsedAlt.attachments || []).map((att: any) => ({
-                    id: uuidv4(), filename: att.filename || 'ek_dosya', contentType: att.contentType, size: att.size, isInline: !!(att as any).related, contentId: (att as any).cid, contentBase64: att.content ? att.content.toString('base64') : undefined
-                  }));
-                  updateEmailBody(emailId, { bodyText: textAlt, bodyHtml: htmlAlt, snippet: snippetAlt, attachments: attachmentsAlt, hasFullBody: true });
-                  return getEmailById(emailId) || null;
+                  message = altMsg;
                 }
               }
             } catch {}
           }
+        }
+
+        if (!message || !(message as any).source) {
           return null;
         }
 
@@ -1615,10 +1592,7 @@ export class ImapService {
     try {
       const client = await this.getOrCreateClient(account);
       const resolvedPath = await this.resolveServerMailboxPath(client, account.id, mailboxPath);
-      const lock = await Promise.race([
-        client.getMailboxLock(resolvedPath),
-        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Mailbox lock timeout on ${resolvedPath}`)), 8000))
-      ]);
+      const lock = await client.getMailboxLock(resolvedPath, { acquireTimeout: 15000 });
       try {
         let uids: number[] = [];
         try {

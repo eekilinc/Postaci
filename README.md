@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/eekilinc/Postaci/releases/latest"><strong>↓ Son Sürümü İndir (v1.4.4)</strong></a>
+  <a href="https://github.com/eekilinc/Postaci/releases/latest"><strong>↓ Son Sürümü İndir (v1.4.5)</strong></a>
   · <a href="#-kurulum">Kurulum</a>
   · <a href="CHANGELOG.md">Sürüm Notları</a>
   · <a href="#-hesaplar-ve-google-oauth">OAuth</a>
@@ -55,15 +55,14 @@ Postacı, tarayıcı tabanlı e-postanın ötesinde, çok hesaplı IMAP senkroni
 
 ---
 
-## 🎉 1.4.4 ile Gelen Yenilikler
+## 🎉 1.4.5 ile Gelen Yenilikler
 
 Kalıcı paket korunur; önceki sürümleri kaldırmadan güncelleyebilirsiniz:
 
-- 📄 **Gövde Görünmüyor Düzeltmesi:** `fetchFullEmailBody` artık `mailboxPath` çözümlüyor ve `imapUid=0` ise `messageId` ile buluyor; `GET /api/emails/:id` ve `EmailDetail` boş gövdeye `snippet` fallback + yükleniyor uyarısı gösteriyor.
-- 🗑️ **Güvenilir Silme → Çöp Kutusu:** `syncUpdateToRemote` artık IMAP `MOVE` işlemini **senkron** bekleyip `502` ile hata döndürüyor; arka plan fire-and-forget kaldırıldı — “bazen çöp kutusuna gitmiyor” hatası düzeltildi.
-- 🔄 **Stale UID Dayanıklılığı:** `moveMessageOnServer` / `deleteMessageOnServer` / `updateFlagsOnServer` için `messageId` ile yeniden arama ve retry mantığı; IMAP kilit timeout ve `requireImapSuccess` kontrolleri eklendi.
-- 📦 **Yerel Silme Takibi:** `TRASH`'a taşınan mail `deleted_records`'a yazılıyor — senkronizasyonda geri dirilme engellendi (`isDeletedLocally` koruması).
-- 🛠️ **Build & Release İyileştirmesi:** `release.yml` Windows + Linux paralel, tag `v*` ile otomatik `electron-builder` ve `softprops/action-gh-release` ile GitHub Release yayınlama.
+- 📄 **E-posta Gövdesi Görünürlüğü Güçlendirildi:** ImapFlow `getMailboxLock` kilitlenme çıkmazı giderildi (`acquireTimeout: 15000`); `GET /api/emails/:id` üzerinde gövde eksik veya sadece özet ise otomatik IMAP tam gövde çekme tetiklendi; `updateEmailBody` URL-encoded/raw/messageId esnek eşleştirmesi eklendi.
+- 👁️ **Otomatik Okundu İşaretleme:** Bir ileti açıldığında veya sonraki/önceki mesaja geçildiğinde anında yerel sayaç güncellemesi ve sunucuya `\Seen` bayrağı eşitlemesi sağlandı; kullanıcının manuel "okunmadı" tercihi oturum boyunca korundu; bayrak güncellemelerinde sunucu ağ gecikmelerine karşı hata toleransı sağlandı.
+- 🔄 **İçerik Yenileme Düğmesi:** `EmailDetail` içine gövdesi henüz çekilmemiş iletiler için bilgilendirici durum çubuğu ve anında gövdeyi yenileyen "Gövdeyi Yeniden Getir" aksiyonu eklendi.
+- ⚡ **Gelişmiş Ön Yükleme:** Gelen kutusu eşitlemesinde en yeni 10 okunmamış ve en yeni 5 genel e-posta gövdesi önceden belleğe alınarak gecikmesiz açılması sağlandı.
 
 ---
 
@@ -73,8 +72,8 @@ Kalıcı paket korunur; önceki sürümleri kaldırmadan güncelleyebilirsiniz:
 
 1. **[Son Sürümü Açın](https://github.com/eekilinc/Postaci/releases/latest)**
 2. İşletim sisteminize göre indirin:
-   - **Windows:** `Postaci-Setup-1.4.4.exe` (NSIS) veya `Postaci-Setup-1.4.4.zip`
-   - **Linux:** `Postaci-1.4.4.AppImage` veya `postaci_1.4.4_amd64.deb`
+   - **Windows:** `Postaci-Setup-1.4.5.exe` (NSIS) veya `Postaci-Setup-1.4.5.zip`
+   - **Linux:** `Postaci-1.4.5.AppImage` veya `postaci_1.4.5_amd64.deb`
 3. Kurun ve Ayarlar → E-Posta Hesapları’ndan hesabınızı ekleyin.
 
 ### 2. Geliştiriciler İçin (Kaynaktan)
