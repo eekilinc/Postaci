@@ -70,19 +70,65 @@ export class OAuthService {
   }
   public static async handleGoogleCallback(code: string, redirectUri: string, state: string): Promise<Account> {
     const attempt = attempts.get(state);
+    if (!attempt || attempt.expiresAt <= Date.now()) {
+      throw new Error('Giriş isteği geçersiz veya süresi dolmuş. Lütfen Postacı uygulamasından yeniden giriş başlatın.');
+    }
     attempts.delete(state);
-    if (!attempt || attempt.expiresAt <= Date.now() || attempt.redirectUri !== redirectUri) throw new Error('Giriş isteği geçersiz veya süresi dolmuş. Uygulamadan yeniden giriş başlatın.');
+
+    const effectiveRedirectUri = attempt.redirectUri || redirectUri;
     const body = new URLSearchParams({
-      code, client_id: attempt.clientId, redirect_uri: attempt.redirectUri,
-      code_verifier: attempt.verifier, grant_type: 'authorization_code',
+      code,
+      client_id: attempt.clientId,
+      redirect_uri: effectiveRedirectUri,
+      code_verifier: attempt.verifier,
+      grant_type: 'authorization_code',
     });
     if (attempt.clientSecret) body.set('client_secret', attempt.clientSecret);
-    const response = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body, signal: AbortSignal.timeout(20_000),
+
+    let response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      signal: AbortSignal.timeout(20_000),
     });
-    const tokens = await response.json();
-    if (!response.ok || !tokens.access_token) throw new Error('Google yetkilendirmesi tamamlanamadı. İstemci kimliğini ve yönlendirme adresini kontrol edin.');
+    let tokens = await response.json();
+
+    // Fallback: if redirect_uri_mismatch, automatically attempt with alternate localhost / 127.0.0.1 URI
+    if (!response.ok && (tokens.error === 'redirect_uri_mismatch' || String(tokens.error_description).includes('mismatch'))) {
+      const altUri = effectiveRedirectUri.includes('127.0.0.1')
+        ? effectiveRedirectUri.replace('127.0.0.1', 'localhost')
+        : effectiveRedirectUri.replace('localhost', '127.0.0.1');
+
+      try {
+        const altBody = new URLSearchParams({
+          code,
+          client_id: attempt.clientId,
+          redirect_uri: altUri,
+          code_verifier: attempt.verifier,
+          grant_type: 'authorization_code',
+        });
+        if (attempt.clientSecret) altBody.set('client_secret', attempt.clientSecret);
+
+        const altResponse = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: altBody,
+          signal: AbortSignal.timeout(20_000),
+        });
+        const altTokens = await altResponse.json();
+        if (altResponse.ok && altTokens.access_token) {
+          response = altResponse;
+          tokens = altTokens;
+        }
+      } catch {}
+    }
+
+    if (!response.ok || !tokens.access_token) {
+      const msg = tokens.error_description || tokens.error || 'Google yetkilendirmesi tamamlanamadı.';
+      console.error('Google token exchange error details:', tokens);
+      throw new Error(`Google yetkilendirme hatası: ${msg}`);
+    }
+
     const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: 'Bearer ' + tokens.access_token }, signal: AbortSignal.timeout(20_000),
     });

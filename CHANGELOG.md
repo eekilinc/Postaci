@@ -1,5 +1,12 @@
 # Değişiklik kaydı
 
+## 1.4.12 — 2026-09-04
+
+- **Google OAuth Sistem Tarayıcısı Yönlendirmesi & Dayanıklı Token Takası**:
+  - Google'ın dahili gömülü pencereleri (Electron WebViews) "Bu tarayıcı veya uygulama güvenli olmayabilir" hatasıyla engellemesi nedeniyle, yetkilendirme güvenli sistem tarayıcısına (Chrome, Edge vb.) yönlendirildi.
+  - Token takasındaki (Token exchange) katı `redirectUri` eşleşmesi esnetildi; `127.0.0.1` ↔ `localhost` uyumsuzluklarında otomatik yedekli deneme mekanizması eklendi.
+  - Yetkilendirme başarılı olduğunda masaüstü uygulaması otomatik öne odaklanır ve hesap kurulumu anında tamamlanır.
+
 ## 1.4.11 — 2026-09-04
 
 - **Hazır Google OAuth İstemci Kimliği & Akıllı Port Yönetimi**:
