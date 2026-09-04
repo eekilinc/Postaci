@@ -6,11 +6,17 @@ export interface EmailQuery {
 export const API_BASE = '/api';
 export const EVENTS_URL = '/events';
 let sessionPromise: Promise<void> | undefined;
+let bearerToken: string | undefined;
 export function ensureSession(): Promise<void> {
   if (!sessionPromise) sessionPromise = fetch(API_BASE + '/session', {
     method: 'POST', credentials: 'include', signal: AbortSignal.timeout(10000), headers: { 'Content-Type': 'application/json' }, body: '{}',
-  }).then(res => { if (!res.ok) throw new Error('Yerel oturum başlatılamadı. Uygulamayı localhost adresinden açın.'); })
-    .catch(err => { sessionPromise = undefined; throw err; });
+  }).then(async res => {
+    if (!res.ok) throw new Error('Yerel oturum başlatılamadı. Uygulamayı localhost adresinden açın.');
+    try {
+      const data = await res.json();
+      if (data?.token) bearerToken = data.token;
+    } catch {}
+  }).catch(err => { sessionPromise = undefined; throw err; });
   return sessionPromise;
 }
 export async function fetchSafe(url: string, options: RequestInit = {}): Promise<Response> {
@@ -19,13 +25,17 @@ export async function fetchSafe(url: string, options: RequestInit = {}): Promise
   options.signal?.throwIfAborted();
   const method = options.method || 'GET';
   const retries = method === 'GET' ? 3 : 1;
+  const authHeaders: Record<string, string> = bearerToken ? { 'Authorization': `Bearer ${bearerToken}` } : {};
+  const mergedHeaders = { ...authHeaders, ...(options.headers as Record<string, string> || {}) };
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      let res = await fetch(url, { ...options, credentials: 'include' });
+      let res = await fetch(url, { ...options, headers: mergedHeaders, credentials: 'include' });
       if (res.status === 401) {
         sessionPromise = undefined;
+        bearerToken = undefined;
         await ensureSession();
-        res = await fetch(url, { ...options, credentials: 'include' });
+        const retryAuth: Record<string, string> = bearerToken ? { 'Authorization': `Bearer ${bearerToken}` } : {};
+        res = await fetch(url, { ...options, headers: { ...retryAuth, ...(options.headers as Record<string, string> || {}) }, credentials: 'include' });
       }
       return res;
     } catch (err: any) {

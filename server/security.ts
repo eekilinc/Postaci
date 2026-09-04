@@ -45,7 +45,7 @@ export function installSecurity(app: Express, port: number | (() => number)) {
   app.post('/api/session', (req, res) => {
     if (!req.headers.origin || !allowedOrigins().has(req.headers.origin)) return res.status(403).json({ error: 'Uygulamayı yerel adresinden açın.' });
     res.cookie('postaci_session', token, { httpOnly: true, sameSite: 'strict', path: '/' });
-    res.json({ success: true });
+    res.json({ success: true, token });
   });
   app.use((req: Request, res, next) => {
     const route = securityPath(req);

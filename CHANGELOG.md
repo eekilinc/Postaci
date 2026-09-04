@@ -1,5 +1,12 @@
 # Değişiklik kaydı
 
+## 1.4.17 — 2026-09-04
+
+- **Yerel Oturum Başlatma ve Güvenlik Uyumluluğu Düzeltmesi**:
+  - `webSecurity: false` modunda masaüstü istemcisinden gönderilen yerel oturum isteklerinin (origin başlığı gönderilmediğinde) 403 ile reddedilmesi sorunu giderildi.
+  - İstemciye yedekli token yetkilendirme (`Authorization: Bearer <token>`) desteği eklendi.
+  - Başlangıç ekranındaki "Yerel sunucuya bağlanılamadı" hatası kalıcı olarak çözüldü.
+
 ## 1.4.16 — 2026-09-04
 
 - **Orijinal Çalışan Dahili Pencere & WebPreferences Geri Yüklendi (v1.3.20 Ayarları)**:
