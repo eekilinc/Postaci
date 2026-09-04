@@ -1,5 +1,11 @@
 # Değişiklik kaydı
 
+## 1.4.15 — 2026-09-04
+
+- **Google OAuth Sistem Tarayıcısına Yönlendirildi & Otomatik Odaklanma**:
+  - Google'ın dahili gömülü pencerelerde (Electron WebViews) gösterdiği "Bu tarayıcı veya uygulama güvenli olmayabilir" engelini aşmak için yetkilendirme akışı kalıcı olarak güvenli varsayılan sistem tarayıcısına (Chrome, Edge vb.) yönlendirildi.
+  - Onay verildiğinde masaüstü uygulaması Windows üzerinde en öne odaklanır ve hesap kurulumu anında tamamlanır.
+
 ## 1.4.14 — 2026-09-04
 
 - **Gömülü Modal Yetkilendirme Penceresi (Embedded Popup Window) Geri Yüklendi**:
