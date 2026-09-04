@@ -249,8 +249,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
-      webSecurity: true,
+      sandbox: false,
+      webSecurity: false,
     },
   });
 
@@ -467,7 +467,7 @@ ipcMain.on('open-external', (event, url) => {
   }
 });
 
-// IPC: Open OAuth in system browser (Google blocks embedded Electron WebViews)
+// IPC: OAuth Popup Window (Embedded Dialog with Clean Chrome User-Agent)
 ipcMain.handle('open-oauth-window', async (event, url) => {
   if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender');
   const parsed = new URL(url);
@@ -475,6 +475,48 @@ ipcMain.handle('open-oauth-window', async (event, url) => {
     throw new Error('Invalid OAuth URL');
   }
 
-  await shell.openExternal(parsed.href);
-  return { opened: true };
+  return new Promise((resolve) => {
+    const authWindow = new BrowserWindow({
+      width: 540,
+      height: 720,
+      parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+      modal: true,
+      show: true,
+      title: 'Google Girişi — Postacı',
+      autoHideMenuBar: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: false,
+        webSecurity: false,
+      }
+    });
+
+    const chromeUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36';
+    authWindow.webContents.setUserAgent(chromeUserAgent);
+
+    authWindow.loadURL(parsed.href, { userAgent: chromeUserAgent });
+
+    const checkCallback = () => {
+      if (authWindow.isDestroyed()) return;
+      const currentUrl = authWindow.webContents.getURL();
+      if (currentUrl.includes('/api/auth/google/callback') && !currentUrl.includes('error=')) {
+        setTimeout(() => {
+          if (!authWindow.isDestroyed()) {
+            authWindow.close();
+          }
+          focusMainWindow();
+          resolve({ success: true });
+        }, 1200);
+      }
+    };
+
+    authWindow.webContents.on('did-finish-load', checkCallback);
+    authWindow.webContents.on('did-navigate', checkCallback);
+
+    authWindow.on('closed', () => {
+      focusMainWindow();
+      resolve({ closed: true });
+    });
+  });
 });

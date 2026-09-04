@@ -1,5 +1,12 @@
 # Değişiklik kaydı
 
+## 1.4.16 — 2026-09-04
+
+- **Orijinal Çalışan Dahili Pencere & WebPreferences Geri Yüklendi (v1.3.20 Ayarları)**:
+  - v1.3.20 ve öncesinde sorunsuz çalışan `sandbox: false` ve `webSecurity: false` BrowserWindow ayarları geri yüklendi.
+  - Dahili yetkilendirme modal penceresi (`authWindow`) Chromium webview kısıtlamalarını aşacak şekilde orijinal izinleriyle çalışır hale getirildi.
+  - Google girişi doğrudan uygulama içi diyalogda tamamlanır, onaylandığında pencere kapanıp hesap eklenir.
+
 ## 1.4.15 — 2026-09-04
 
 - **Google OAuth Sistem Tarayıcısına Yönlendirildi & Otomatik Odaklanma**:
