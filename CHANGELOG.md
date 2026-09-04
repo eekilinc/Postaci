@@ -1,5 +1,11 @@
 # Değişiklik kaydı
 
+## 1.4.13 — 2026-09-04
+
+- **Windows Öncelikli Öne Getirme & Otomatik Odaklanma**:
+  - Google OAuth onayından sonra Windows'un Foreground Lock kısıtlamasını aşarak Postacı penceresinin ekranın en önüne fırlaması (`setAlwaysOnTop`, `flashFrame`, `__postaciFocusApp`) sağlandı.
+  - Tarayıcı dönüş sayfası sekmeyi otomatik kapatma ve anında uygulamaya dönme butonlarıyla güncellendi.
+
 ## 1.4.12 — 2026-09-04
 
 - **Google OAuth Sistem Tarayıcısı Yönlendirmesi & Dayanıklı Token Takası**:
