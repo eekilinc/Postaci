@@ -442,7 +442,7 @@ export const SettingsModal: React.FC = () => {
         } else {
           handleOpenExternal(res.url);
         }
-        info('Google yetkilendirme penceresi açıldı. İşlem bitince Postacı yeniden öne gelecektir.');
+        info('Google yetkilendirme penceresi açıldı. Giriş yaptığınızda Postacı otomatik olarak bağlanacaktır.');
       }
     } catch (err: any) {
       error(err.message || 'Google yetkilendirmesi başlatılamadı.');

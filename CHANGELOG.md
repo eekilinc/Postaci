@@ -1,5 +1,11 @@
 # Değişiklik kaydı
 
+## 1.4.14 — 2026-09-04
+
+- **Gömülü Modal Yetkilendirme Penceresi (Embedded Popup Window) Geri Yüklendi**:
+  - v1.3.22 sürümündeki pürüzsüz çalışan uygulama içi kalıcı `BrowserWindow` modal diyaloğu (`modal: true`, temiz Chrome 131 User-Agent) geri getirildi.
+  - Harici tarayıcıya yönlendirme yerine tüm yetkilendirme Postacı'nın kendi içindeki modal pencerede gerçekleşir. Giriş tamamlandığında pencere otomatik kapanır ve Postacı ana ekranı kesintisiz şekilde hesabı aktif eder.
+
 ## 1.4.13 — 2026-09-04
 
 - **Windows Öncelikli Öne Getirme & Otomatik Odaklanma**:
