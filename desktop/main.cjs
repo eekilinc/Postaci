@@ -18,8 +18,12 @@ function focusMainWindow() {
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
+  mainWindow.setAlwaysOnTop(true);
   mainWindow.focus();
+  mainWindow.setAlwaysOnTop(false);
+  if (mainWindow.flashFrame) mainWindow.flashFrame(true);
 }
+globalThis.__postaciFocusApp = focusMainWindow;
 
 app.on('second-instance', (_event, argv) => {
   if (findOAuthCallbackArg(argv)) pendingOAuthReturn = true;

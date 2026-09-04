@@ -70,6 +70,13 @@ router.get('/api/auth/google/callback', async (req: Request, res: Response) => {
     completeOAuthAttempt(state, account);
     broadcastSSE('accounts_updated', publicAccount(account));
 
+    // Auto-focus the desktop app window
+    try {
+      if (typeof (globalThis as any).__postaciFocusApp === 'function') {
+        (globalThis as any).__postaciFocusApp();
+      }
+    } catch {}
+
     // Auto-sync the new Google account in background
     ImapService.syncAccount(account.id).catch((syncError: any) => {
       broadcastSSE('sync_error', { accountId: account.id, message: syncError?.message || 'İlk senkronizasyon tamamlanamadı.' });
