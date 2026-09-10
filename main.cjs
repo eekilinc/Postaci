@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { initDb, getDb, getStats, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting } = require('./electron/db.cjs');
 const { startOAuthFlow } = require('./electron/auth.cjs');
-const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, openClient, withClient } = require('./electron/mail.cjs');
+const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient } = require('./electron/mail.cjs');
 const { detectSettings } = require('./electron/providers.cjs');
 const { splitAddresses, buildReply, buildForward } = require('./electron/compose.cjs');
 
@@ -117,16 +117,35 @@ function imapLock(email, fn) {
   return task; // çağırıcıya gerçek sonuç / hata döner
 }
 
+function resolveAppIcon(preferIco = true) {
+  const filenames = preferIco ? ['icon.ico', 'icon.png'] : ['icon.png', 'icon.ico'];
+  const dirs = [
+    path.join(__dirname, 'public'),
+    path.join(__dirname, 'dist'),
+    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'public') : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'public') : null,
+    __dirname,
+  ].filter(Boolean);
+
+  for (const f of filenames) {
+    for (const d of dirs) {
+      const full = path.join(d, f);
+      if (fs.existsSync(full)) return full;
+    }
+  }
+  return null;
+}
+
 let mainWindow = null;
 
 function showDesktopNotification({ title, body, email, folderPath, uid, silent = false }) {
   try {
     if (!Notification.isSupported()) return;
-    const pngPath = path.join(__dirname, 'public', 'icon.png');
+    const notifIcon = resolveAppIcon(false) || resolveAppIcon(true);
     const notif = new Notification({
       title: title || 'Postacı',
       body: body || 'Yeni e-posta alındı.',
-      icon: fs.existsSync(pngPath) ? pngPath : undefined,
+      icon: notifIcon || undefined,
       silent: !!silent,
       urgency: 'normal',
     });
@@ -259,16 +278,16 @@ function updateBackgroundSyncSchedule() {
 }
 
 function createWindow() {
-  const icoPath = path.join(__dirname, 'public', 'icon.ico');
-  const pngPath = path.join(__dirname, 'public', 'icon.png');
+  const icoPath = resolveAppIcon(true);
+  const pngPath = resolveAppIcon(false);
   let appIcon = undefined;
-  if (fs.existsSync(icoPath)) {
+  if (icoPath) {
     try {
       const img = nativeImage.createFromPath(icoPath);
       if (!img.isEmpty()) appIcon = img;
     } catch {}
   }
-  if (!appIcon && fs.existsSync(pngPath)) {
+  if (!appIcon && pngPath) {
     try {
       const img = nativeImage.createFromPath(pngPath);
       if (!img.isEmpty()) appIcon = img;
@@ -281,7 +300,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Postacı',
-    icon: appIcon || (fs.existsSync(icoPath) ? icoPath : (fs.existsSync(pngPath) ? pngPath : undefined)),
+    icon: appIcon || icoPath || pngPath || undefined,
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
@@ -378,19 +397,20 @@ app.whenReady().then(() => {
       let list;
       try {
         list = await imapLock(email, () => listFolders({ provider: acc.provider, email: acc.email, ...creds }));
-      } catch (err) {
-        const errStr = `${err?.message || ''} ${err?.responseText || ''} ${err?.response || ''}`.toLowerCase();
+      } catch (initialErr) {
+        let activeErr = initialErr;
+        const errStr = `${activeErr?.message || ''} ${activeErr?.responseText || ''} ${activeErr?.response || ''}`.toLowerCase();
         if (errStr.includes('authenticated but not connected') && acc.provider === 'microsoft') {
           try {
             console.log(`[mail:folders] ${email} için Microsoft token zorla yenilenip tekrar deneniyor...`);
             creds = await freshCredentials(acc, true);
             list = await imapLock(email, () => listFolders({ provider: acc.provider, email: acc.email, ...creds }));
           } catch (retryErr) {
-            err = retryErr;
+            activeErr = retryErr;
           }
         }
         if (!list) {
-          console.warn('[mail:folders] IMAP klasör listesi alınamadı, DB önbelleği kullanılıyor:', err?.message);
+          console.warn('[mail:folders] IMAP klasör listesi alınamadı, DB önbelleği kullanılıyor:', activeErr?.message);
           try {
             const db = getDb();
             const cached = db.prepare(`SELECT name, path, flags FROM folders WHERE account_id=(SELECT id FROM accounts WHERE email=?)`).all(email);

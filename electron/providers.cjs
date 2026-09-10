@@ -47,7 +47,6 @@ async function fromAutoconfig(domain) {
     const imap = incoming.find((s) => String(s?.['@_type']).toLowerCase() === 'imap') || incoming[0];
     const smtp = outgoing.find((s) => String(s?.['@_type']).toLowerCase() === 'smtp') || outgoing[0];
     if (!imap || !smtp) return null;
-    const sock = (s) => String(s?.socketType || 'SSL').toUpperCase();
     const imapPort = Number(imap.port) || 993;
     const smtpPort = Number(smtp.port) || 587;
     return {

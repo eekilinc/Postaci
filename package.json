@@ -1,7 +1,18 @@
 {
   "name": "postaci",
-  "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Yıldırım hızında, güvenli, modern ve şık masaüstü e-posta istemcisi",
+  "author": {
+    "name": "Ekrem Eşref Kılınç",
+    "email": "ekilinc@mehmetakif.edu.tr",
+    "url": "https://github.com/eekilinc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eekilinc/Postaci.git"
+  },
+  "homepage": "https://github.com/eekilinc/Postaci",
+  "license": "MIT",
   "type": "module",
   "main": "main.cjs",
   "scripts": {
@@ -11,7 +22,68 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "electron-build": "electron-builder"
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "electron-build": "npm run build && electron-builder",
+    "version:patch": "npm version patch && git push && git push --tags",
+    "version:minor": "npm version minor && git push && git push --tags",
+    "version:major": "npm version major && git push && git push --tags",
+    "release:patch": "npm version patch && git push && git push --tags",
+    "release:minor": "npm version minor && git push && git push --tags",
+    "release:major": "npm version major && git push && git push --tags"
+  },
+  "build": {
+    "appId": "com.postaci.app",
+    "productName": "Postacı",
+    "copyright": "Copyright © 2026 Ekrem Eşref Kılınç",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "main.cjs",
+      "preload.cjs",
+      "public/**/*",
+      "!electron/oauth-config.json",
+      "!**/*.map"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**/*",
+      "public/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Postacı",
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    }
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

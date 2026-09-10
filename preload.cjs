@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('postaci', {
-  version: '0.1.0',
+  version: '1.0.0',
   platform: process.platform,
   db: {
     stats: () => ipcRenderer.invoke('db:stats'),
