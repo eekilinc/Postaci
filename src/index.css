@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+@theme {
+  --color-zinc-750: #2e2e33;
+  --color-zinc-850: #1f1f23;
+  --color-zinc-925: #131316;
+}
+
+/* Koyu mod yalnızca .dark sınıfıyla (uygulama ayarından yönetilir) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.01em;
+}
+
+/* Mailbird 3.0 Tarzı Mikro Geçişler & Efektler */
+.transition-card {
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.action-pill-shadow {
+  box-shadow: 0 4px 14px 0 rgba(0, 0, 0, 0.08), 0 1px 3px 0 rgba(0, 0, 0, 0.04);
+}
+.dark .action-pill-shadow {
+  box-shadow: 0 4px 14px 0 rgba(0, 0, 0, 0.4), 0 1px 3px 0 rgba(0, 0, 0, 0.2);
+}
+
+/* E-posta gövdesi: taşmayı engelle, karanlık modda okunabilir tut */
+.mail-body {
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+  color: inherit;
+}
+.mail-body img {
+  max-width: 100%;
+  height: auto;
+}
+.mail-body table {
+  max-width: 100%;
+}
+.mail-body a {
+  color: #2563eb;
+}
+
+/* Modern, İnce ve Zarif Kaydırma Çubuğu (Scrollbar) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(161, 161, 170, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.5);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.35);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 113, 122, 0.6);
+}
+
+/* Yazdırma Stilleri */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  aside, section.print\:hidden, .print\:hidden {
+    display: none !important;
+  }
+  main {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .mail-body {
+    color: #000000 !important;
+  }
+}

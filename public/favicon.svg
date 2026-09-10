@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="postaci-fav-bg" x1="4" y1="4" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="50%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="postaci-fav-wing" x1="16" y1="12" x2="36" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#93c5fd" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle Kavisli Kare Zemin -->
+  <rect x="3" y="3" width="42" height="42" rx="12" fill="url(#postaci-fav-bg)" />
+  <rect x="3.5" y="3.5" width="41" height="41" rx="11.5" stroke="white" stroke-opacity="0.2" stroke-width="1" />
+
+  <!-- Zarf Gövdesi -->
+  <path
+    d="M10 16C10 14.3431 11.3431 13 13 13H35C36.6569 13 38 14.3431 38 16V32C38 33.6569 36.6569 35 35 35H13C11.3431 35 10 33.6569 10 32V16Z"
+    fill="white"
+    fill-opacity="0.16"
+  />
+
+  <!-- Alt Köşe Hatları -->
+  <path
+    d="M10 33.5L20.5 24M38 33.5L27.5 24"
+    stroke="white"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-opacity="0.45"
+  />
+
+  <!-- Üst Katlanma / V-Flap -->
+  <path
+    d="M10.5 14.5L22.25 24.6C23.27 25.47 24.73 25.47 25.75 24.6L37.5 14.5"
+    stroke="white"
+    stroke-width="2.75"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-opacity="0.95"
+  />
+
+  <!-- Dinamik Uçuş Kanadı -->
+  <path
+    d="M24 22L36 12L28 30L24 22Z"
+    fill="url(#postaci-fav-wing)"
+    fill-opacity="0.92"
+  />
+
+  <!-- Aktif İleti Mührü -->
+  <circle cx="35" cy="13" r="3" fill="#38bdf8" stroke="white" stroke-width="1.5" />
+</svg>

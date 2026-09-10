@@ -1,0 +1,48 @@
+{
+  "name": "postaci",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "concurrently -k \"npm run dev\" \"npm run electron\"",
+    "electron": "wait-on tcp:127.0.0.1:5173 && electron .",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "electron-build": "electron-builder"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "better-sqlite3": "^13.0.3",
+    "concurrently": "^10.0.5",
+    "dompurify": "^3.4.15",
+    "fast-xml-parser": "^5.11.1",
+    "imapflow": "^2.0.0",
+    "mailparser": "^3.9.23",
+    "nodemailer": "^10.0.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "selfsigned": "^5.5.0",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/dompurify": "^3.0.5",
+    "@types/node": "^24.13.3",
+    "@types/nodemailer": "^8.0.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "oxlint": "^1.79.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.2",
+    "wait-on": "^9.1.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true
+  }
+}

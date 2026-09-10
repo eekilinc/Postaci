@@ -1,0 +1,17 @@
+{
+  "_aciklama": "Bu dosyayı kopyalayıp electron/oauth-config.json yapın ve Client ID'leri doldurun. oauth-config.json git'e girmez.",
+  "google": {
+    "clientId": "BURAYA-GOOGLE-CLIENT-ID",
+    "clientSecret": ""
+  },
+  "microsoft": {
+    "clientId": "BURAYA-AZURE-APP-CLIENT-ID",
+    "clientSecret": "",
+    "_not": "Entra ID > App registrations > New (Multitenant+personal) > platform 'Mobile and desktop applications', redirect http://localhost. 'Allow public client flows'=Yes. Secret GEREKMEZ. API izinleri: IMAP.AccessAsUser.All, SMTP.Send, offline_access, email, openid, profile."
+  },
+  "yahoo": {
+    "clientId": "BURAYA-YAHOO-CLIENT-ID",
+    "clientSecret": "BURAYA-YAHOO-CLIENT-SECRET",
+    "_not": "developer.yahoo.com/apps > Create an app (Confidential client). Redirect URI birebir: https://127.0.0.1:55433/callback (http KABUL ETMEZ, kaydın oturması 24 saate kadar sürebilir). Girişte tarayıcı sertifika uyarısı verirse Advanced > Devam edin (yalnıza kendi bilgisayarınız). İzinler: OpenID Email+Profile ve Mail Read/Write. DİKKAT: Mail kapsamları Yahoo'da restricted, onay gerekebilir."
+  }
+}
