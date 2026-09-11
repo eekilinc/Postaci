@@ -1,6 +1,7 @@
 {
   "name": "postaci",
-  "version": "1.0.4",
+  "productName": "Postacı",
+  "version": "1.0.5",
   "description": "Yıldırım hızında, güvenli, modern ve şık masaüstü e-posta istemcisi",
   "author": {
     "name": "Ekrem Eşref Kılınç",
@@ -18,6 +19,8 @@
   "scripts": {
     "start": "concurrently -k \"npm run dev\" \"npm run electron\"",
     "electron": "wait-on tcp:127.0.0.1:5173 && electron .",
+    "brand-electron": "node -e \"try { const rc = require('path').resolve('./node_modules/electron-winstaller/vendor/rcedit.exe'); const el = require('path').resolve('./node_modules/electron/dist/electron.exe'); const ico = require('path').resolve('./build/icon.ico'); require('child_process').execFileSync(rc, [el, '--set-icon', ico, '--set-version-string', 'ProductName', 'Postacı', '--set-version-string', 'FileDescription', 'Postacı — E-posta İstemcisi']); } catch(e){}\"",
+    "postinstall": "npm run brand-electron",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
@@ -66,6 +69,7 @@
       "build/**/*"
     ],
     "win": {
+      "executableName": "Postaci",
       "target": [
         {
           "target": "nsis",
@@ -89,6 +93,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Postacı",
+      "uninstallDisplayName": "${productName} ${version}",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",

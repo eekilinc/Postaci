@@ -16,7 +16,7 @@
     <a href="https://github.com/eekilinc/Postaci/actions/workflows/release.yml">
       <img src="https://img.shields.io/github/actions/workflow/status/eekilinc/Postaci/release.yml?style=for-the-badge&label=Derleme%20%26%20Release" alt="Build Status" />
     </a>
-    <a href="https://github.com/eekilinc/Postaci/releases/download/v1.0.4/Postaci.Setup.1.0.4.exe">
+    <a href="https://github.com/eekilinc/Postaci/releases/download/v1.0.5/Postaci.Setup.1.0.5.exe">
       <img src="https://img.shields.io/badge/Windows-Setup%20%C4%B0ndir-10b981?style=for-the-badge&logo=windows&logoColor=white" alt="Download Windows" />
     </a>
     <a href="https://github.com/eekilinc/Postaci/blob/main/LICENSE">
@@ -50,13 +50,13 @@
 <a id="indir"></a>
 ## 📥 Hızlı İndirme (Windows x64)
 
-Son sürüm olan **v1.0.4** kurulum paketlerini tek tıkla indirebilirsiniz:
+Son sürüm olan **v1.0.5** kurulum paketlerini tek tıkla indirebilirsiniz:
 
 | Paket Türü | Dosya | Boyut | Açıklama |
 | :--- | :--- | :--- | :--- |
-| 🚀 **Kurulum Sihirbazı (Önerilen)** | [**Postaci.Setup.1.0.4.exe**](https://github.com/eekilinc/Postaci/releases/download/v1.0.4/Postaci.Setup.1.0.4.exe) | ~127 MB | Masaüstü ve Başlat menüsüne simgeli kısayol ekler, otomatik güncellenir. |
-| 💼 **Taşınabilir Sürüm (Portable)** | [**Postaci-1.0.4-portable.exe**](https://github.com/eekilinc/Postaci/releases/download/v1.0.4/Postaci-1.0.4-portable.exe) | ~127 MB | Kurulum gerektirmez; USB bellekten veya istediğiniz klasörden doğrudan çalışır. |
-| 🔐 **SHA-256 Doğrulama** | [**checksums.txt**](https://github.com/eekilinc/Postaci/releases/download/v1.0.4/checksums.txt) | 187 B | İndirilen dosyaların bütünlük ve güvenlik doğrulama özetleri. |
+| 🚀 **Kurulum Sihirbazı (Önerilen)** | [**Postaci.Setup.1.0.5.exe**](https://github.com/eekilinc/Postaci/releases/download/v1.0.5/Postaci.Setup.1.0.5.exe) | ~127 MB | Masaüstü ve Başlat menüsüne simgeli kısayol ekler, otomatik güncellenir. |
+| 💼 **Taşınabilir Sürüm (Portable)** | [**Postaci-1.0.5-portable.exe**](https://github.com/eekilinc/Postaci/releases/download/v1.0.5/Postaci-1.0.5-portable.exe) | ~127 MB | Kurulum gerektirmez; USB bellekten veya istediğiniz klasörden doğrudan çalışır. |
+| 🔐 **SHA-256 Doğrulama** | [**checksums.txt**](https://github.com/eekilinc/Postaci/releases/download/v1.0.5/checksums.txt) | 187 B | İndirilen dosyaların bütünlük ve güvenlik doğrulama özetleri. |
 
 > [!TIP]
 > Tüm geçmiş sürümler ve sürüm notları için **[GitHub Releases](https://github.com/eekilinc/Postaci/releases)** sayfasını ziyaret edebilirsiniz.

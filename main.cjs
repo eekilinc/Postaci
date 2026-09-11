@@ -164,25 +164,27 @@ function resolveAppIcon(preferIco = true) {
   return null;
 }
 
-function ensureWindowsShortcut() {
+function cleanupConflictingShortcuts() {
   if (process.platform !== 'win32') return;
   try {
     const startMenuDir = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs');
-    const shortcutPath = path.join(startMenuDir, 'Postacı.lnk');
-    const icoPath = resolveAppIcon(true);
-    const target = process.execPath;
-    const args = !app.isPackaged ? `"${path.resolve(__dirname)}"` : '';
-
-    shell.writeShortcutLink(shortcutPath, 'create', {
-      target,
-      args,
-      appUserModelId: 'com.postaci.app',
-      icon: icoPath || target,
-      iconIndex: 0,
-      description: 'Postacı — Modern Masaüstü E-posta İstemcisi',
-    });
+    // 1. Electron'un otomatik oluşturduğu veya eski artık Electron.lnk kısayolunu sil (2. kurulum gibi görünmesini engeller)
+    const electronLnk = path.join(startMenuDir, 'Electron.lnk');
+    if (fs.existsSync(electronLnk)) {
+      try { fs.unlinkSync(electronLnk); } catch {}
+    }
+    // 2. Geliştirme modunda node_modules/electron.exe'ye işaret eden kısayolları temizle (tıklamada path-to-app hatasını engeller)
+    const devLnk = path.join(startMenuDir, 'Postacı.lnk');
+    if (!app.isPackaged && fs.existsSync(devLnk)) {
+      try {
+        const details = shell.readShortcutLink(devLnk);
+        if (details && details.target && details.target.toLowerCase().includes('node_modules')) {
+          fs.unlinkSync(devLnk);
+        }
+      } catch {}
+    }
   } catch (err) {
-    console.warn('[shortcut] Başlat menüsü kısayolu oluşturulamadı:', err?.message);
+    console.warn('[shortcut] Kısayol temizleme hatası:', err?.message);
   }
 }
 
@@ -1729,7 +1731,7 @@ app.whenReady().then(() => {
     return false;
   });
 
-  ensureWindowsShortcut();
+  cleanupConflictingShortcuts();
   try {
     app.setAppUserModelId('com.postaci.app');
   } catch {}
