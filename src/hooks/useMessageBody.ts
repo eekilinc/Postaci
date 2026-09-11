@@ -23,7 +23,16 @@ export function useMessageBody() {
   const safeHtml = useMemo(() => {
     const html = body?.html;
     if (!html) return '';
-    const sanitized = DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+    let sanitized = DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+
+    // Yatay taşmayı ve ekran dışına uzayan imza/duyuruları engelle:
+    // 'white-space: nowrap' veya nowrap="..." özniteliklerini temizle
+    sanitized = sanitized
+      .replace(/white-space\s*:\s*nowrap/gi, 'white-space: normal')
+      .replace(/<nobr\b[^>]*>/gi, '<span>')
+      .replace(/<\/nobr>/gi, '</span>')
+      .replace(/\s+nowrap(?=[\s=>])/gi, '');
+
     if (!allowRemoteImages) {
       return sanitized.replace(
         /<img([^>]*)\ssrc=["'](https?:\/\/[^"']+)["']([^>]*)>/gi,

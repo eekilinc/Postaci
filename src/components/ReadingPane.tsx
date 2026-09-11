@@ -189,8 +189,8 @@ export function ReadingPane({
   const isDraft = selected.uid.startsWith('draft-') || /draft|taslak/i.test(selected.folder_path || '');
 
   return (
-    <main className="flex-1 overflow-y-auto bg-white p-6 dark:bg-zinc-900 transition-colors">
-      <div className="max-w-4xl mx-auto space-y-4">
+    <main className="flex-1 overflow-y-auto overflow-x-hidden bg-white p-4 sm:p-6 dark:bg-zinc-900 transition-colors min-w-0">
+      <div className="max-w-4xl mx-auto space-y-4 min-w-0 w-full">
         {/* 1. Üst Eylem Çubuğu */}
         <ReadingToolbar
           isRead={!!selected.is_read}
@@ -295,7 +295,7 @@ export function ReadingPane({
         )}
 
         {/* 6. E-posta Gövdesi */}
-        <div className="py-2.5">
+        <div className="py-2.5 min-w-0 max-w-full overflow-hidden">
           {bodyLoading ? (
             <div className="flex items-center gap-2.5 text-xs text-zinc-400 py-8">
               <SyncIcon size={16} className="animate-spin text-blue-500" />
@@ -303,11 +303,11 @@ export function ReadingPane({
             </div>
           ) : safeHtml ? (
             <div
-              className="mail-body text-zinc-900 dark:text-zinc-100 selection:bg-blue-100 dark:selection:bg-blue-900/60 leading-relaxed"
+              className="mail-body text-zinc-900 dark:text-zinc-100 selection:bg-blue-100 dark:selection:bg-blue-900/60 leading-relaxed min-w-0 max-w-full overflow-x-auto break-words"
               dangerouslySetInnerHTML={{ __html: safeHtml }}
             />
           ) : body?.text ? (
-            <pre className="mail-body whitespace-pre-wrap font-sans text-sm text-zinc-900 dark:text-zinc-100 leading-relaxed">
+            <pre className="mail-body whitespace-pre-wrap font-sans text-sm text-zinc-900 dark:text-zinc-100 leading-relaxed min-w-0 max-w-full overflow-x-auto break-words">
               {body.text}
             </pre>
           ) : (

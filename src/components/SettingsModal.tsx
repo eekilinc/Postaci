@@ -4,7 +4,6 @@ import type { AccentKey, Account, ThemeKey } from '../types';
 import type { LayoutMode } from './LayoutSwitcher';
 import { ACCENTS } from '../constants';
 import { getAccountSignature, saveAccountSignature } from '../utils/signatures';
-import { PostaciLogo } from './PostaciLogo';
 import { CloseIcon } from './icons';
 
 interface SettingsModalProps {
@@ -179,7 +178,7 @@ export function SettingsModal({
     }
   };
 
-  const currentVersion = window.postaci?.version || '1.0.6';
+  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.7';
   const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
     version?: string;
     hasUpdate?: boolean;
@@ -336,7 +335,7 @@ export function SettingsModal({
 
           {/* Sol Alt Logo & Versiyon */}
           <div className="px-5 pt-3 border-t border-white/10 flex items-center gap-2">
-            <PostaciLogo size="xs" variant="squircle" showBadge={false} />
+            <img src="/icon.png" alt="Postacı" className="h-4 w-4 rounded-xs object-contain shrink-0" />
             <span className="text-[11px] font-semibold text-white/90">Postacı v{currentVersion}</span>
           </div>
         </div>
@@ -1182,21 +1181,86 @@ export function SettingsModal({
             {/* ==================== 7. POSTACI HAKKINDA TAB ==================== */}
             {activeTab === 'about' && (
               <div className="space-y-4 max-w-xl text-left overflow-y-auto pr-1 no-scrollbar max-h-[460px]">
-                {/* Başlık ve Logo Kartı */}
-                <div className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-gradient-to-r from-blue-50/80 to-indigo-50/40 border border-blue-100/80 dark:from-blue-950/20 dark:to-indigo-950/20 dark:border-blue-900/30">
-                  <PostaciLogo size="lg" variant="squircle" showBadge={false} />
+                {/* Premium Başlık ve Logo Kartı */}
+                <div className="relative overflow-hidden flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-br from-blue-600/10 via-indigo-500/5 to-purple-600/10 border border-blue-500/20 shadow-xs dark:from-blue-950/40 dark:via-indigo-950/20 dark:to-purple-950/30 dark:border-blue-800/40">
+                  <div className="relative shrink-0 flex items-center justify-center">
+                    <img
+                      src="/icon.png"
+                      alt="Postacı Logo"
+                      className="h-16 w-16 rounded-2xl shadow-md border border-white/60 dark:border-zinc-700/60 object-contain p-1 bg-white dark:bg-zinc-800"
+                    />
+                    <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-xs" title="Stabil ve Güvenli Sürüm">
+                      ✓
+                    </span>
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+                    <div className="flex items-center gap-2.5">
+                      <h3 className="text-xl font-bold text-zinc-950 dark:text-zinc-50 tracking-tight">
                         Postacı
                       </h3>
-                      <span className="inline-flex items-center rounded-full bg-blue-600/10 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                      <span className="inline-flex items-center rounded-full bg-blue-600 px-2.5 py-0.5 text-xs font-mono font-bold text-white shadow-2xs">
                         v{currentVersion}
                       </span>
                     </div>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                      Windows x64 • Yerel SQLite • Modern & Güvenli E-posta İstemcisi
+                    <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1 leading-relaxed">
+                      Yıldırım hızında, güvenli, modern ve şık masaüstü e-posta istemcisi.
                     </p>
+                    <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                        Windows x64
+                      </span>
+                      <span>•</span>
+                      <span>Yerel SQLite</span>
+                      <span>•</span>
+                      <span>Donanım Korumalı DPAPI</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Güncelleme Durum ve Denetleyici Kartı */}
+                <div className="rounded-2xl border border-zinc-200/90 bg-white p-4 shadow-2xs dark:border-zinc-800 dark:bg-zinc-850/60">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                        <span>Yazılım Güncellemeleri</span>
+                      </h4>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                        {updateCheckStatus === 'available' && latestReleaseInfo?.version
+                          ? `Yeni sürüm mevcut: v${latestReleaseInfo.version}`
+                          : updateCheckStatus === 'latest'
+                          ? `Tebrikler, en güncel sürümü kullanıyorsunuz (v${currentVersion}).`
+                          : 'Resmi GitHub sürümlerini kontrol edin.'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleCheckUpdate}
+                        disabled={updateCheckStatus === 'checking'}
+                        className="rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition active:scale-95 disabled:opacity-50 inline-flex items-center gap-1.5"
+                      >
+                        {updateCheckStatus === 'checking' ? (
+                          <>
+                            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                            <span>Denetleniyor...</span>
+                          </>
+                        ) : (
+                          <span>Güncellemeleri Denetle</span>
+                        )}
+                      </button>
+                      {updateCheckStatus === 'available' && latestReleaseInfo?.url && (
+                        <button
+                          type="button"
+                          onClick={() => openUrl(latestReleaseInfo.url!)}
+                          className="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition active:scale-95 inline-flex items-center gap-1"
+                        >
+                          <span>v{latestReleaseInfo.version} İndir</span>
+                          <span>↗</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1282,33 +1346,6 @@ export function SettingsModal({
                   >
                     İletişim
                   </a>
-                </div>
-
-                {/* Güncelleme Denetleyici */}
-                <div className="pt-1 flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleCheckUpdate}
-                    disabled={updateCheckStatus === 'checking'}
-                    className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition active:scale-95 disabled:opacity-50"
-                  >
-                    {updateCheckStatus === 'checking'
-                      ? 'GitHub Denetleniyor...'
-                      : updateCheckStatus === 'available'
-                      ? '🚀 Yeni Sürüm Var (İndir)'
-                      : updateCheckStatus === 'latest'
-                      ? `✓ En güncel sürümü kullanıyorsunuz (v${currentVersion})`
-                      : 'Güncellemeleri Denetle'}
-                  </button>
-                  {updateCheckStatus === 'available' && latestReleaseInfo?.url && (
-                    <button
-                      type="button"
-                      onClick={() => openUrl(latestReleaseInfo.url!)}
-                      className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline"
-                    >
-                      v{latestReleaseInfo.version} İndir ↗
-                    </button>
-                  )}
                 </div>
               </div>
             )}

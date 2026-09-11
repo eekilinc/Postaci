@@ -1,8 +1,9 @@
 // preload.cjs - güvenli IPC köprüsü
 const { contextBridge, ipcRenderer } = require('electron');
+const pkg = require('./package.json');
 
 contextBridge.exposeInMainWorld('postaci', {
-  version: '1.0.6',
+  version: pkg.version,
   platform: process.platform,
   db: {
     stats: () => ipcRenderer.invoke('db:stats'),
