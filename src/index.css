@@ -106,9 +106,17 @@ body {
 }
 
 /* Modern, İnce ve Zarif Kaydırma Çubuğu (Scrollbar) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(161, 161, 170, 0.25) transparent;
+}
+.dark * {
+  scrollbar-color: rgba(113, 113, 122, 0.35) transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -124,6 +132,31 @@ body {
   background: rgba(113, 113, 122, 0.35);
 }
 .dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 113, 122, 0.6);
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(161, 161, 170, 0.25) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(161, 161, 170, 0.3);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.5);
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.35);
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(113, 113, 122, 0.6);
 }
 

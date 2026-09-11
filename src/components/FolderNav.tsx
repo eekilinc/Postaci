@@ -66,7 +66,7 @@ export const FolderNav = memo(function FolderNav({
         width ? '' : 'w-52'
       } ${className}`}
     >
-      <div className="overflow-y-auto pr-0.5 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto pr-0.5 space-y-3">
         {/* Üst Kısım: Başlık / Hesap Etiketi ve Mobil Kapat Butonu */}
         <div className="flex items-center justify-between px-1 pt-0.5 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
@@ -238,7 +238,7 @@ export const FolderNav = memo(function FolderNav({
       </div>
 
       {/* Alt Bilgi / Klasör Yönetim Alanı */}
-      <div className="pt-2 border-t border-zinc-200/80 dark:border-zinc-800/80">
+      <div className="shrink-0 pt-2 border-t border-zinc-200/80 dark:border-zinc-800/80">
         <p className="px-1 text-[10px] text-zinc-400 dark:text-zinc-500 truncate">
           {stats
             ? `${stats.folders} klasör • ${stats.messages} ileti`
