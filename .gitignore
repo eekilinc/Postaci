@@ -12,7 +12,6 @@ dist
 dist-ssr
 *.local
 
-# OAuth gizli bilgileri (Client ID/Secret) - asla commit edilmez
 electron/oauth-config.json
 *.db
 *.sqlite

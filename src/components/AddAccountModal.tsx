@@ -61,7 +61,9 @@ export function AddAccountModal({
       setNotice(`${res.email} bağlandı. Eşitleye basın.`);
       onConnected(res.email);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const raw = e instanceof Error ? e.message : String(e);
+      const clean = raw.replace(/^Error invoking remote method '[^']+': (Error:\s*)?/, '');
+      setError(clean);
     } finally {
       setBusy(null);
     }

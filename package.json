@@ -1,6 +1,6 @@
 {
   "name": "postaci",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Yıldırım hızında, güvenli, modern ve şık masaüstü e-posta istemcisi",
   "author": {
     "name": "Ekrem Eşref Kılınç",
@@ -48,7 +48,6 @@
       "preload.cjs",
       "public/**/*",
       "build/**/*",
-      "!electron/oauth-config.json",
       "!**/*.map"
     ],
     "asarUnpack": [
