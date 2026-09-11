@@ -227,8 +227,37 @@ function ensureWindowsShortcut() {
       ];
       exec(regCmds.join(' & '), () => {});
     } catch {}
+
+    ensureProtocolRegistration();
   } catch (err) {
     console.warn('[shortcut] Kısayol yönetimi uyarısı:', err?.message);
+  }
+}
+
+function ensureProtocolRegistration() {
+  try {
+    if (process.defaultApp) {
+      if (process.argv.length >= 2) {
+        app.setAsDefaultProtocolClient('postaci', process.execPath, [path.resolve(process.argv[1])]);
+      }
+    } else {
+      app.setAsDefaultProtocolClient('postaci');
+    }
+
+    if (process.platform === 'win32') {
+      const target = process.execPath;
+      const args = !app.isPackaged ? `"${path.resolve(__dirname)}" "%1"` : `"%1"`;
+      const openCmd = `\\"${target}\\" ${args}`;
+      const { exec } = require('child_process');
+      const cmds = [
+        `reg add "HKCU\\Software\\Classes\\postaci" /ve /t REG_SZ /d "URL:Postacı Protocol" /f`,
+        `reg add "HKCU\\Software\\Classes\\postaci" /v "URL Protocol" /t REG_SZ /d "" /f`,
+        `reg add "HKCU\\Software\\Classes\\postaci\\shell\\open\\command" /ve /t REG_SZ /d "${openCmd}" /f`,
+      ];
+      exec(cmds.join(' & '), () => {});
+    }
+  } catch (err) {
+    console.warn('[protocol] Protokol kaydı uyarısı:', err?.message);
   }
 }
 
@@ -236,7 +265,7 @@ function isInQuietHours() {
   try {
     const settings = getSetting('notification_settings', {
       notificationsEnabled: true,
-      syncIntervalMinutes: 3,
+      syncIntervalMinutes: 0.5,
       soundEnabled: true,
       quietHoursEnabled: false,
       quietHoursStart: '22:00',
@@ -285,18 +314,16 @@ function showDesktopNotification({ title, body, email, folderPath, uid, silent: 
           ? `<image placement="appLogoOverride" hint-crop="circle" src="${notifIcon.replace(/\\/g, '/')}" />`
           : '';
 
-        const payloadObj = {
-          email: email || '',
-          folderPath: folderPath || 'INBOX',
-          uid: String(uid || ''),
-        };
-        const launchData = `postaci-open:${Buffer.from(JSON.stringify(payloadObj)).toString('base64')}`;
+        const encEmail = encodeURIComponent(email || '');
+        const encFolder = encodeURIComponent(folderPath || 'INBOX');
+        const encUid = encodeURIComponent(String(uid || ''));
+        const launchUrl = `postaci://open-message?email=${encEmail}&amp;folderPath=${encFolder}&amp;uid=${encUid}`;
 
         const psScript = `
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-$xml.LoadXml('<toast scenario="reminder" launch="${launchData}"><visual><binding template="ToastGeneric"><text>${cleanTitle}</text><text>${cleanBody}</text>${iconXml}</binding></visual><actions><action content="E-postayı Aç" arguments="${launchData}" activationType="foreground" /></actions></toast>')
+$xml.LoadXml('<toast scenario="reminder" activationType="protocol" launch="${launchUrl}"><visual><binding template="ToastGeneric"><text>${cleanTitle}</text><text>${cleanBody}</text>${iconXml}</binding></visual><actions><action content="E-postayı Aç" arguments="${launchUrl}" activationType="protocol" /></actions></toast>')
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 $toast.Priority = [Windows.UI.Notifications.ToastNotificationPriority]::High
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('com.postaci.app').Show($toast)
@@ -359,23 +386,38 @@ $toast.Priority = [Windows.UI.Notifications.ToastNotificationPriority]::High
   }
 }
 
-function handleOpenMessagePayload(rawString) {
-  if (!rawString) return;
+function handleProtocolUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return;
   try {
-    const match = String(rawString).match(/postaci-open:([A-Za-z0-9+/=]+)/);
-    if (match && match[1]) {
-      const decoded = Buffer.from(match[1], 'base64').toString('utf8');
-      const payload = JSON.parse(decoded);
-      if (payload && payload.email && mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-        mainWindow.webContents.send('notify:open-message', {
-          email: payload.email,
-          folderPath: payload.folderPath || 'INBOX',
-          uid: String(payload.uid || ''),
-        });
+    const clean = rawUrl.replace(/^["']|["']$/g, '').trim();
+    const match = clean.match(/postaci:\/\/[^\s"']+/);
+    if (!match) return;
+
+    const parsed = new URL(match[0]);
+    if (parsed.hostname === 'open-message' || parsed.pathname.includes('open-message')) {
+      const email = parsed.searchParams.get('email');
+      const folderPath = parsed.searchParams.get('folderPath') || 'INBOX';
+      const uid = parsed.searchParams.get('uid') || '';
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setSkipTaskbar(false);
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.setAlwaysOnTop(true);
+        mainWindow.focus();
+        mainWindow.setAlwaysOnTop(false);
+
+        if (email && mainWindow.webContents) {
+          mainWindow.webContents.send('notify:open-message', {
+            email,
+            folderPath,
+            uid,
+          });
+        }
       }
     }
   } catch (err) {
-    console.warn('[notification] Payload çözümlenemedi:', err?.message);
+    console.warn('[protocol] URL ayrıştırma hatası:', err?.message);
   }
 }
 
@@ -704,7 +746,7 @@ function createWindow() {
     }
     if (Array.isArray(process.argv)) {
       setTimeout(() => {
-        handleOpenMessagePayload(process.argv.join(' '));
+        handleProtocolUrl(process.argv.join(' '));
       }, 1200);
     }
   });
@@ -2006,9 +2048,14 @@ app.on('second-instance', (_event, commandLine, _workingDirectory) => {
     mainWindow.setAlwaysOnTop(false);
 
     if (Array.isArray(commandLine)) {
-      handleOpenMessagePayload(commandLine.join(' '));
+      handleProtocolUrl(commandLine.join(' '));
     }
   }
+});
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleProtocolUrl(url);
 });
 
 app.on('before-quit', () => {
