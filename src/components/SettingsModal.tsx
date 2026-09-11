@@ -4,6 +4,7 @@ import type { AccentKey, Account, DateFormatPreference, ListDensity, MarkReadTim
 import type { LayoutMode } from './LayoutSwitcher';
 import { ACCENTS } from '../constants';
 import { getAccountSignature, saveAccountSignature } from '../utils/signatures';
+import { playNotificationSound } from '../utils/sound';
 import { CloseIcon, SnippetIcon, TrashIcon } from './icons';
 import { PostaciLogo } from './PostaciLogo';
 import appIcon from '../assets/icon.png';
@@ -110,7 +111,8 @@ export function SettingsModal({
   const [showUnreadBadge, setShowUnreadBadge] = useState(true);
   const [showTaskbarAlert, setShowTaskbarAlert] = useState(true);
   const [showTrackingAlert, setShowTrackingAlert] = useState(true);
-  const [soundChoice, setSoundChoice] = useState('chirp');
+  const [soundChoice, setSoundChoice] = useState(() => localStorage.getItem('postaci_sound_choice') || 'chirp');
+  const [syncInterval, setSyncInterval] = useState(2);
   const [language, setLanguage] = useState('tr');
   const [testNotice, setTestNotice] = useState<string | null>(null);
 
@@ -203,10 +205,36 @@ export function SettingsModal({
           if (typeof s.quietHoursEnabled === 'boolean') setQuietHoursEnabled(s.quietHoursEnabled);
           if (s.quietHoursStart) setQuietHoursStart(s.quietHoursStart);
           if (s.quietHoursEnd) setQuietHoursEnd(s.quietHoursEnd);
+          if (typeof s.syncIntervalMinutes === 'number') setSyncInterval(s.syncIntervalMinutes);
+          if (s.soundChoice) {
+            setSoundChoice(s.soundChoice);
+            localStorage.setItem('postaci_sound_choice', s.soundChoice);
+          }
         }
       }).catch(() => {});
     }
   }, []);
+
+  const handleSoundChange = (val: string) => {
+    setSoundChoice(val);
+    localStorage.setItem('postaci_sound_choice', val);
+    playNotificationSound(val);
+    if (window.postaci?.notifications?.saveSettings) {
+      window.postaci.notifications.saveSettings({
+        soundEnabled: val !== 'none',
+        soundChoice: val,
+      }).catch(() => {});
+    }
+  };
+
+  const handleSyncIntervalChange = (val: number) => {
+    setSyncInterval(val);
+    if (window.postaci?.notifications?.saveSettings) {
+      window.postaci.notifications.saveSettings({
+        syncIntervalMinutes: val,
+      }).catch(() => {});
+    }
+  };
 
   const saveQuietHours = (enabled: boolean, start: string, end: string) => {
     if (window.postaci?.notifications?.saveSettings) {
@@ -332,6 +360,7 @@ export function SettingsModal({
   const handleTestNotification = async () => {
     if (!window.postaci?.notifications) return;
     setTestNotice(null);
+    playNotificationSound(soundChoice);
     try {
       await window.postaci.notifications.test();
       setTestNotice('✓ Test bildirimi gönderildi!');
@@ -342,7 +371,7 @@ export function SettingsModal({
     }
   };
 
-  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.13';
+  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.14';
   const [logoLoadError, setLogoLoadError] = useState(false);
   const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
     version?: string;
@@ -652,13 +681,28 @@ export function SettingsModal({
                       <span className="text-xs text-zinc-600 dark:text-zinc-400">Yeni ileti sesi:</span>
                       <select
                         value={soundChoice}
-                        onChange={(e) => setSoundChoice(e.target.value)}
+                        onChange={(e) => handleSoundChange(e.target.value)}
                         className="rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                       >
                         <option value="chirp">Varsayılan (Chirp)</option>
                         <option value="ding">Ding (Klasik)</option>
                         <option value="bell">Çan</option>
                         <option value="none">Sessiz</option>
+                      </select>
+                    </div>
+
+                    <div className="pt-1 flex items-center justify-between">
+                      <span className="text-xs text-zinc-600 dark:text-zinc-400">E-posta denetleme sıklığı:</span>
+                      <select
+                        value={syncInterval}
+                        onChange={(e) => handleSyncIntervalChange(Number(e.target.value))}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                      >
+                        <option value={1}>Her 1 dakikada bir (Hızlı)</option>
+                        <option value={2}>Her 2 dakikada bir (Önerilen)</option>
+                        <option value={3}>Her 3 dakikada bir</option>
+                        <option value={5}>Her 5 dakikada bir</option>
+                        <option value={10}>Her 10 dakikada bir</option>
                       </select>
                     </div>
 

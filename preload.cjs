@@ -1,7 +1,7 @@
 // preload.cjs - güvenli IPC köprüsü
 const { contextBridge, ipcRenderer } = require('electron');
 
-let appVersion = '1.0.13';
+let appVersion = '1.0.14';
 try {
   const v = ipcRenderer.sendSync('app:get-version-sync');
   if (v) appVersion = v;
@@ -79,6 +79,11 @@ contextBridge.exposeInMainWorld('postaci', {
       const listener = (_evt, data) => callback(data);
       ipcRenderer.on('notify:background-synced', listener);
       return () => ipcRenderer.removeListener('notify:background-synced', listener);
+    },
+    onNewMail: (callback) => {
+      const listener = (_evt, data) => callback(data);
+      ipcRenderer.on('notify:new-mail', listener);
+      return () => ipcRenderer.removeListener('notify:new-mail', listener);
     },
   },
   appSettings: {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // Tipler & sabitler
 import type { ComposeFile, DateFormatPreference, ListDensity, Msg, SnippetLines } from './types';
 import { getAccountSignature } from './utils/signatures';
+import { playNotificationSound } from './utils/sound';
 import { ACCENTS } from './constants';
 
 // Hook'lar
@@ -496,7 +497,32 @@ export default function App() {
       }
     });
 
-    // 2. Arka plan senkronizasyonu yeni posta getirdiğinde UI'ı sessizce tazele
+    // 2. Yeni e-posta geldiğinde (arka plan veya anlık senkronizasyon):
+    const unsubNewMail = window.postaci.notifications.onNewMail?.(({ email, folderPath, count, messages }) => {
+      if (email === activeAccount) {
+        loadFolders(email);
+        const currentFolder = activeFolder || 'INBOX';
+        if ((folderPath || 'INBOX') === currentFolder) {
+          loadMessages(email, currentFolder);
+        }
+      }
+      refreshUnreadCounts();
+
+      // Ses çal
+      const soundPref = localStorage.getItem('postaci_sound_choice') || 'chirp';
+      playNotificationSound(soundPref);
+
+      // Bildirim toast'ı
+      if (messages && messages.length > 0) {
+        const first = messages[0];
+        setNotice(`📧 Yeni E-posta (${first.from || email}): ${first.subject || '(konusuz)'}`);
+      } else if (count > 0) {
+        setNotice(`📧 ${count} yeni e-posta alındı.`);
+      }
+      setTimeout(() => setNotice(null), 5000);
+    });
+
+    // 3. Arka plan senkronizasyonu yeni posta getirdiğinde UI'ı sessizce tazele
     const unsubBg = window.postaci.notifications.onBackgroundSynced(({ email, folderPath, count }) => {
       if (email === activeAccount) {
         loadFolders(email);
@@ -515,6 +541,7 @@ export default function App() {
     return () => {
       unsubOpen();
       unsubBg();
+      unsubNewMail?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccount, activeFolder]);

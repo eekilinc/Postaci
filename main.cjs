@@ -172,27 +172,34 @@ function resolveAppIcon(preferIco = true) {
   return null;
 }
 
-function cleanupConflictingShortcuts() {
+function ensureWindowsShortcut() {
   if (process.platform !== 'win32') return;
   try {
     const startMenuDir = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs');
-    // 1. Electron'un otomatik oluşturduğu veya eski artık Electron.lnk kısayolunu sil (2. kurulum gibi görünmesini engeller)
+    if (!fs.existsSync(startMenuDir)) fs.mkdirSync(startMenuDir, { recursive: true });
+
+    // 1. Electron.lnk kalıntısını temizle
     const electronLnk = path.join(startMenuDir, 'Electron.lnk');
     if (fs.existsSync(electronLnk)) {
       try { fs.unlinkSync(electronLnk); } catch {}
     }
-    // 2. Geliştirme modunda node_modules/electron.exe'ye işaret eden kısayolları temizle (tıklamada path-to-app hatasını engeller)
-    const devLnk = path.join(startMenuDir, 'Postacı.lnk');
-    if (!app.isPackaged && fs.existsSync(devLnk)) {
-      try {
-        const details = shell.readShortcutLink(devLnk);
-        if (details && details.target && details.target.toLowerCase().includes('node_modules')) {
-          fs.unlinkSync(devLnk);
-        }
-      } catch {}
-    }
+
+    // 2. Postacı.lnk kısayolunu AppUserModelId ile garantiye al (Windows Toast Bildirimleri için zorunludur)
+    const lnkPath = path.join(startMenuDir, 'Postacı.lnk');
+    const icoPath = resolveAppIcon(true) || resolveAppIcon(false) || process.execPath;
+    const target = process.execPath;
+    const args = !app.isPackaged ? `"${path.resolve(__dirname)}"` : '';
+
+    shell.writeShortcutLink(lnkPath, fs.existsSync(lnkPath) ? 'replace' : 'create', {
+      target,
+      args,
+      appUserModelId: 'com.postaci.app',
+      icon: icoPath,
+      iconIndex: 0,
+      description: 'Postacı — Masaüstü E-posta İstemcisi',
+    });
   } catch (err) {
-    console.warn('[shortcut] Kısayol temizleme hatası:', err?.message);
+    console.warn('[shortcut] Kısayol yönetimi uyarısı:', err?.message);
   }
 }
 
@@ -279,6 +286,61 @@ function showDesktopNotification({ title, body, email, folderPath, uid, silent =
   }
 }
 
+function notifyNewMessages(accountEmail, newMessages) {
+  if (!newMessages || newMessages.length === 0) return;
+
+  const settings = getSetting('notification_settings', {
+    notificationsEnabled: true,
+    syncIntervalMinutes: 2,
+    soundEnabled: true,
+    quietHoursEnabled: false,
+    quietHoursStart: '22:00',
+    quietHoursEnd: '08:00',
+  });
+
+  if (!settings.notificationsEnabled) return;
+
+  // 1. Görev Çubuğunu Turuncu Yanıp Söndür (Taskbar Flash)
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) {
+    try {
+      mainWindow.flashFrame(true);
+    } catch {}
+  }
+
+  // 2. Windows Masaüstü Toast Bildirimi
+  if (newMessages.length === 1) {
+    const m = newMessages[0];
+    showDesktopNotification({
+      title: `📧 ${m.from || accountEmail}`,
+      body: m.subject || '(konusuz)',
+      email: accountEmail,
+      folderPath: 'INBOX',
+      uid: m.uid,
+      silent: !settings.soundEnabled,
+    });
+  } else {
+    const last = newMessages[newMessages.length - 1];
+    showDesktopNotification({
+      title: `📧 ${accountEmail} (${newMessages.length} yeni e-posta)`,
+      body: `${last.from ? last.from + ': ' : ''}${last.subject || '(konusuz)'}`,
+      email: accountEmail,
+      folderPath: 'INBOX',
+      uid: last.uid,
+      silent: !settings.soundEnabled,
+    });
+  }
+
+  // 3. Renderer arayüzüne canlı bildirim ve ses tetikleyici gönder
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('notify:new-mail', {
+      email: accountEmail,
+      folderPath: 'INBOX',
+      count: newMessages.length,
+      messages: newMessages,
+    });
+  }
+}
+
 let bgSyncTimer = null;
 let bgSyncRunning = false;
 
@@ -288,7 +350,7 @@ async function runBackgroundSync() {
   try {
     const settings = getSetting('notification_settings', {
       notificationsEnabled: true,
-      syncIntervalMinutes: 3,
+      syncIntervalMinutes: 2,
       soundEnabled: true,
     });
 
@@ -303,8 +365,8 @@ async function runBackgroundSync() {
         if (!fullAcc) continue;
         const normEmail = (fullAcc.email || '').toLowerCase().trim();
         const lastSync = _lastSyncTime.get(normEmail) || 0;
-        // Son 90 saniyede kullanıcı/arayüz zaten bu hesabı senkronize ettiyse arka planda tekrar çekme
-        if (Date.now() - lastSync < 90000) {
+        // Son 15 saniyede kullanıcı/arayüz zaten bu hesabı senkronize ettiyse arka planda tekrar çekme
+        if (Date.now() - lastSync < 15000) {
           continue;
         }
         const creds = await freshCredentials(fullAcc);
@@ -320,29 +382,7 @@ async function runBackgroundSync() {
         _lastSyncTime.set(normEmail, Date.now());
 
         if (res && res.newMessages && res.newMessages.length > 0) {
-          if (settings.notificationsEnabled) {
-            if (res.newMessages.length === 1) {
-              const m = res.newMessages[0];
-              showDesktopNotification({
-                title: `📧 ${m.from || acc.email}`,
-                body: m.subject || '(konusuz)',
-                email: acc.email,
-                folderPath: 'INBOX',
-                uid: m.uid,
-                silent: !settings.soundEnabled,
-              });
-            } else {
-              const last = res.newMessages[res.newMessages.length - 1];
-              showDesktopNotification({
-                title: `📧 ${acc.email} (${res.newMessages.length} yeni e-posta)`,
-                body: `${last.from ? last.from + ': ' : ''}${last.subject || '(konusuz)'}`,
-                email: acc.email,
-                folderPath: 'INBOX',
-                uid: last.uid,
-                silent: !settings.soundEnabled,
-              });
-            }
-          }
+          notifyNewMessages(acc.email, res.newMessages);
 
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('notify:background-synced', {
@@ -571,6 +611,12 @@ function createWindow() {
     }
   });
 
+  win.on('focus', () => {
+    try {
+      win.flashFrame(false);
+    } catch {}
+  });
+
   // Çıkma tuşu ('X'): 'closeToQuit' kapalıysa uygulamadan çıkma, simge durumuna küçültüp gizle
   win.on('close', (event) => {
     if (isQuitting) return;
@@ -648,7 +694,7 @@ app.whenReady().then(() => {
     try {
       event.returnValue = app.getVersion();
     } catch {
-      event.returnValue = '1.0.13';
+      event.returnValue = '1.0.14';
     }
   });
   ipcMain.handle('accounts:add', (_evt, acc) => addAccount(acc));
@@ -680,7 +726,11 @@ app.whenReady().then(() => {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
     const creds = await freshCredentials(acc);
-    return imapLock(email, () => syncInbox({ provider: acc.provider, email: acc.email, db: getDb(), ...creds }));
+    const res = await imapLock(email, () => syncInbox({ provider: acc.provider, email: acc.email, db: getDb(), ...creds }));
+    if (res && res.newMessages && res.newMessages.length > 0) {
+      notifyNewMessages(acc.email, res.newMessages);
+    }
+    return res;
   });
   const _folderSyncMap = new Map(); // email -> timestamp
   const _folderSyncInFlight = new Map(); // email -> Promise
@@ -782,10 +832,14 @@ app.whenReady().then(() => {
     const normEmail = (email || '').toLowerCase().trim();
     _lastSyncTime.set(normEmail, Date.now());
     const creds = await freshCredentials(acc);
-    return imapLock(email, () => syncFolder({
+    const res = await imapLock(email, () => syncFolder({
       provider: acc.provider, email: acc.email, folderPath, db: getDb(), ...creds,
       skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
     }));
+    if (folderPath === 'INBOX' && res && res.newMessages && res.newMessages.length > 0) {
+      notifyNewMessages(acc.email, res.newMessages);
+    }
+    return res;
   });
   ipcMain.handle('mail:list', (_evt, email, folderPath, limit, offset) => {
     return listMessages(email, folderPath || 'INBOX', limit || 50, offset || 0);
@@ -818,6 +872,9 @@ app.whenReady().then(() => {
           provider: full.provider, email: full.email, folderPath: 'INBOX', db: getDb(), ...creds,
           skipUid: (uid) => isDeleted(full.email, 'INBOX', String(uid)),
         }));
+        if (res && res.newMessages && res.newMessages.length > 0) {
+          notifyNewMessages(acc.email, res.newMessages);
+        }
         results.push({ email: acc.email, ...res });
       } catch (e) {
         results.push({ email: acc.email, error: e?.message || e });
@@ -1774,6 +1831,15 @@ app.whenReady().then(() => {
       uid: '',
       silent: false,
     });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try { mainWindow.flashFrame(true); } catch {}
+      mainWindow.webContents.send('notify:new-mail', {
+        email: targetEmail,
+        folderPath: 'INBOX',
+        count: 1,
+        messages: [{ uid: 'test', subject: 'Postacı test bildirimi başarıyla alındı!', from: 'Postacı Ekibi' }],
+      });
+    }
     return true;
   });
   ipcMain.handle('app:get-settings', () => {
@@ -1818,7 +1884,7 @@ app.whenReady().then(() => {
     return false;
   });
 
-  cleanupConflictingShortcuts();
+  ensureWindowsShortcut();
   try {
     app.setAppUserModelId('com.postaci.app');
   } catch {}
@@ -1828,7 +1894,7 @@ app.whenReady().then(() => {
   updateBackgroundSyncSchedule();
   setTimeout(() => {
     runBackgroundSync().catch(() => {});
-  }, 90000);
+  }, 4000);
 });
 
 app.on('second-instance', (_event, _commandLine, _workingDirectory) => {

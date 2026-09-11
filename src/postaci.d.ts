@@ -147,6 +147,7 @@ declare global {
           notificationsEnabled: boolean;
           syncIntervalMinutes: number;
           soundEnabled: boolean;
+          soundChoice?: string;
           quietHoursEnabled?: boolean;
           quietHoursStart?: string;
           quietHoursEnd?: string;
@@ -155,6 +156,7 @@ declare global {
           notificationsEnabled: boolean;
           syncIntervalMinutes: number;
           soundEnabled: boolean;
+          soundChoice?: string;
           quietHoursEnabled?: boolean;
           quietHoursStart?: string;
           quietHoursEnd?: string;
@@ -162,6 +164,7 @@ declare global {
           notificationsEnabled: boolean;
           syncIntervalMinutes: number;
           soundEnabled: boolean;
+          soundChoice?: string;
           quietHoursEnabled?: boolean;
           quietHoursStart?: string;
           quietHoursEnd?: string;
@@ -169,6 +172,7 @@ declare global {
         test: () => Promise<boolean>;
         onOpenMessage: (callback: (data: { email: string; folderPath: string; uid: string }) => void) => () => void;
         onBackgroundSynced: (callback: (data: { email: string; folderPath: string; count: number }) => void) => () => void;
+        onNewMail?: (callback: (data: { email: string; folderPath: string; count: number; messages?: Array<{ uid: string; subject: string; from: string }> }) => void) => () => void;
       };
       appSettings: {
         get: () => Promise<{
