@@ -189,6 +189,7 @@ function cleanupConflictingShortcuts() {
 }
 
 let mainWindow = null;
+const _activeNotifications = new Set();
 
 function showDesktopNotification({ title, body, email, folderPath, uid, silent = false }) {
   try {
@@ -201,7 +202,18 @@ function showDesktopNotification({ title, body, email, folderPath, uid, silent =
       silent: !!silent,
       urgency: 'normal',
     });
+
+    // V8 Garbage Collector'ın bildirim nesnesini bellekten erken silmesini ve
+    // Windows Toast tıklama olaylarının düşmesini engellemek için referansı sakla
+    _activeNotifications.add(notif);
+    const cleanup = () => {
+      _activeNotifications.delete(notif);
+    };
+    notif.on('close', cleanup);
+    notif.on('failed', cleanup);
+
     notif.on('click', () => {
+      cleanup();
       if (!mainWindow || mainWindow.isDestroyed()) {
         createWindow();
       } else {
@@ -211,7 +223,7 @@ function showDesktopNotification({ title, body, email, folderPath, uid, silent =
         mainWindow.setAlwaysOnTop(true);
         mainWindow.focus();
         mainWindow.setAlwaysOnTop(false);
-        if (email) {
+        if (email && mainWindow.webContents) {
           mainWindow.webContents.send('notify:open-message', {
             email,
             folderPath: folderPath || 'INBOX',
@@ -220,6 +232,7 @@ function showDesktopNotification({ title, body, email, folderPath, uid, silent =
         }
       }
     });
+
     notif.show();
   } catch (err) {
     console.error('[notification] Hata:', err);
