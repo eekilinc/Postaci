@@ -1,9 +1,16 @@
 // preload.cjs - güvenli IPC köprüsü
 const { contextBridge, ipcRenderer } = require('electron');
-const pkg = require('./package.json');
+
+let appVersion = '1.0.9';
+try {
+  const v = ipcRenderer.sendSync('app:get-version-sync');
+  if (v) appVersion = v;
+} catch {
+  // Preload scripti asla çökmeyecek şekilde güvenli varsayılan değer kullanılır
+}
 
 contextBridge.exposeInMainWorld('postaci', {
-  version: pkg.version,
+  version: appVersion,
   platform: process.platform,
   db: {
     stats: () => ipcRenderer.invoke('db:stats'),

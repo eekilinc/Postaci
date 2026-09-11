@@ -490,6 +490,10 @@ function createWindow() {
     },
   });
 
+  win.webContents.on('preload-error', (_evt, preloadPath, error) => {
+    console.error('[preload] Preload script hatası:', preloadPath, error);
+  });
+
   if (process.platform === 'win32' && icoPath) {
     try {
       win.setIcon(icoPath);
@@ -592,6 +596,13 @@ app.whenReady().then(() => {
     };
     if (profile.email) addAccount(saved);
     return saved;
+  });
+  ipcMain.on('app:get-version-sync', (event) => {
+    try {
+      event.returnValue = app.getVersion();
+    } catch {
+      event.returnValue = '1.0.9';
+    }
   });
   ipcMain.handle('accounts:add', (_evt, acc) => addAccount(acc));
   ipcMain.handle('accounts:get', async (_evt, id) => {

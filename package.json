@@ -1,7 +1,7 @@
 {
   "name": "postaci",
   "productName": "Postacı",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Yıldırım hızında, güvenli, modern ve şık masaüstü e-posta istemcisi",
   "author": {
     "name": "Ekrem Eşref Kılınç",
@@ -60,6 +60,7 @@
       "electron/**/*",
       "main.cjs",
       "preload.cjs",
+      "package.json",
       "public/**/*",
       "build/**/*",
       "!**/*.map"

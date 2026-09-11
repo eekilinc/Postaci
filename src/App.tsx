@@ -43,7 +43,7 @@ const ACCENT_COLORS: Record<string, string> = {
 };
 
 export default function App() {
-  const inElectron = !!window.postaci;
+  const inElectron = !!(window.postaci || (typeof navigator !== 'undefined' && /electron/i.test(navigator.userAgent)));
 
   // ── Tema & accent ────────────────────────────────────────────────────────
   const { theme, setTheme, accent, setAccent } = useTheme();

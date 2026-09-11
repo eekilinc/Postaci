@@ -53,7 +53,10 @@ export function AddAccountModal({
     setError(null);
     setNotice(null);
     try {
-      const res = await window.postaci!.auth.start(provider);
+      if (!window.postaci?.auth) {
+        throw new Error('Electron API köprüsü yüklenemedi. Lütfen uygulamayı yeniden başlatın.');
+      }
+      const res = await window.postaci.auth.start(provider);
       if (!res.email) {
         setError('Giriş tamamlandı ama e-posta adresi alınamadı. Hesabı yeniden bağlayın.');
         return;
