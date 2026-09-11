@@ -1329,12 +1329,15 @@ export default function App() {
         />
       )}
       {/* Ekran içi zengin e-posta bildirim kartı (Superhuman/Slack tarzı) */}
-      <InAppNotification
-        data={inAppAlert}
-        onClose={() => setInAppAlert(null)}
-        onView={handleViewInAppMail}
-        accent={ACCENT_COLORS[accent] || '#2563eb'}
-      />
+      {inAppAlert && (
+        <InAppNotification
+          key={inAppAlert.id}
+          data={inAppAlert}
+          onClose={() => setInAppAlert(null)}
+          onView={handleViewInAppMail}
+          accent={ACCENT_COLORS[accent] || '#2563eb'}
+        />
+      )}
 
       {/* Ek dosya önizleme modalı */}
       {previewData && (
