@@ -206,6 +206,19 @@ function ensureWindowsShortcut() {
         console.warn(`[shortcut] ${lnkName} oluşturulamadı:`, errInner?.message);
       }
     }
+
+    // 3. Windows Bildirim İzinlerini ve AUMID Kimliğini Registry'ye yaz (ShowBanner = 1, Enabled = 1)
+    try {
+      const { exec } = require('child_process');
+      const regCmds = [
+        `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\com.postaci.app" /v Enabled /t REG_DWORD /d 1 /f`,
+        `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\com.postaci.app" /v ShowBanner /t REG_DWORD /d 1 /f`,
+        `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\com.postaci.app" /v ShowInActionCenter /t REG_DWORD /d 1 /f`,
+        `reg add "HKCU\\Software\\Classes\\AppUserModelId\\com.postaci.app" /v DisplayName /t REG_SZ /d "Postacı" /f`,
+        `reg add "HKCU\\Software\\Classes\\AppUserModelId\\com.postaci.app" /v ShowInSettings /t REG_DWORD /d 1 /f`,
+      ];
+      exec(regCmds.join(' & '), () => {});
+    } catch {}
   } catch (err) {
     console.warn('[shortcut] Kısayol yönetimi uyarısı:', err?.message);
   }
