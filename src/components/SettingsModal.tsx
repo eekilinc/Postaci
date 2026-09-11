@@ -179,7 +179,7 @@ export function SettingsModal({
     }
   };
 
-  const currentVersion = window.postaci?.version || '1.0.3';
+  const currentVersion = window.postaci?.version || '1.0.4';
   const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
     version?: string;
     hasUpdate?: boolean;

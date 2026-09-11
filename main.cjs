@@ -1,6 +1,20 @@
-const { app, BrowserWindow, ipcMain, safeStorage, dialog, Notification, nativeImage, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, dialog, Notification, nativeImage, Tray, Menu, shell } = require('electron');
 
-// Windows görev çubuğu simgesi ve bildirim eşleşmesi için en başta tanımlanmalıdır:
+// 1. Uygulama Adı ve Kimliği (Windows Bildirimlerinde ve Başlığında 'electron' yazmasını engeller)
+app.name = 'Postacı';
+try {
+  app.setName('Postacı');
+} catch {}
+
+// 2. Tekil Örnek Kilidi (Single Instance Lock)
+// Bildirime tıklandığında veya ikinci kez tıklandığında boş bir Electron penceresi açılmasını kesin olarak engeller
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  process.exit(0);
+}
+
+// 3. Windows Görev Çubuğu ve Bildirim Eşleşmesi (AUMID)
 try {
   app.setAppUserModelId('com.postaci.app');
 } catch {}
@@ -150,6 +164,28 @@ function resolveAppIcon(preferIco = true) {
   return null;
 }
 
+function ensureWindowsShortcut() {
+  if (process.platform !== 'win32') return;
+  try {
+    const startMenuDir = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs');
+    const shortcutPath = path.join(startMenuDir, 'Postacı.lnk');
+    const icoPath = resolveAppIcon(true);
+    const target = process.execPath;
+    const args = !app.isPackaged ? `"${path.resolve(__dirname)}"` : '';
+
+    shell.writeShortcutLink(shortcutPath, 'create', {
+      target,
+      args,
+      appUserModelId: 'com.postaci.app',
+      icon: icoPath || target,
+      iconIndex: 0,
+      description: 'Postacı — Modern Masaüstü E-posta İstemcisi',
+    });
+  } catch (err) {
+    console.warn('[shortcut] Başlat menüsü kısayolu oluşturulamadı:', err?.message);
+  }
+}
+
 let mainWindow = null;
 
 function showDesktopNotification({ title, body, email, folderPath, uid, silent = false }) {
@@ -164,7 +200,10 @@ function showDesktopNotification({ title, body, email, folderPath, uid, silent =
       urgency: 'normal',
     });
     notif.on('click', () => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        createWindow();
+      } else {
+        mainWindow.setSkipTaskbar(false);
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.show();
         mainWindow.setAlwaysOnTop(true);
@@ -1690,6 +1729,7 @@ app.whenReady().then(() => {
     return false;
   });
 
+  ensureWindowsShortcut();
   try {
     app.setAppUserModelId('com.postaci.app');
   } catch {}
@@ -1700,6 +1740,18 @@ app.whenReady().then(() => {
   setTimeout(() => {
     runBackgroundSync().catch(() => {});
   }, 90000);
+});
+
+app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
+  // Bildirime tıklanması veya uygulamanın tekrar çalıştırılması halinde mevcut pencereyi öne getir
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setSkipTaskbar(false);
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.setAlwaysOnTop(true);
+    mainWindow.focus();
+    mainWindow.setAlwaysOnTop(false);
+  }
 });
 
 app.on('before-quit', () => {
