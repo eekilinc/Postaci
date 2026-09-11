@@ -285,11 +285,18 @@ function showDesktopNotification({ title, body, email, folderPath, uid, silent: 
           ? `<image placement="appLogoOverride" hint-crop="circle" src="${notifIcon.replace(/\\/g, '/')}" />`
           : '';
 
+        const payloadObj = {
+          email: email || '',
+          folderPath: folderPath || 'INBOX',
+          uid: String(uid || ''),
+        };
+        const launchData = `postaci-open:${Buffer.from(JSON.stringify(payloadObj)).toString('base64')}`;
+
         const psScript = `
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-$xml.LoadXml('<toast scenario="reminder"><visual><binding template="ToastGeneric"><text>${cleanTitle}</text><text>${cleanBody}</text>${iconXml}</binding></visual></toast>')
+$xml.LoadXml('<toast scenario="reminder" launch="${launchData}"><visual><binding template="ToastGeneric"><text>${cleanTitle}</text><text>${cleanBody}</text>${iconXml}</binding></visual><actions><action content="E-postayı Aç" arguments="${launchData}" activationType="foreground" /></actions></toast>')
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 $toast.Priority = [Windows.UI.Notifications.ToastNotificationPriority]::High
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('com.postaci.app').Show($toast)
@@ -352,12 +359,32 @@ $toast.Priority = [Windows.UI.Notifications.ToastNotificationPriority]::High
   }
 }
 
+function handleOpenMessagePayload(rawString) {
+  if (!rawString) return;
+  try {
+    const match = String(rawString).match(/postaci-open:([A-Za-z0-9+/=]+)/);
+    if (match && match[1]) {
+      const decoded = Buffer.from(match[1], 'base64').toString('utf8');
+      const payload = JSON.parse(decoded);
+      if (payload && payload.email && mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+        mainWindow.webContents.send('notify:open-message', {
+          email: payload.email,
+          folderPath: payload.folderPath || 'INBOX',
+          uid: String(payload.uid || ''),
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[notification] Payload çözümlenemedi:', err?.message);
+  }
+}
+
 function notifyNewMessages(accountEmail, newMessages) {
   if (!newMessages || newMessages.length === 0) return;
 
   const settings = getSetting('notification_settings', {
     notificationsEnabled: true,
-    syncIntervalMinutes: 2,
+    syncIntervalMinutes: 0.5,
     soundEnabled: true,
     quietHoursEnabled: false,
     quietHoursStart: '22:00',
@@ -416,7 +443,7 @@ async function runBackgroundSync() {
   try {
     const settings = getSetting('notification_settings', {
       notificationsEnabled: true,
-      syncIntervalMinutes: 2,
+      syncIntervalMinutes: 0.5,
       soundEnabled: true,
     });
 
@@ -431,8 +458,8 @@ async function runBackgroundSync() {
         if (!fullAcc) continue;
         const normEmail = (fullAcc.email || '').toLowerCase().trim();
         const lastSync = _lastSyncTime.get(normEmail) || 0;
-        // Son 15 saniyede kullanıcı/arayüz zaten bu hesabı senkronize ettiyse arka planda tekrar çekme
-        if (Date.now() - lastSync < 15000) {
+        // Son 10 saniyede kullanıcı/arayüz zaten bu hesabı senkronize ettiyse arka planda tekrar çekme
+        if (Date.now() - lastSync < 10000) {
           continue;
         }
         const creds = await freshCredentials(fullAcc);
@@ -461,7 +488,7 @@ async function runBackgroundSync() {
       } catch (err) {
         console.warn(`[bg-sync] ${acc.email} senkronizasyon atlandı:`, err?.message || err);
       }
-      await new Promise((r) => setTimeout(r, 1200)); // sağlayıcılar arası sakin geçiş
+      await new Promise((r) => setTimeout(r, 800)); // sağlayıcılar arası sakin geçiş
     }
   } finally {
     bgSyncRunning = false;
@@ -475,17 +502,17 @@ function updateBackgroundSyncSchedule() {
   }
   const settings = getSetting('notification_settings', {
     notificationsEnabled: true,
-    syncIntervalMinutes: 3,
+    syncIntervalMinutes: 0.5,
     soundEnabled: true,
   });
 
-  const minutes = Number(settings.syncIntervalMinutes) || 0;
+  const minutes = Number(settings.syncIntervalMinutes) || 0.5;
   if (minutes > 0) {
-    const ms = minutes * 60 * 1000;
+    const ms = Math.max(15000, Math.round(minutes * 60 * 1000));
     bgSyncTimer = setInterval(() => {
       runBackgroundSync().catch((e) => console.error('[bg-sync] hata:', e));
     }, ms);
-    console.log(`[bg-sync] Arka plan senkronizasyonu devrede (${minutes} dk aralıkla).`);
+    console.log(`[bg-sync] Arka plan senkronizasyonu devrede (${ms / 1000} sn aralıkla).`);
   } else {
     console.log('[bg-sync] Arka plan senkronizasyonu kapalı.');
   }
@@ -674,6 +701,11 @@ function createWindow() {
       }
     } else {
       win.show();
+    }
+    if (Array.isArray(process.argv)) {
+      setTimeout(() => {
+        handleOpenMessagePayload(process.argv.join(' '));
+      }, 1200);
     }
   });
 
@@ -1865,7 +1897,7 @@ app.whenReady().then(() => {
   ipcMain.handle('notifications:get-settings', () => {
     return getSetting('notification_settings', {
       notificationsEnabled: true,
-      syncIntervalMinutes: 3,
+      syncIntervalMinutes: 0.5,
       soundEnabled: true,
       quietHoursEnabled: false,
       quietHoursStart: '22:00',
@@ -1875,7 +1907,7 @@ app.whenReady().then(() => {
   ipcMain.handle('notifications:save-settings', (_evt, newSettings) => {
     const current = getSetting('notification_settings', {
       notificationsEnabled: true,
-      syncIntervalMinutes: 3,
+      syncIntervalMinutes: 0.5,
       soundEnabled: true,
       quietHoursEnabled: false,
       quietHoursStart: '22:00',
@@ -1963,7 +1995,7 @@ app.whenReady().then(() => {
   }, 4000);
 });
 
-app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
+app.on('second-instance', (_event, commandLine, _workingDirectory) => {
   // Bildirime tıklanması veya uygulamanın tekrar çalıştırılması halinde mevcut pencereyi öne getir
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setSkipTaskbar(false);
@@ -1972,6 +2004,10 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
     mainWindow.setAlwaysOnTop(true);
     mainWindow.focus();
     mainWindow.setAlwaysOnTop(false);
+
+    if (Array.isArray(commandLine)) {
+      handleOpenMessagePayload(commandLine.join(' '));
+    }
   }
 });
 

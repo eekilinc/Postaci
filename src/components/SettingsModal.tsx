@@ -112,7 +112,7 @@ export function SettingsModal({
   const [showTaskbarAlert, setShowTaskbarAlert] = useState(true);
   const [showTrackingAlert, setShowTrackingAlert] = useState(true);
   const [soundChoice, setSoundChoice] = useState(() => localStorage.getItem('postaci_sound_choice') || 'chirp');
-  const [syncInterval, setSyncInterval] = useState(2);
+  const [syncInterval, setSyncInterval] = useState(0.5);
   const [language, setLanguage] = useState('tr');
   const [testNotice, setTestNotice] = useState<string | null>(null);
 
@@ -698,8 +698,9 @@ export function SettingsModal({
                         onChange={(e) => handleSyncIntervalChange(Number(e.target.value))}
                         className="rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                       >
+                        <option value={0.5}>Her 30 saniyede bir (Yıldırım Hızı - Önerilen)</option>
                         <option value={1}>Her 1 dakikada bir (Hızlı)</option>
-                        <option value={2}>Her 2 dakikada bir (Önerilen)</option>
+                        <option value={2}>Her 2 dakikada bir</option>
                         <option value={3}>Her 3 dakikada bir</option>
                         <option value={5}>Her 5 dakikada bir</option>
                         <option value={10}>Her 10 dakikada bir</option>
