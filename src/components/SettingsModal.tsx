@@ -1,10 +1,10 @@
 // src/components/SettingsModal.tsx — Mailbird 3.0 Tarzı İki Bölmeli (Two-Pane) Ayarlar Penceresi
 import { useState, useEffect, useMemo } from 'react';
-import type { AccentKey, Account, ThemeKey } from '../types';
+import type { AccentKey, Account, DateFormatPreference, ListDensity, MarkReadTiming, QuickSnippet, SnippetLines, ThemeKey } from '../types';
 import type { LayoutMode } from './LayoutSwitcher';
 import { ACCENTS } from '../constants';
 import { getAccountSignature, saveAccountSignature } from '../utils/signatures';
-import { CloseIcon } from './icons';
+import { CloseIcon, SnippetIcon, TrashIcon } from './icons';
 import { PostaciLogo } from './PostaciLogo';
 import appIcon from '../assets/icon.png';
 
@@ -13,6 +13,16 @@ interface SettingsModalProps {
   setTheme: (t: ThemeKey) => void;
   accent: AccentKey;
   setAccent: (a: AccentKey) => void;
+  oledMode?: boolean;
+  setOledMode?: (v: boolean) => void;
+  listDensity?: ListDensity;
+  setListDensity?: (d: ListDensity) => void;
+  showAvatars?: boolean;
+  setShowAvatars?: (v: boolean) => void;
+  snippetLines?: SnippetLines;
+  setSnippetLines?: (n: SnippetLines) => void;
+  dateFormat?: DateFormatPreference;
+  setDateFormat?: (f: DateFormatPreference) => void;
   layoutMode?: LayoutMode;
   setLayoutMode?: (mode: LayoutMode) => void;
   onLayoutModeChange?: (mode: LayoutMode) => void;
@@ -38,6 +48,16 @@ export function SettingsModal({
   setTheme,
   accent,
   setAccent,
+  oledMode,
+  setOledMode,
+  listDensity,
+  setListDensity,
+  showAvatars,
+  setShowAvatars,
+  snippetLines,
+  setSnippetLines,
+  dateFormat,
+  setDateFormat,
   layoutMode = 'three-column',
   setLayoutMode,
   onLayoutModeChange,
@@ -110,6 +130,148 @@ export function SettingsModal({
   });
   const [textRenderingMode, setTextRenderingMode] = useState<'ideal' | 'standard'>('ideal');
 
+  // OLED Saf Siyah Modu
+  const [localOled, setLocalOled] = useState(() => (oledMode !== undefined ? oledMode : localStorage.getItem('postaci_oled_mode') === 'true'));
+  const handleOledToggle = (val: boolean) => {
+    setLocalOled(val);
+    setOledMode?.(val);
+    localStorage.setItem('postaci_oled_mode', String(val));
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const isDark = theme === 'dark' || (theme === 'system' && mq.matches);
+    document.documentElement.classList.toggle('oled-black', isDark && val);
+  };
+
+  // Liste Yoğunluğu & Görünüm Tercihleri
+  const [localDensity, setLocalDensity] = useState<ListDensity>(() => listDensity || (localStorage.getItem('postaci_list_density') as ListDensity) || 'normal');
+  const handleDensityChange = (d: ListDensity) => {
+    setLocalDensity(d);
+    setListDensity?.(d);
+    localStorage.setItem('postaci_list_density', d);
+  };
+
+  const [localShowAvatars, setLocalShowAvatars] = useState<boolean>(() => showAvatars !== undefined ? showAvatars : localStorage.getItem('postaci_show_avatars') !== 'false');
+  const handleShowAvatarsChange = (val: boolean) => {
+    setLocalShowAvatars(val);
+    setShowAvatars?.(val);
+    localStorage.setItem('postaci_show_avatars', String(val));
+  };
+
+  const [localSnippetLines, setLocalSnippetLines] = useState<SnippetLines>(() => snippetLines !== undefined ? snippetLines : (Number(localStorage.getItem('postaci_snippet_lines') ?? 1) as SnippetLines));
+  const handleSnippetLinesChange = (n: SnippetLines) => {
+    setLocalSnippetLines(n);
+    setSnippetLines?.(n);
+    localStorage.setItem('postaci_snippet_lines', String(n));
+  };
+
+  const [localDateFormat, setLocalDateFormat] = useState<DateFormatPreference>(() => dateFormat || (localStorage.getItem('postaci_date_format') as DateFormatPreference) || 'smart');
+  const handleDateFormatChange = (f: DateFormatPreference) => {
+    setLocalDateFormat(f);
+    setDateFormat?.(f);
+    localStorage.setItem('postaci_date_format', f);
+  };
+
+  // Göndermeyi Geri Alma Penceresi (Undo Send)
+  const [localUndoDelay, setLocalUndoDelay] = useState<number>(() => Number(localStorage.getItem('postaci_undo_send_delay') ?? 5));
+  const handleUndoDelayChange = (s: number) => {
+    setLocalUndoDelay(s);
+    localStorage.setItem('postaci_undo_send_delay', String(s));
+  };
+
+  // Okundu Olarak İşaretleme Zamanlaması
+  const [localMarkReadTiming, setLocalMarkReadTiming] = useState<MarkReadTiming>(() => (localStorage.getItem('postaci_mark_read_timing') as MarkReadTiming) || 'instant');
+  const handleMarkReadTimingChange = (t: MarkReadTiming) => {
+    setLocalMarkReadTiming(t);
+    localStorage.setItem('postaci_mark_read_timing', t);
+  };
+
+  // Harici Görsel Kalkanı
+  const [localBlockRemote, setLocalBlockRemote] = useState<boolean>(() => localStorage.getItem('postaci_block_remote_images') !== 'false');
+  const handleBlockRemoteChange = (val: boolean) => {
+    setLocalBlockRemote(val);
+    localStorage.setItem('postaci_block_remote_images', String(val));
+  };
+
+  // Sessiz Saatler (Quiet Hours)
+  const [quietHoursEnabled, setQuietHoursEnabled] = useState(false);
+  const [quietHoursStart, setQuietHoursStart] = useState('22:00');
+  const [quietHoursEnd, setQuietHoursEnd] = useState('08:00');
+
+  useEffect(() => {
+    if (window.postaci?.notifications?.getSettings) {
+      window.postaci.notifications.getSettings().then((s: any) => {
+        if (s) {
+          if (typeof s.quietHoursEnabled === 'boolean') setQuietHoursEnabled(s.quietHoursEnabled);
+          if (s.quietHoursStart) setQuietHoursStart(s.quietHoursStart);
+          if (s.quietHoursEnd) setQuietHoursEnd(s.quietHoursEnd);
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
+  const saveQuietHours = (enabled: boolean, start: string, end: string) => {
+    if (window.postaci?.notifications?.saveSettings) {
+      window.postaci.notifications.saveSettings({
+        quietHoursEnabled: enabled,
+        quietHoursStart: start,
+        quietHoursEnd: end,
+      }).catch(() => {});
+    }
+  };
+
+  const handleQuietHoursToggle = (val: boolean) => {
+    setQuietHoursEnabled(val);
+    saveQuietHours(val, quietHoursStart, quietHoursEnd);
+  };
+
+  const handleQuietHoursTimeChange = (type: 'start' | 'end', val: string) => {
+    if (type === 'start') {
+      setQuietHoursStart(val);
+      saveQuietHours(quietHoursEnabled, val, quietHoursEnd);
+    } else {
+      setQuietHoursEnd(val);
+      saveQuietHours(quietHoursEnabled, quietHoursStart, val);
+    }
+  };
+
+  // Hızlı Yanıt Şablonları (Quick Snippets) Yönetimi
+  const [quickSnippets, setQuickSnippets] = useState<QuickSnippet[]>(() => {
+    try {
+      const saved = localStorage.getItem('postaci_quick_snippets');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      { id: '1', title: 'Teşekkür ve Onay', body: 'E-postanız için teşekkür ederim, iletilen detayları inceledim ve onaylıyorum.' },
+      { id: '2', title: 'Toplantı Talebi', body: 'Merhaba,\n\nKonuyu detaylandırmak adına uygun bir zamanınızda kısa bir toplantı gerçekleştirebilir miyiz?\n\nİyi çalışmalar.' },
+      { id: '3', title: 'Bilgi ve İnceleme', body: 'İlettiğiniz dökümanları ve detayları inceleyip en kısa sürede geri dönüş sağlayacağım.' },
+    ];
+  });
+  const [snippetTitle, setSnippetTitle] = useState('');
+  const [snippetBody, setSnippetBody] = useState('');
+  const [snippetNotice, setSnippetNotice] = useState<string | null>(null);
+
+  const handleAddSnippet = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!snippetTitle.trim() || !snippetBody.trim()) return;
+    const newSnip: QuickSnippet = {
+      id: Date.now().toString(),
+      title: snippetTitle.trim(),
+      body: snippetBody.trim(),
+    };
+    const updated = [...quickSnippets, newSnip];
+    setQuickSnippets(updated);
+    localStorage.setItem('postaci_quick_snippets', JSON.stringify(updated));
+    setSnippetTitle('');
+    setSnippetBody('');
+    setSnippetNotice('✓ Şablon kaydedildi!');
+    setTimeout(() => setSnippetNotice(null), 2500);
+  };
+
+  const handleDeleteSnippet = (id: string) => {
+    const updated = quickSnippets.filter((s) => s.id !== id);
+    setQuickSnippets(updated);
+    localStorage.setItem('postaci_quick_snippets', JSON.stringify(updated));
+  };
+
   // 4. Hesaplar & Düzenleme State'i
   const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
   const [editDisplayName, setEditDisplayName] = useState('');
@@ -180,7 +342,7 @@ export function SettingsModal({
     }
   };
 
-  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.12';
+  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.13';
   const [logoLoadError, setLogoLoadError] = useState(false);
   const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
     version?: string;
@@ -504,7 +666,7 @@ export function SettingsModal({
                       <button
                         type="button"
                         onClick={handleTestNotification}
-                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium cursor-pointer"
                       >
                         Test Bildirimi Gönder
                       </button>
@@ -512,6 +674,46 @@ export function SettingsModal({
                         <span className="ml-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                           {testNotice}
                         </span>
+                      )}
+                    </div>
+
+                    {/* Sessiz Saatler / Rahatsız Etmeyin */}
+                    <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={quietHoursEnabled}
+                          onChange={(e) => handleQuietHoursToggle(e.target.checked)}
+                          className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
+                        />
+                        <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                          Sessiz Saatler / Rahatsız Etmeyin (Quiet Hours)
+                        </span>
+                      </label>
+                      <p className="text-[11px] text-zinc-500 pl-6.5">
+                        Belirtilen zaman aralığında gelen yeni e-postalarda Windows masaüstü bildirimi ve sesleri otomatik susturulur.
+                      </p>
+                      {quietHoursEnabled && (
+                        <div className="flex items-center gap-4 pl-6.5 pt-1 animate-fadeIn">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-zinc-600 dark:text-zinc-400">Başlangıç:</span>
+                            <input
+                              type="time"
+                              value={quietHoursStart}
+                              onChange={(e) => handleQuietHoursTimeChange('start', e.target.value)}
+                              className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-zinc-600 dark:text-zinc-400">Bitiş:</span>
+                            <input
+                              type="time"
+                              value={quietHoursEnd}
+                              onChange={(e) => handleQuietHoursTimeChange('end', e.target.value)}
+                              className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                            />
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -725,6 +927,101 @@ export function SettingsModal({
                       />
                     ))}
                   </div>
+                </div>
+
+                {/* OLED Saf Siyah (True Black) Modu */}
+                <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={localOled}
+                      onChange={(e) => handleOledToggle(e.target.checked)}
+                      className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
+                    />
+                    <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                      OLED Saf Siyah (True Black) Modu
+                    </span>
+                  </label>
+                  <p className="text-[11px] text-zinc-500 pl-6.5 mt-0.5">
+                    Koyu temada arka planı tam #000000 yaparak OLED/AMOLED ekranlarda maksimum kontrast ve enerji tasarrufu sağlar.
+                  </p>
+                </div>
+
+                {/* İleti Listesi Yoğunluğu ve Detayları */}
+                <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-900 dark:text-zinc-100 mb-2">
+                      İleti Listesi Yoğunluğu
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'compact', label: 'Kompakt', desc: 'Dar satırlar, çok ileti' },
+                        { id: 'normal', label: 'Normal', desc: 'Dengeli satır aralığı' },
+                        { id: 'relaxed', label: 'Rahat', desc: 'Geniş ve ferah görünüm' },
+                      ].map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => handleDensityChange(d.id as ListDensity)}
+                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                            localDensity === d.id
+                              ? 'border-blue-600 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-950/40 ring-1 ring-blue-500'
+                              : 'border-zinc-200 dark:border-zinc-750 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                          }`}
+                        >
+                          <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{d.label}</div>
+                          <div className="text-[10px] text-zinc-400 mt-0.5">{d.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    {/* Snippet Satır Sayısı */}
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        Özet (Snippet) Satır Sayısı
+                      </label>
+                      <select
+                        value={localSnippetLines}
+                        onChange={(e) => handleSnippetLinesChange(Number(e.target.value) as SnippetLines)}
+                        className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                      >
+                        <option value={0}>Yalnızca Konu (0 satır)</option>
+                        <option value={1}>Tek Satır Akıcı (1 satır)</option>
+                        <option value={2}>Detaylı Özet (2 satır)</option>
+                      </select>
+                    </div>
+
+                    {/* Tarih Formatı */}
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        Tarih Gösterim Formatı
+                      </label>
+                      <select
+                        value={localDateFormat}
+                        onChange={(e) => handleDateFormatChange(e.target.value as DateFormatPreference)}
+                        className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                      >
+                        <option value="smart">Akıllı (Bugün saat, eski gün/ay)</option>
+                        <option value="relative">Göreceli (2 saat önce, Dün)</option>
+                        <option value="absolute">Tam Tarih (11.09.2026 14:30)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Avatarları Göster */}
+                  <label className="flex items-center gap-2.5 cursor-pointer pt-1">
+                    <input
+                      type="checkbox"
+                      checked={localShowAvatars}
+                      onChange={(e) => handleShowAvatarsChange(e.target.checked)}
+                      className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
+                    />
+                    <span className="text-xs text-zinc-700 dark:text-zinc-300">
+                      İleti listesinde kişi avatarlarını göster (Gizlendiğinde liste daha hızlı kaydırılır)
+                    </span>
+                  </label>
                 </div>
               </div>
             )}
@@ -1120,7 +1417,7 @@ export function SettingsModal({
                       <button
                         type="button"
                         onClick={handleSaveSignature}
-                        className="rounded-xl bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition active:scale-95"
+                        className="rounded-xl bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition active:scale-95 cursor-pointer"
                       >
                         İmzayı Kaydet
                       </button>
@@ -1132,16 +1429,179 @@ export function SettingsModal({
                     </div>
                   </div>
                 )}
+
+                {/* Göndermeyi Geri Alma Süresi (Undo Send) */}
+                <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
+                  <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                    Göndermeyi Geri Alma Penceresi (Undo Send)
+                  </h4>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    E-posta gönderdikten sonra gönderimi iptal etmek için verilen bekleme süresidir.
+                  </p>
+                  <div className="flex items-center gap-3 pt-1">
+                    <select
+                      value={localUndoDelay}
+                      onChange={(e) => handleUndoDelayChange(Number(e.target.value))}
+                      className="w-48 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                    >
+                      <option value={0}>Devre Dışı (Anında Gönder)</option>
+                      <option value={5}>5 Saniye (Standart)</option>
+                      <option value={10}>10 Saniye</option>
+                      <option value={20}>20 Saniye</option>
+                      <option value={30}>30 Saniye (Maksimum)</option>
+                    </select>
+                    <span className="text-xs text-zinc-400">
+                      {localUndoDelay === 0 ? 'İletiler beklemeden derhal iletilir' : `${localUndoDelay} saniye boyunca geri al düğmesi aktif kalır`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Hızlı Yanıt Şablonları (Quick Snippets) */}
+                <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                        <SnippetIcon size={14} className="text-blue-600 dark:text-blue-400" />
+                        <span>Hızlı Yanıt Şablonları (Hazır Metinler)</span>
+                      </h4>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        E-posta yazarken araç çubuğundaki şablonlar simgesinden tek tıkla eklenecek hazır yanıtlar.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Yeni Şablon Ekleme Formu */}
+                  <form onSubmit={handleAddSnippet} className="rounded-xl border border-zinc-200/90 bg-zinc-50/60 p-3 space-y-2.5 dark:border-zinc-800 dark:bg-zinc-850/40">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">Yeni Şablon Ekle</span>
+                      {snippetNotice && (
+                        <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                          {snippetNotice}
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Şablon Başlığı (Örn: Fatura Talebi, Onay)"
+                      value={snippetTitle}
+                      onChange={(e) => setSnippetTitle(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                    />
+                    <textarea
+                      rows={3}
+                      placeholder="Şablon metni içeriği..."
+                      value={snippetBody}
+                      onChange={(e) => setSnippetBody(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-300 bg-white p-2.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={!snippetTitle.trim() || !snippetBody.trim()}
+                        className="rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-blue-700 disabled:opacity-40 transition cursor-pointer"
+                      >
+                        + Şablonu Kaydet
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Kayıtlı Şablonlar Listesi */}
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {quickSnippets.length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic py-2">Henüz kayıtlı bir şablon bulunmuyor.</p>
+                    ) : (
+                      quickSnippets.map((s) => (
+                        <div
+                          key={s.id}
+                          className="flex items-start justify-between rounded-xl border border-zinc-200/80 bg-white p-2.5 text-xs dark:border-zinc-800 dark:bg-zinc-800/80 hover:border-zinc-300 transition"
+                        >
+                          <div className="min-w-0 flex-1 pr-2">
+                            <span className="font-bold text-zinc-900 dark:text-zinc-100 block truncate">
+                              {s.title}
+                            </span>
+                            <span className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2 mt-0.5 whitespace-pre-wrap">
+                              {s.body}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSnippet(s.id)}
+                            className="p-1 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition shrink-0 cursor-pointer"
+                            title="Şablonu Sil"
+                          >
+                            <TrashIcon size={14} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
             {/* ==================== 6. GELİŞMİŞ TAB ==================== */}
             {activeTab === 'advanced' && (
-              <div className="space-y-4 max-w-xl">
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                  Gelişmiş & Sistem Veritabanı
-                </h3>
+              <div className="space-y-5 max-w-xl">
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+                    Gelişmiş Ayarlar ve Gizlilik
+                  </h3>
+                  <p className="text-[11px] text-zinc-500">
+                    Okuma zamanlaması, harici görsel gizlilik kalkanı ve yerel veritabanı yönetimi.
+                  </p>
+                </div>
 
+                {/* Okundu Olarak İşaretleme Zamanlaması */}
+                <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3.5 dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
+                  <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                    Okundu Olarak İşaretleme Zamanlaması
+                  </h4>
+                  <p className="text-[11px] text-zinc-500">
+                    Bir ileti seçildiğinde ne zaman okundu olarak işaretleneceğini belirleyin.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    {[
+                      { id: 'instant', label: 'Anında', desc: 'İleti tıklandığı anda' },
+                      { id: 'delay_3s', label: '3 Saniye Sonra', desc: 'İletide 3 sn kalındığında' },
+                      { id: 'delay_5s', label: '5 Saniye Sonra', desc: 'İletide 5 sn kalındığında' },
+                      { id: 'manual', label: 'Manuel', desc: 'Sadece düğmeye basıldığında' },
+                    ].map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => handleMarkReadTimingChange(m.id as MarkReadTiming)}
+                        className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                          localMarkReadTiming === m.id
+                            ? 'border-blue-600 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-950/40 ring-1 ring-blue-500'
+                            : 'border-zinc-200 dark:border-zinc-750 hover:bg-white dark:hover:bg-zinc-800'
+                        }`}
+                      >
+                        <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{m.label}</div>
+                        <div className="text-[10px] text-zinc-400 mt-0.5">{m.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Harici Görsel Gizlilik Kalkanı */}
+                <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3.5 dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={localBlockRemote}
+                      onChange={(e) => handleBlockRemoteChange(e.target.checked)}
+                      className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                      Harici Görselleri ve İzleme Piksellerini Otomatik Engelle
+                    </span>
+                  </label>
+                  <p className="text-[11px] text-zinc-500 pl-6.5 leading-relaxed">
+                    E-postalardaki harici web bağlantılı görselleri varsayılan olarak engeller. Bu sayede gönderenlerin IP adresinizi, konumunuzu veya e-postayı açtığınız saati izlemesini önler. İstediğinizde ileti bölmesinden görsellere izin verebilirsiniz.
+                  </p>
+                </div>
+
+                {/* SQLite Durumu */}
                 <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
                   <p className="font-semibold text-zinc-700 dark:text-zinc-300">Yerel SQLite Durumu:</p>
                   <div className="grid grid-cols-3 gap-2 pt-1 text-center">
@@ -1160,11 +1620,11 @@ export function SettingsModal({
                   </div>
                 </div>
 
-                <div className="pt-2 flex items-center gap-3">
+                <div className="pt-1 flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => alert('Yerel SQLite önbelleği optimize edildi.')}
-                    className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+                    className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
                   >
                     Önbelleği Temizle & Optimize Et
                   </button>
@@ -1172,7 +1632,7 @@ export function SettingsModal({
                     <button
                       type="button"
                       onClick={onOpenShortcutsHelp}
-                      className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+                      className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
                     >
                       Klavye Kısayolları Haritası
                     </button>

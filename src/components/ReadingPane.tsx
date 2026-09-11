@@ -35,6 +35,7 @@ interface ReadingPaneProps {
   hasRemoteImages: boolean;
   allowRemoteImages: boolean;
   onAllowRemoteImages: () => void;
+  onAllowSenderAlways?: (senderAddr: string) => void;
   atts: Attachment[];
   savingAtt: number | null;
   loadingPreview: number | null;
@@ -117,6 +118,7 @@ export function ReadingPane({
   hasRemoteImages,
   allowRemoteImages,
   onAllowRemoteImages,
+  onAllowSenderAlways,
   atts,
   savingAtt,
   loadingPreview,
@@ -225,18 +227,30 @@ export function ReadingPane({
 
         {/* 4. Uzak Görseller Gizlilik Bildirimi */}
         {hasRemoteImages && !allowRemoteImages && (
-          <div className="flex items-center justify-between rounded-2xl border border-amber-200/90 bg-amber-50/80 px-4 py-3 text-xs text-amber-900 shadow-2xs dark:border-amber-800/80 dark:bg-amber-950/50 dark:text-amber-200 print:hidden animate-fadeIn">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-amber-200/90 bg-amber-50/80 px-4 py-3 text-xs text-amber-900 shadow-2xs dark:border-amber-800/80 dark:bg-amber-950/50 dark:text-amber-200 print:hidden animate-fadeIn">
             <div className="flex items-center gap-2.5">
               <ShieldIcon size={16} className="text-amber-600 dark:text-amber-400 shrink-0" />
               <span>Gizliliğinizi korumak için bu iletideki harici görseller engellendi.</span>
             </div>
-            <button
-              type="button"
-              onClick={onAllowRemoteImages}
-              className="rounded-xl bg-amber-800 px-3 py-1.5 font-semibold text-white shadow-2xs transition hover:bg-amber-900 dark:bg-amber-700 dark:hover:bg-amber-600 shrink-0"
-            >
-              Görselleri Göster
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onAllowRemoteImages}
+                className="rounded-xl bg-amber-800 px-3 py-1.5 font-semibold text-white shadow-2xs transition hover:bg-amber-900 dark:bg-amber-700 dark:hover:bg-amber-600 shrink-0 cursor-pointer"
+              >
+                Görselleri Göster
+              </button>
+              {onAllowSenderAlways && selected?.from_addr && (
+                <button
+                  type="button"
+                  onClick={() => selected.from_addr && onAllowSenderAlways(selected.from_addr)}
+                  className="rounded-xl border border-amber-300 dark:border-amber-700 bg-white/70 dark:bg-zinc-850/70 px-2.5 py-1.5 font-medium text-amber-900 dark:text-amber-200 transition hover:bg-white dark:hover:bg-zinc-800 shrink-0 cursor-pointer"
+                  title="Bu gönderenden gelen e-postalarda görseller her zaman otomatik yüklensin"
+                >
+                  Bu Gönderene Güven
+                </button>
+              )}
+            </div>
           </div>
         )}
 

@@ -181,3 +181,38 @@ body {
     color: #000000 !important;
   }
 }
+
+/* ==========================================================================
+   OLED Saf Siyah (True Black) Modu
+   OLED ve AMOLED ekranlarda tam #000000 kontrast ve maksimum enerji tasarrufu
+   ========================================================================== */
+html.dark.oled-black {
+  --tw-bg-opacity: 1;
+}
+
+html.dark.oled-black body,
+html.dark.oled-black .bg-zinc-950,
+html.dark.oled-black .bg-zinc-900,
+html.dark.oled-black .dark\:bg-zinc-950,
+html.dark.oled-black .dark\:bg-zinc-900 {
+  background-color: #000000 !important;
+}
+
+html.dark.oled-black .bg-zinc-900\/50,
+html.dark.oled-black .bg-zinc-850,
+html.dark.oled-black .dark\:bg-zinc-850,
+html.dark.oled-black .dark\:bg-zinc-900\/50 {
+  background-color: #070707 !important;
+}
+
+html.dark.oled-black .bg-zinc-800,
+html.dark.oled-black .dark\:bg-zinc-800 {
+  background-color: #0d0d0d !important;
+}
+
+html.dark.oled-black .border-zinc-800,
+html.dark.oled-black .border-zinc-850,
+html.dark.oled-black .dark\:border-zinc-800,
+html.dark.oled-black .dark\:border-zinc-850 {
+  border-color: #1a1a1a !important;
+}

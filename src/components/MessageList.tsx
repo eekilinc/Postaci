@@ -1,6 +1,6 @@
 // src/components/MessageList.tsx — Modern, modüler ve yüksek performanslı e-posta listesi
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AccentKey, FilterKey, Folder, Msg } from '../types';
+import type { AccentKey, DateFormatPreference, FilterKey, Folder, ListDensity, Msg, SnippetLines } from '../types';
 import { ACCENTS } from '../constants';
 import { organizeAndDeduplicateFolders } from '../utils/folders';
 import { MessageItem } from './MessageItem';
@@ -63,6 +63,10 @@ interface MessageListProps {
   onBatchMove?: (toFolder: string) => void;
   folders?: Folder[];
   className?: string;
+  density?: ListDensity;
+  showAvatars?: boolean;
+  snippetLines?: SnippetLines;
+  dateFormat?: DateFormatPreference;
 }
 
 export function MessageList({
@@ -106,8 +110,17 @@ export function MessageList({
   onBatchMove,
   folders = [],
   className = 'w-96 shrink-0 border-r border-zinc-200/80 dark:border-zinc-800/80',
+  density,
+  showAvatars,
+  snippetLines,
+  dateFormat,
 }: MessageListProps) {
   const A = ACCENTS[accent];
+
+  const effectiveDensity = density || (localStorage.getItem('postaci_list_density') as ListDensity) || 'normal';
+  const effectiveShowAvatars = showAvatars !== undefined ? showAvatars : localStorage.getItem('postaci_show_avatars') !== 'false';
+  const effectiveSnippetLines = snippetLines !== undefined ? snippetLines : (Number(localStorage.getItem('postaci_snippet_lines') ?? 1) as SnippetLines);
+  const effectiveDateFormat = dateFormat || (localStorage.getItem('postaci_date_format') as DateFormatPreference) || 'smart';
   const isTrash = !isUnified && /trash|çöp|deleted|bin/i.test(activeFolder || '');
   const [showBatchMove, setShowBatchMove] = useState(false);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -446,6 +459,10 @@ export function MessageList({
               isTrash={isTrash}
               accentSelClass={A.sel}
               hasMultiSelection={!!selectedUids && selectedUids.size > 0}
+              density={effectiveDensity}
+              showAvatars={effectiveShowAvatars}
+              snippetLines={effectiveSnippetLines}
+              dateFormat={effectiveDateFormat}
               onSelect={onSelect}
               onToggleSelectUid={onToggleSelectUid}
               onToggleStar={onToggleStar}

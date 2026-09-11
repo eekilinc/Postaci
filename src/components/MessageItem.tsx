@@ -1,6 +1,6 @@
 // src/components/MessageItem.tsx — Yüksek performanslı, memoize edilmiş modern e-posta kartı
 import { memo } from 'react';
-import type { Msg } from '../types';
+import type { DateFormatPreference, ListDensity, Msg, SnippetLines } from '../types';
 import { Avatar } from './Avatar';
 import {
   StarIcon,
@@ -19,6 +19,10 @@ interface MessageItemProps {
   isTrash?: boolean;
   accentSelClass: string;
   hasMultiSelection: boolean;
+  density?: ListDensity;
+  showAvatars?: boolean;
+  snippetLines?: SnippetLines;
+  dateFormat?: DateFormatPreference;
   onSelect: (m: Msg) => void;
   onToggleSelectUid?: (uid: string, shiftKey?: boolean) => void;
   onToggleStar: (m: Msg) => void;
@@ -41,12 +45,33 @@ function parseSender(fromAddr: string | null): { name: string; email: string } {
   return { name: trimmed.split('@')[0], email: trimmed };
 }
 
-function formatDate(dateStr: string | null): string {
+function formatDate(dateStr: string | null, formatPref: DateFormatPreference = 'smart'): string {
   if (!dateStr) return '';
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return '';
     const now = new Date();
+
+    if (formatPref === 'absolute') {
+      return d.toLocaleDateString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
+    if (formatPref === 'relative') {
+      const diffSec = Math.floor((now.getTime() - d.getTime()) / 1000);
+      if (diffSec < 60) return 'Az önce';
+      if (diffSec < 3600) return `${Math.floor(diffSec / 60)} dk önce`;
+      if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} sa önce`;
+      if (diffSec < 172800) return 'Dün';
+      return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+    }
+
+    // Varsayılan: smart
     const isToday =
       d.getDate() === now.getDate() &&
       d.getMonth() === now.getMonth() &&
@@ -83,6 +108,10 @@ export const MessageItem = memo(
     isTrash,
     accentSelClass,
     hasMultiSelection,
+    density = 'normal',
+    showAvatars = true,
+    snippetLines = 1,
+    dateFormat = 'smart',
     onSelect,
     onToggleSelectUid,
     onToggleStar,
@@ -92,7 +121,14 @@ export const MessageItem = memo(
   }: MessageItemProps) {
     const isUnread = !msg.is_read;
     const { name: senderName, email: senderEmail } = parseSender(msg.from_addr);
-    const dateFormatted = formatDate(msg.date);
+    const dateFormatted = formatDate(msg.date, dateFormat);
+
+    const densityClass =
+      density === 'compact'
+        ? 'py-1.5 px-2.5 my-0.2 min-h-[42px]'
+        : density === 'relaxed'
+        ? 'py-3.5 px-3.5 my-0.5 min-h-[64px]'
+        : 'py-2.5 px-3 my-0.5 min-h-[54px]';
 
     return (
       <div
@@ -100,7 +136,7 @@ export const MessageItem = memo(
         tabIndex={0}
         onClick={() => onSelect(msg)}
         onKeyDown={(e) => e.key === 'Enter' && onSelect(msg)}
-        className={`group relative flex items-center gap-3 mx-1.5 my-0.5 px-3 py-2.5 text-left rounded-xl transition-card cursor-pointer border ${
+        className={`group relative flex items-center gap-3 mx-1.5 text-left rounded-xl transition-card cursor-pointer border ${densityClass} ${
           isChecked
             ? 'border-blue-400 bg-blue-100/70 dark:border-blue-800 dark:bg-blue-950/50 shadow-xs'
             : isSelected
@@ -131,23 +167,25 @@ export const MessageItem = memo(
         )}
 
         {/* Sol Taraf: Mailbird Pastel Avatarı */}
-        <div className="relative shrink-0">
-          <Avatar name={senderName} email={senderEmail} size="md" />
-          {/* Çoklu seçim yokken hover anında avatar üzerinde beliren seçim kutusu */}
-          {!hasMultiSelection && !isChecked && (
-            <input
-              type="checkbox"
-              checked={false}
-              onChange={() => {}}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleSelectUid?.(msg.uid, e.shiftKey);
-              }}
-              className="absolute inset-0 m-auto h-4 w-4 opacity-0 group-hover:opacity-100 cursor-pointer rounded border-zinc-300 text-blue-600 focus:ring-0 transition-opacity"
-              title="Seç"
-            />
-          )}
-        </div>
+        {showAvatars && (
+          <div className="relative shrink-0">
+            <Avatar name={senderName} email={senderEmail} size={density === 'compact' ? 'sm' : 'md'} />
+            {/* Çoklu seçim yokken hover anında avatar üzerinde beliren seçim kutusu */}
+            {!hasMultiSelection && !isChecked && (
+              <input
+                type="checkbox"
+                checked={false}
+                onChange={() => {}}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSelectUid?.(msg.uid, e.shiftKey);
+                }}
+                className="absolute inset-0 m-auto h-4 w-4 opacity-0 group-hover:opacity-100 cursor-pointer rounded border-zinc-300 text-blue-600 focus:ring-0 transition-opacity"
+                title="Seç"
+              />
+            )}
+          </div>
+        )}
 
         {/* Sağ Blok: Mailbird 3.0 İki Satırlı Ultra-Temiz Bilgi Alanı */}
         <div className="min-w-0 flex-1">
@@ -187,9 +225,9 @@ export const MessageItem = memo(
             </span>
           </div>
 
-          {/* 2. Satır: Konu & Snippet Tek Satır Akışı (Sol) + Ek/Yıldız (Sağ) */}
-          <div className="mt-0.5 flex items-center justify-between gap-2">
-            <div className="truncate text-xs min-w-0 leading-normal">
+          {/* 2. Satır: Konu & Snippet Akışı */}
+          <div className="mt-0.5 flex items-start justify-between gap-2">
+            <div className={`text-xs min-w-0 leading-normal ${snippetLines === 2 ? 'line-clamp-2' : 'truncate'}`}>
               <span
                 className={
                   isUnread
@@ -199,7 +237,7 @@ export const MessageItem = memo(
               >
                 {msg.subject || '(konusuz)'}
               </span>
-              {msg.snippet && (
+              {snippetLines !== 0 && msg.snippet && (
                 <span className="text-zinc-400 dark:text-zinc-500 font-normal">
                   {' — '}{msg.snippet}
                 </span>

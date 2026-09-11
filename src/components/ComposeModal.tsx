@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AccentKey, Account, ComposeFile } from '../types';
+import type { AccentKey, Account, ComposeFile, QuickSnippet } from '../types';
 import { ACCENTS } from '../constants';
 import { getAccountSignature } from '../utils/signatures';
 import { PostaciLogo } from './PostaciLogo';
@@ -13,6 +13,8 @@ import {
   MinusIcon,
   MaximizeIcon,
   DraftIcon,
+  SnippetIcon,
+  ChevronDownIcon,
 } from './icons';
 
 interface ComposeModalProps {
@@ -87,6 +89,42 @@ export function ComposeModal({
   const [savingDraft, setSavingDraft] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [showSnippetMenu, setShowSnippetMenu] = useState(false);
+
+  // Kayıtlı veya varsayılan hızlı yanıt şablonları
+  const [snippets, setSnippets] = useState<QuickSnippet[]>([
+    { id: '1', title: 'Teşekkür ve Onay', body: 'E-postanız için teşekkür ederim, iletilen detayları inceledim ve onaylıyorum.' },
+    { id: '2', title: 'Toplantı Talebi', body: 'Merhaba,\n\nKonuyu detaylandırmak adına uygun bir zamanınızda kısa bir toplantı gerçekleştirebilir miyiz?\n\nİyi çalışmalar.' },
+    { id: '3', title: 'Bilgi ve İnceleme', body: 'İlettiğiniz dökümanları ve detayları inceleyip en kısa sürede geri dönüş sağlayacağım.' },
+  ]);
+
+  useEffect(() => {
+    if (showSnippetMenu) {
+      try {
+        const saved = localStorage.getItem('postaci_quick_snippets');
+        if (saved) {
+          setSnippets(JSON.parse(saved));
+        }
+      } catch {}
+    }
+  }, [showSnippetMenu]);
+
+  const handleInsertSnippet = (snip: QuickSnippet) => {
+    if (editorMode === 'rich' && editorRef.current) {
+      editorRef.current.focus();
+      const htmlText = snip.body.replace(/\n/g, '<br/>');
+      if (document.queryCommandSupported('insertHTML')) {
+        document.execCommand('insertHTML', false, htmlText);
+      } else {
+        document.execCommand('insertText', false, snip.body);
+      }
+      handleEditorInput();
+    } else {
+      setCText(cText ? cText + '\n\n' + snip.body : snip.body);
+      setCHtml(cHtml ? cHtml + '<br><br>' + snip.body.replace(/\n/g, '<br>') : snip.body.replace(/\n/g, '<br>'));
+    }
+    setShowSnippetMenu(false);
+  };
 
   // Editör içeriğini başlat ve senkronize tut
   useEffect(() => {
@@ -661,6 +699,44 @@ export function ComposeModal({
                 <ComposeIcon size={12} />
                 <span>İmza</span>
               </button>
+              {/* Şablonlar Açılır Menüsü */}
+              <div className="relative inline-block">
+                <button
+                  type="button"
+                  onClick={() => setShowSnippetMenu((prev) => !prev)}
+                  className="h-7 px-2 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs inline-flex items-center gap-1 font-medium text-blue-600 dark:text-blue-400 cursor-pointer"
+                  title="Hızlı Yanıt Şablonu Ekle"
+                >
+                  <SnippetIcon size={13} />
+                  <span>Şablonlar</span>
+                  <ChevronDownIcon size={10} />
+                </button>
+
+                {showSnippetMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowSnippetMenu(false)} />
+                    <div className="absolute left-0 top-full mt-1 w-64 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-850 p-1.5 shadow-xl z-50 animate-fadeIn text-left">
+                      <div className="px-2 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                        Hızlı Yanıt Şablonları
+                      </div>
+                      <div className="max-h-56 overflow-y-auto space-y-0.5 custom-scrollbar">
+                        {snippets.map((snip) => (
+                          <button
+                            key={snip.id}
+                            type="button"
+                            onClick={() => handleInsertSnippet(snip)}
+                            className="w-full text-left rounded-lg px-2.5 py-1.5 text-xs hover:bg-blue-50 dark:hover:bg-blue-950/40 text-zinc-800 dark:text-zinc-200 transition cursor-pointer"
+                          >
+                            <div className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">{snip.title}</div>
+                            <div className="text-[11px] text-zinc-400 truncate">{snip.body.replace(/\n/g, ' ')}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => exec('removeFormat')}

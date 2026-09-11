@@ -147,15 +147,24 @@ declare global {
           notificationsEnabled: boolean;
           syncIntervalMinutes: number;
           soundEnabled: boolean;
+          quietHoursEnabled?: boolean;
+          quietHoursStart?: string;
+          quietHoursEnd?: string;
         }>;
         saveSettings: (settings: Partial<{
           notificationsEnabled: boolean;
           syncIntervalMinutes: number;
           soundEnabled: boolean;
+          quietHoursEnabled?: boolean;
+          quietHoursStart?: string;
+          quietHoursEnd?: string;
         }>) => Promise<{
           notificationsEnabled: boolean;
           syncIntervalMinutes: number;
           soundEnabled: boolean;
+          quietHoursEnabled?: boolean;
+          quietHoursStart?: string;
+          quietHoursEnd?: string;
         }>;
         test: () => Promise<boolean>;
         onOpenMessage: (callback: (data: { email: string; folderPath: string; uid: string }) => void) => () => void;

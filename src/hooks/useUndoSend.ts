@@ -31,6 +31,7 @@ interface UseUndoSendProps {
   setSelected?: React.Dispatch<React.SetStateAction<Msg | null>>;
   setNotice?: (n: string | null) => void;
   setError?: (e: string | null) => void;
+  undoDelaySeconds?: number;
 }
 
 export function useUndoSend({
@@ -42,6 +43,7 @@ export function useUndoSend({
   setSelected,
   setNotice,
   setError,
+  undoDelaySeconds,
 }: UseUndoSendProps) {
   const [undoTask, setUndoTask] = useState<UndoSendTask | null>(null);
   const [sending, setSending] = useState(false);
@@ -87,14 +89,24 @@ export function useUndoSend({
 
     if (undoIntervalRef.current) clearInterval(undoIntervalRef.current);
 
+    const delay = undoDelaySeconds !== undefined
+      ? undoDelaySeconds
+      : Number(localStorage.getItem('postaci_undo_send_delay') ?? 5);
+
+    // Geri alma penceresi kapalıysa (0 sn) doğrudan gönder
+    if (delay <= 0) {
+      doActualSend(payload);
+      return;
+    }
+
     const taskId = Date.now().toString();
     setUndoTask({
       id: taskId,
-      countdown: 5,
+      countdown: delay,
       payload,
     });
 
-    let current = 5;
+    let current = delay;
     undoIntervalRef.current = setInterval(() => {
       current -= 1;
       if (current <= 0) {

@@ -1,7 +1,7 @@
 // src/hooks/useMessageBody.ts — seçili mesaj gövdesi, gizlilik koruması, ekler ve thread
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
-import type { Attachment, BodyResult, Msg } from '../types';
+import type { Attachment, BodyResult, MarkReadTiming, Msg } from '../types';
 
 export function useMessageBody() {
   const [body, setBody] = useState<BodyResult>(null);
@@ -13,6 +13,7 @@ export function useMessageBody() {
   const [previewData, setPreviewData] = useState<{ filename: string; contentType: string; dataBase64: string; index: number } | null>(null);
   const [thread, setThread] = useState<any[]>([]);
   const [allowRemoteImages, setAllowRemoteImages] = useState(false);
+  const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasRemoteImages = useMemo(() => {
     const html = body?.html;
@@ -44,7 +45,24 @@ export function useMessageBody() {
     return sanitized;
   }, [body, allowRemoteImages]);
 
+  const allowSenderAlways = (senderAddr: string) => {
+    try {
+      const match = senderAddr.match(/<([^>]+)>/) || [null, senderAddr];
+      const email = (match[1] || senderAddr).toLowerCase().trim();
+      const current: string[] = JSON.parse(localStorage.getItem('postaci_trusted_senders') || '[]');
+      if (!current.includes(email)) {
+        current.push(email);
+        localStorage.setItem('postaci_trusted_senders', JSON.stringify(current));
+      }
+      setAllowRemoteImages(true);
+    } catch {}
+  };
+
   const resetBody = () => {
+    if (markReadTimerRef.current) {
+      clearTimeout(markReadTimerRef.current);
+      markReadTimerRef.current = null;
+    }
     setBody(null);
     setBodyError(null);
     setAtts([]);
@@ -64,6 +82,13 @@ export function useMessageBody() {
     resetBody();
     setBodyLoading(true);
 
+    // Harici görsel engelleme tercihi ve güvenilen gönderen denetimi
+    const blockRemote = localStorage.getItem('postaci_block_remote_images') !== 'false';
+    const trusted: string[] = JSON.parse(localStorage.getItem('postaci_trusted_senders') || '[]');
+    const senderEmail = (selected.from_addr || '').toLowerCase();
+    const isTrusted = trusted.some((t) => senderEmail.includes(t.toLowerCase()));
+    setAllowRemoteImages(!blockRemote || isTrusted);
+
     window.postaci!.mail
       .body(activeAccount, activeFolder, selected.uid)
       .then((b) => {
@@ -79,17 +104,29 @@ export function useMessageBody() {
           })
           .catch(() => {});
 
-        // Okundu işaretle
-        if (!selected.is_read) {
-          window.postaci
-            ?.mail.markRead(activeAccount, activeFolder, selected.uid)
-            .catch(() => {});
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.uid === selected.uid ? { ...m, is_read: 1 } : m,
-            ),
-          );
-          setSelected({ ...selected, is_read: 1 });
+        // Okundu işaretleme zamanlaması (Instant / 3sn / 5sn / Manual)
+        const timing = (localStorage.getItem('postaci_mark_read_timing') as MarkReadTiming) || 'instant';
+        const doMarkRead = () => {
+          if (!selected.is_read) {
+            window.postaci
+              ?.mail.markRead(activeAccount, activeFolder, selected.uid)
+              .catch(() => {});
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.uid === selected.uid ? { ...m, is_read: 1 } : m,
+              ),
+            );
+            setSelected((prev) => (prev && prev.uid === selected.uid ? { ...prev, is_read: 1 } : prev));
+          }
+        };
+
+        if (timing === 'instant') {
+          doMarkRead();
+        } else if (timing === 'delay_3s' || timing === 'delay_5s') {
+          const ms = timing === 'delay_3s' ? 3000 : 5000;
+          markReadTimerRef.current = setTimeout(() => {
+            if (!cancelled) doMarkRead();
+          }, ms);
         }
 
         // Thread / iplik
@@ -115,6 +152,10 @@ export function useMessageBody() {
 
     return () => {
       cancelled = true;
+      if (markReadTimerRef.current) {
+        clearTimeout(markReadTimerRef.current);
+        markReadTimerRef.current = null;
+      }
     };
   };
 
@@ -181,6 +222,7 @@ export function useMessageBody() {
     hasRemoteImages,
     allowRemoteImages,
     setAllowRemoteImages,
+    allowSenderAlways,
     resetBody,
     loadBody,
     saveAttachment,

@@ -63,3 +63,14 @@ export type AccountSignature = {
   enabled: boolean;
   text: string;
 };
+
+export type ListDensity = 'compact' | 'normal' | 'relaxed';
+export type SnippetLines = 0 | 1 | 2;
+export type MarkReadTiming = 'instant' | 'delay_3s' | 'delay_5s' | 'manual';
+export type DateFormatPreference = 'smart' | 'relative' | 'absolute';
+
+export type QuickSnippet = {
+  id: string;
+  title: string;
+  body: string;
+};

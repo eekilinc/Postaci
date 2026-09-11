@@ -196,11 +196,43 @@ function cleanupConflictingShortcuts() {
   }
 }
 
-let mainWindow = null;
-const _activeNotifications = new Set();
+function isInQuietHours() {
+  try {
+    const settings = getSetting('notification_settings', {
+      notificationsEnabled: true,
+      syncIntervalMinutes: 3,
+      soundEnabled: true,
+      quietHoursEnabled: false,
+      quietHoursStart: '22:00',
+      quietHoursEnd: '08:00',
+    });
+    if (!settings.quietHoursEnabled) return false;
+
+    const now = new Date();
+    const curMins = now.getHours() * 60 + now.getMinutes();
+
+    const [sH, sM] = (settings.quietHoursStart || '22:00').split(':').map(Number);
+    const [eH, eM] = (settings.quietHoursEnd || '08:00').split(':').map(Number);
+    const startMins = (sH || 0) * 60 + (sM || 0);
+    const endMins = (eH || 0) * 60 + (eM || 0);
+
+    if (startMins <= endMins) {
+      return curMins >= startMins && curMins < endMins;
+    } else {
+      // Gece boyu sessiz saatler (Örn: 22:00 -> 08:00)
+      return curMins >= startMins || curMins < endMins;
+    }
+  } catch {
+    return false;
+  }
+}
 
 function showDesktopNotification({ title, body, email, folderPath, uid, silent = false }) {
   try {
+    if (isInQuietHours()) {
+      console.log('[notification] Sessiz saatler devrede — bildirim susturuldu.');
+      return;
+    }
     if (!Notification.isSupported()) return;
     const notifIcon = resolveAppIcon(false) || resolveAppIcon(true);
     const notif = new Notification({
@@ -616,7 +648,7 @@ app.whenReady().then(() => {
     try {
       event.returnValue = app.getVersion();
     } catch {
-      event.returnValue = '1.0.12';
+      event.returnValue = '1.0.13';
     }
   });
   ipcMain.handle('accounts:add', (_evt, acc) => addAccount(acc));
@@ -1712,6 +1744,9 @@ app.whenReady().then(() => {
       notificationsEnabled: true,
       syncIntervalMinutes: 3,
       soundEnabled: true,
+      quietHoursEnabled: false,
+      quietHoursStart: '22:00',
+      quietHoursEnd: '08:00',
     });
   });
   ipcMain.handle('notifications:save-settings', (_evt, newSettings) => {
@@ -1719,6 +1754,9 @@ app.whenReady().then(() => {
       notificationsEnabled: true,
       syncIntervalMinutes: 3,
       soundEnabled: true,
+      quietHoursEnabled: false,
+      quietHoursStart: '22:00',
+      quietHoursEnd: '08:00',
     });
     const updated = { ...current, ...newSettings };
     setSetting('notification_settings', updated);

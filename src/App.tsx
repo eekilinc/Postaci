@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // Tipler & sabitler
-import type { ComposeFile, Msg } from './types';
+import type { ComposeFile, DateFormatPreference, ListDensity, Msg, SnippetLines } from './types';
 import { getAccountSignature } from './utils/signatures';
 import { ACCENTS } from './constants';
 
@@ -46,7 +46,21 @@ export default function App() {
   const inElectron = !!(window.postaci || (typeof navigator !== 'undefined' && /electron/i.test(navigator.userAgent)));
 
   // ── Tema & accent ────────────────────────────────────────────────────────
-  const { theme, setTheme, accent, setAccent } = useTheme();
+  const { theme, setTheme, accent, setAccent, oledMode, setOledMode } = useTheme();
+
+  // ── Gelişmiş Kişiselleştirme & Liste Tercihleri ───────────────────────────
+  const [listDensity, setListDensity] = useState<ListDensity>(
+    () => (localStorage.getItem('postaci_list_density') as ListDensity) || 'normal'
+  );
+  const [showAvatars, setShowAvatars] = useState<boolean>(
+    () => localStorage.getItem('postaci_show_avatars') !== 'false'
+  );
+  const [snippetLines, setSnippetLines] = useState<SnippetLines>(
+    () => Number(localStorage.getItem('postaci_snippet_lines') ?? 1) as SnippetLines
+  );
+  const [dateFormat, setDateFormat] = useState<DateFormatPreference>(
+    () => (localStorage.getItem('postaci_date_format') as DateFormatPreference) || 'smart'
+  );
 
   // ── Hesaplar ─────────────────────────────────────────────────────────────
   const { accounts, activeAccount, setActiveAccount, stats, refresh } = useAccounts();
@@ -94,6 +108,7 @@ export default function App() {
     hasRemoteImages,
     allowRemoteImages,
     setAllowRemoteImages,
+    allowSenderAlways,
     resetBody,
     loadBody,
     saveAttachment,
@@ -933,6 +948,10 @@ export default function App() {
       setActiveFilter={setActiveFilter}
       filterCounts={filterCounts}
       accent={accent}
+      density={listDensity}
+      showAvatars={showAvatars}
+      snippetLines={snippetLines}
+      dateFormat={dateFormat}
       hasMoreDb={hasMoreDb}
       hasMoreServer={hasMoreServer}
       loadingMore={loadingMore}
@@ -971,6 +990,7 @@ export default function App() {
       hasRemoteImages={hasRemoteImages}
       allowRemoteImages={allowRemoteImages}
       onAllowRemoteImages={() => setAllowRemoteImages(true)}
+      onAllowSenderAlways={allowSenderAlways}
       atts={atts}
       savingAtt={savingAtt}
       loadingPreview={loadingPreview}
@@ -1180,6 +1200,16 @@ export default function App() {
           setTheme={setTheme}
           accent={accent}
           setAccent={setAccent}
+          oledMode={oledMode}
+          setOledMode={setOledMode}
+          listDensity={listDensity}
+          setListDensity={setListDensity}
+          showAvatars={showAvatars}
+          setShowAvatars={setShowAvatars}
+          snippetLines={snippetLines}
+          setSnippetLines={setSnippetLines}
+          dateFormat={dateFormat}
+          setDateFormat={setDateFormat}
           accounts={accounts}
           activeAccount={activeAccount}
           layoutMode={layoutMode}
