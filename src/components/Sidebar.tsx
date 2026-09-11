@@ -1,5 +1,5 @@
 // src/components/Sidebar.tsx — Mailbird 3.0 tarzı iki kademeli modüler sol panel: AccountRail + FolderNav
-import { memo, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import type { AccentKey, Account, Folder } from '../types';
 import { AccountRail } from './AccountRail';
 import { FolderNav } from './FolderNav';
@@ -58,7 +58,7 @@ export const Sidebar = memo(function Sidebar({
 
   const isCollapsed = propIsCollapsed !== undefined ? propIsCollapsed : internalCollapsed;
 
-  const toggleCollapse = () => {
+  const toggleCollapse = useCallback(() => {
     if (propOnToggleCollapse) {
       propOnToggleCollapse();
     } else {
@@ -68,7 +68,7 @@ export const Sidebar = memo(function Sidebar({
         return next;
       });
     }
-  };
+  }, [propOnToggleCollapse]);
 
   // Ctrl+B ile hızlı katlama kısayolu
   useEffect(() => {
@@ -80,7 +80,7 @@ export const Sidebar = memo(function Sidebar({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [toggleCollapse]);
 
   return (
     <aside className="h-full shrink-0 flex print:hidden select-none">

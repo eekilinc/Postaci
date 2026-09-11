@@ -14,7 +14,15 @@ if (!gotTheLock) {
   process.exit(0);
 }
 
-// 3. Windows Görev Çubuğu ve Bildirim Eşleşmesi (AUMID)
+// 3. Beklenmedik Hata ve Promise Korumaları (Production Crash Prevention)
+process.on('uncaughtException', (err) => {
+  console.error('[process] Yakalanmamış İstisna (Uncaught Exception):', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] İşlenmemiş Promise Reddi (Unhandled Rejection):', reason);
+});
+
+// 4. Windows Görev Çubuğu ve Bildirim Eşleşmesi (AUMID)
 try {
   app.setAppUserModelId('com.postaci.app');
 } catch {}
@@ -511,6 +519,13 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('https://') || url.startsWith('http://') || url.startsWith('mailto:')) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
   mainWindow = win;
 
   win.once('ready-to-show', () => {
@@ -601,7 +616,7 @@ app.whenReady().then(() => {
     try {
       event.returnValue = app.getVersion();
     } catch {
-      event.returnValue = '1.0.11';
+      event.returnValue = '1.0.12';
     }
   });
   ipcMain.handle('accounts:add', (_evt, acc) => addAccount(acc));

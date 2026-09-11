@@ -82,14 +82,15 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
+      - name: 🔍 Code Quality & Linter Check
+        run: npm run lint
+
       - name: 🛠️ Build Frontend (Vite + TypeScript)
         run: npm run build
 
       - name: 🚀 Package & Build Windows Binaries (NSIS + Portable)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npx electron-builder --win --x64
+          npx electron-builder --win --x64 --publish never
 
       - name: 🔐 Compute SHA-256 Checksums
         shell: pwsh
@@ -120,10 +121,10 @@ jobs:
             Windows için modern, yerel SQLite önbellekli ve güvenli masaüstü e-posta istemcisi.
 
             ### 📦 İndirme Seçenekleri (Downloads)
-            - **Kurulum Dosyası (NSIS Installer):** `Postacı Setup ${{ steps.meta.outputs.version }}.exe`
+            - **Kurulum Dosyası (NSIS Installer):** `Postaci-Setup-${{ steps.meta.outputs.version }}.exe`
               - Masaüstü ve Başlat menüsü kısayollarını otomatik oluşturur.
               - Uygulama simgesini Windows kabuğuna entegre eder.
-            - **Taşınabilir Sürüm (Portable):** `Postacı-${{ steps.meta.outputs.version }}-portable.exe`
+            - **Taşınabilir Sürüm (Portable):** `Postaci-Portable-${{ steps.meta.outputs.version }}.exe`
               - Kurulum gerektirmez, doğrudan çalıştırılabilir.
             - **Bütünlük Doğrulama:** `checksums.txt` (SHA-256)
 

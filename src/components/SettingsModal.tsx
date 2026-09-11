@@ -180,7 +180,7 @@ export function SettingsModal({
     }
   };
 
-  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.11';
+  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.12';
   const [logoLoadError, setLogoLoadError] = useState(false);
   const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
     version?: string;

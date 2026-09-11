@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AccentKey, Account, ComposeFile } from '../types';
 import { ACCENTS } from '../constants';
 import { getAccountSignature } from '../utils/signatures';
@@ -193,13 +193,13 @@ export function ComposeModal({
     cTo.trim() || cCc.trim() || cSubject.trim() || cText.trim() || cHtml.trim() || cFiles.length > 0
   );
 
-  const handleClosePrompt = () => {
+  const handleClosePrompt = useCallback(() => {
     if (hasContent && !sending) {
       setShowDiscardConfirm(true);
       return;
     }
     onClose();
-  };
+  }, [hasContent, sending, onClose]);
 
   const handleKeepDraftAndClose = () => {
     if (title === 'Yeni E-posta') {
@@ -253,7 +253,7 @@ export function ComposeModal({
     };
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
-  }, [showDiscardConfirm, suggestions.length, hasContent, sending]);
+  }, [showDiscardConfirm, suggestions.length, handleClosePrompt]);
 
   const handleEditorInput = () => {
     if (!editorRef.current) return;
