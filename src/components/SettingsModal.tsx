@@ -371,7 +371,7 @@ export function SettingsModal({
     }
   };
 
-  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.14';
+  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.15';
   const [logoLoadError, setLogoLoadError] = useState(false);
   const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
     version?: string;
@@ -706,19 +706,39 @@ export function SettingsModal({
                       </select>
                     </div>
 
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={handleTestNotification}
-                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium cursor-pointer"
-                      >
-                        Test Bildirimi Gönder
-                      </button>
-                      {testNotice && (
-                        <span className="ml-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                          {testNotice}
-                        </span>
-                      )}
+                    <div className="pt-2 pb-1">
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleTestNotification}
+                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium cursor-pointer"
+                        >
+                          Test Bildirimi Gönder
+                        </button>
+                        {testNotice && (
+                          <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            {testNotice}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Windows Bildirim İpucu & Doğrudan Ayar Butonu */}
+                      <div className="mt-2.5 rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-[11px] leading-relaxed text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200">
+                        <p>
+                          <span className="font-semibold">💡 Windows Bildirim İpucu:</span> Windows 10/11'de saat 23:00 - 07:00 arasında veya tam ekran modundayken <span className="font-semibold">Odaklanma Yardımı (Rahatsız Etmeyin)</span> otomatik açılabilir. Bu modda Windows, bildirim pencerelerini masaüstüne çıkarmak yerine sağ alttaki Windows Bildirim Merkezi'ne (<kbd className="rounded bg-blue-100 dark:bg-blue-900 px-1 py-0.5 font-mono text-[10px]">Win + N</kbd>) sessizce depolar.
+                        </p>
+                        {window.postaci?.openExternal && (
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() => window.postaci?.openExternal?.('ms-settings:notifications')}
+                              className="inline-flex items-center gap-1.5 font-semibold text-blue-700 dark:text-blue-300 hover:underline cursor-pointer"
+                            >
+                              ⚙ Windows Sistem Bildirim Ayarlarını Aç ↗
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Sessiz Saatler / Rahatsız Etmeyin */}

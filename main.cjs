@@ -184,20 +184,28 @@ function ensureWindowsShortcut() {
       try { fs.unlinkSync(electronLnk); } catch {}
     }
 
-    // 2. Postacı.lnk kısayolunu AppUserModelId ile garantiye al (Windows Toast Bildirimleri için zorunludur)
-    const lnkPath = path.join(startMenuDir, 'Postacı.lnk');
+    // 2. Hem ASCII (Postaci.lnk) hem de Türkçe (Postacı.lnk) kısayollarını AppUserModelId ile garantiye al
+    // Windows 10/11 WinRT ToastNotificationManager AUMID eşleşmesini bu kısayollar üzerinden doğrular
     const icoPath = resolveAppIcon(true) || resolveAppIcon(false) || process.execPath;
     const target = process.execPath;
     const args = !app.isPackaged ? `"${path.resolve(__dirname)}"` : '';
 
-    shell.writeShortcutLink(lnkPath, fs.existsSync(lnkPath) ? 'replace' : 'create', {
-      target,
-      args,
-      appUserModelId: 'com.postaci.app',
-      icon: icoPath,
-      iconIndex: 0,
-      description: 'Postacı — Masaüstü E-posta İstemcisi',
-    });
+    const lnkNames = ['Postaci.lnk', 'Postacı.lnk'];
+    for (const lnkName of lnkNames) {
+      try {
+        const lnkPath = path.join(startMenuDir, lnkName);
+        shell.writeShortcutLink(lnkPath, fs.existsSync(lnkPath) ? 'replace' : 'create', {
+          target,
+          args,
+          appUserModelId: 'com.postaci.app',
+          icon: icoPath,
+          iconIndex: 0,
+          description: 'Postacı — Masaüstü E-posta İstemcisi',
+        });
+      } catch (errInner) {
+        console.warn(`[shortcut] ${lnkName} oluşturulamadı:`, errInner?.message);
+      }
+    }
   } catch (err) {
     console.warn('[shortcut] Kısayol yönetimi uyarısı:', err?.message);
   }
@@ -257,7 +265,10 @@ function showDesktopNotification({ title, body, email, folderPath, uid, silent =
       _activeNotifications.delete(notif);
     };
     notif.on('close', cleanup);
-    notif.on('failed', cleanup);
+    notif.on('failed', (e) => {
+      console.warn('[notification] Windows Toast gösterilemedi (Focus Assist veya sistem izni devrede olabilir):', e);
+      cleanup();
+    });
 
     notif.on('click', () => {
       cleanup();
@@ -694,7 +705,7 @@ app.whenReady().then(() => {
     try {
       event.returnValue = app.getVersion();
     } catch {
-      event.returnValue = '1.0.14';
+      event.returnValue = '1.0.15';
     }
   });
   ipcMain.handle('accounts:add', (_evt, acc) => addAccount(acc));
@@ -1877,7 +1888,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('shell:open-external', (_evt, url) => {
-    if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://') || url.startsWith('mailto:'))) {
+    if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://') || url.startsWith('mailto:') || url.startsWith('ms-settings:'))) {
       shell.openExternal(url);
       return true;
     }

@@ -31,6 +31,7 @@ import { ShortcutsHelpModal } from './components/ShortcutsHelpModal';
 import { UndoSendBar } from './components/UndoSendBar';
 import type { LayoutMode } from './components/LayoutSwitcher';
 import { PostaciLogo } from './components/PostaciLogo';
+import { InAppNotification, type IncomingMailData } from './components/InAppNotification';
 import { MenuIcon, PlusIcon } from './components/icons';
 
 const ACCENT_COLORS: Record<string, string> = {
@@ -122,6 +123,7 @@ export default function App() {
   const targetSelectUidRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [inAppAlert, setInAppAlert] = useState<IncomingMailData | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
@@ -456,45 +458,55 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.uid, activeAccount, isUnified]);
 
+  // E-posta bildirimine veya ekran içi kartına tıklandığında hedeflenen mesaja geçiş yap
+  const navigateToMessage = useCallback(async (email: string, folderPath: string, uid?: string | null) => {
+    const targetFolder = folderPath || 'INBOX';
+    const targetUid = uid ? String(uid) : null;
+    targetSelectUidRef.current = targetUid;
+
+    setIsUnified(false);
+    setShowSettings(false);
+    if (email && email !== activeAccount) {
+      setActiveAccount(email);
+    }
+    setActiveFolder(targetFolder);
+
+    try {
+      let list = await window.postaci?.mail.list(email, targetFolder, 50, 0);
+      let found = list?.find((m) => String(m.uid) === targetUid);
+      if (!found && targetUid) {
+        const moreList = await window.postaci?.mail.list(email, targetFolder, 100, 0);
+        if (moreList) {
+          list = moreList;
+          found = list.find((m) => String(m.uid) === targetUid);
+        }
+      }
+      if (list && list.length > 0) {
+        setMessages(list);
+        if (found) {
+          setSelected(found);
+          targetSelectUidRef.current = null;
+        } else if (!targetUid) {
+          setSelected(list[0]);
+        }
+      }
+    } catch (err) {
+      console.error('[navigateToMessage] Mesaj açılamadı:', err);
+    }
+  }, [activeAccount, setActiveAccount, setActiveFolder, setMessages, setSelected]);
+
+  const handleViewInAppMail = useCallback((alertData: IncomingMailData) => {
+    setInAppAlert(null);
+    navigateToMessage(alertData.email, alertData.folderPath, alertData.uid);
+  }, [navigateToMessage]);
+
   // ── Masaüstü Bildirimleri & Arka Plan Senkronizasyonu Olayları ─────────────
   useEffect(() => {
     if (!window.postaci?.notifications) return;
 
     // 1. Windows bildirimine tıklandığında ilgili e-postaya git ve seç
     const unsubOpen = window.postaci.notifications.onOpenMessage(async ({ email, folderPath, uid }) => {
-      const targetFolder = folderPath || 'INBOX';
-      const targetUid = uid ? String(uid) : null;
-      targetSelectUidRef.current = targetUid;
-
-      setIsUnified(false);
-      setShowSettings(false);
-      if (email && email !== activeAccount) {
-        setActiveAccount(email);
-      }
-      setActiveFolder(targetFolder);
-
-      try {
-        let list = await window.postaci?.mail.list(email, targetFolder, 50, 0);
-        let found = list?.find((m) => String(m.uid) === targetUid);
-        if (!found && targetUid) {
-          const moreList = await window.postaci?.mail.list(email, targetFolder, 100, 0);
-          if (moreList) {
-            list = moreList;
-            found = list.find((m) => String(m.uid) === targetUid);
-          }
-        }
-        if (list && list.length > 0) {
-          setMessages(list);
-          if (found) {
-            setSelected(found);
-            targetSelectUidRef.current = null;
-          } else if (!targetUid) {
-            setSelected(list[0]);
-          }
-        }
-      } catch (err) {
-        console.error('[notify:open-message] Mesaj açılamadı:', err);
-      }
+      await navigateToMessage(email, folderPath, uid);
     });
 
     // 2. Yeni e-posta geldiğinde (arka plan veya anlık senkronizasyon):
@@ -512,14 +524,28 @@ export default function App() {
       const soundPref = localStorage.getItem('postaci_sound_choice') || 'chirp';
       playNotificationSound(soundPref);
 
-      // Bildirim toast'ı
+      // Ekran içi zengin bildirim kartı (In-App floating notification)
       if (messages && messages.length > 0) {
         const first = messages[0];
-        setNotice(`📧 Yeni E-posta (${first.from || email}): ${first.subject || '(konusuz)'}`);
+        setInAppAlert({
+          id: String(first.uid || Date.now()),
+          from: first.from || email,
+          email,
+          subject: first.subject || '(konusuz e-posta)',
+          folderPath: folderPath || 'INBOX',
+          uid: first.uid,
+          count,
+        });
       } else if (count > 0) {
-        setNotice(`📧 ${count} yeni e-posta alındı.`);
+        setInAppAlert({
+          id: Date.now().toString(),
+          from: email,
+          email,
+          subject: `${count} yeni e-posta alındı.`,
+          folderPath: folderPath || 'INBOX',
+          count,
+        });
       }
-      setTimeout(() => setNotice(null), 5000);
     });
 
     // 3. Arka plan senkronizasyonu yeni posta getirdiğinde UI'ı sessizce tazele
@@ -1302,6 +1328,14 @@ export default function App() {
           onClose={() => setError(null)}
         />
       )}
+      {/* Ekran içi zengin e-posta bildirim kartı (Superhuman/Slack tarzı) */}
+      <InAppNotification
+        data={inAppAlert}
+        onClose={() => setInAppAlert(null)}
+        onView={handleViewInAppMail}
+        accent={ACCENT_COLORS[accent] || '#2563eb'}
+      />
+
       {/* Ek dosya önizleme modalı */}
       {previewData && (
         <AttachmentPreviewModal
