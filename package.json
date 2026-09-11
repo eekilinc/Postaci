@@ -1,6 +1,6 @@
 {
   "name": "postaci",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Yıldırım hızında, güvenli, modern ve şık masaüstü e-posta istemcisi",
   "author": {
     "name": "Ekrem Eşref Kılınç",
@@ -36,8 +36,10 @@
     "appId": "com.postaci.app",
     "productName": "Postacı",
     "copyright": "Copyright © 2026 Ekrem Eşref Kılınç",
+    "icon": "build/icon.ico",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
@@ -45,12 +47,14 @@
       "main.cjs",
       "preload.cjs",
       "public/**/*",
+      "build/**/*",
       "!electron/oauth-config.json",
       "!**/*.map"
     ],
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**/*",
-      "public/**/*"
+      "public/**/*",
+      "build/**/*"
     ],
     "win": {
       "target": [
@@ -67,7 +71,7 @@
           ]
         }
       ],
-      "icon": "public/icon.ico"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -76,9 +80,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Postacı",
-      "installerIcon": "public/icon.ico",
-      "uninstallerIcon": "public/icon.ico",
-      "installerHeaderIcon": "public/icon.ico",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "deleteAppDataOnUninstall": false
     },
     "portable": {

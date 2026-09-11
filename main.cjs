@@ -1,4 +1,10 @@
-const { app, BrowserWindow, ipcMain, safeStorage, dialog, Notification, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, dialog, Notification, nativeImage, Tray, Menu } = require('electron');
+
+// Windows görev çubuğu simgesi ve bildirim eşleşmesi için en başta tanımlanmalıdır:
+try {
+  app.setAppUserModelId('com.postaci.app');
+} catch {}
+
 const path = require('path');
 const fs = require('fs');
 const { initDb, getDb, getStats, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting } = require('./electron/db.cjs');
@@ -120,10 +126,15 @@ function imapLock(email, fn) {
 function resolveAppIcon(preferIco = true) {
   const filenames = preferIco ? ['icon.ico', 'icon.png'] : ['icon.png', 'icon.ico'];
   const dirs = [
+    // 1. Önce asar dışına çıkarılmış fiziksel disk yolları (Windows Shell, Görev Çubuğu ve Tray için zorunlu)
+    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'build') : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'public') : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'build') : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'public') : null,
+    // 2. Geliştirme modu yolları
+    path.join(__dirname, 'build'),
     path.join(__dirname, 'public'),
     path.join(__dirname, 'dist'),
-    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'public') : null,
-    process.resourcesPath ? path.join(process.resourcesPath, 'public') : null,
     __dirname,
   ].filter(Boolean);
 
@@ -277,6 +288,113 @@ function updateBackgroundSyncSchedule() {
   }
 }
 
+let isQuitting = false;
+let tray = null;
+
+function createTray() {
+  if (tray && !tray.isDestroyed()) return;
+
+  const icoPath = resolveAppIcon(true);
+  const pngPath = resolveAppIcon(false);
+  let trayImage = null;
+
+  if (icoPath) {
+    try {
+      const img = nativeImage.createFromPath(icoPath);
+      if (!img.isEmpty()) trayImage = img;
+    } catch {}
+  }
+  if (!trayImage && pngPath) {
+    try {
+      const img = nativeImage.createFromPath(pngPath);
+      if (!img.isEmpty()) trayImage = img;
+    } catch {}
+  }
+
+  try {
+    tray = new Tray(trayImage || icoPath || pngPath);
+    tray.setToolTip('Postacı — E-posta İstemcisi');
+
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Postacı\'yı Aç',
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.setSkipTaskbar(false);
+            mainWindow.show();
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+          } else {
+            createWindow();
+          }
+        },
+      },
+      {
+        label: 'Yeni E-posta Yaz',
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.setSkipTaskbar(false);
+            mainWindow.show();
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+            mainWindow.webContents.send('cmd:compose');
+          } else {
+            createWindow();
+          }
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'Tüm Hesapları Eşitle',
+        click: () => {
+          runBackgroundSync().catch(() => {});
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'Tamamen Kapat (Çıkış)',
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        },
+      },
+    ]);
+
+    tray.setContextMenu(contextMenu);
+
+    tray.on('click', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isVisible()) {
+          if (mainWindow.isMinimized()) {
+            mainWindow.setSkipTaskbar(false);
+            mainWindow.restore();
+            mainWindow.focus();
+          } else {
+            mainWindow.focus();
+          }
+        } else {
+          mainWindow.setSkipTaskbar(false);
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      } else {
+        createWindow();
+      }
+    });
+
+    tray.on('double-click', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setSkipTaskbar(false);
+        mainWindow.show();
+        mainWindow.restore();
+        mainWindow.focus();
+      }
+    });
+  } catch (err) {
+    console.warn('[tray] Sistem tepsisi simgesi oluşturulamadı:', err?.message);
+  }
+}
+
 function createWindow() {
   const icoPath = resolveAppIcon(true);
   const pngPath = resolveAppIcon(false);
@@ -294,6 +412,14 @@ function createWindow() {
     } catch {}
   }
 
+  const behavior = getSetting('app_behavior_settings', {
+    launchOnStartup: false,
+    startMinimized: false,
+    hideTaskbarOnMinimize: true,
+    closeToQuit: false,
+    useGmailShortcuts: true,
+  });
+
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -302,6 +428,7 @@ function createWindow() {
     title: 'Postacı',
     icon: appIcon || icoPath || pngPath || undefined,
     autoHideMenuBar: true,
+    show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -311,9 +438,59 @@ function createWindow() {
 
   if (appIcon) {
     win.setIcon(appIcon);
+  } else if (icoPath) {
+    win.setIcon(icoPath);
   }
 
   mainWindow = win;
+
+  win.once('ready-to-show', () => {
+    if (behavior.startMinimized) {
+      win.hide();
+      if (behavior.hideTaskbarOnMinimize) {
+        win.setSkipTaskbar(true);
+      }
+    } else {
+      win.show();
+    }
+  });
+
+  // Çıkma tuşu ('X'): 'closeToQuit' kapalıysa uygulamadan çıkma, simge durumuna küçültüp gizle
+  win.on('close', (event) => {
+    if (isQuitting) return;
+
+    const currentBehavior = getSetting('app_behavior_settings', {
+      closeToQuit: false,
+      hideTaskbarOnMinimize: true,
+    });
+
+    if (!currentBehavior.closeToQuit) {
+      event.preventDefault();
+      win.hide();
+      if (currentBehavior.hideTaskbarOnMinimize) {
+        win.setSkipTaskbar(true);
+      }
+    }
+  });
+
+  // Simge durumuna küçültüldüğünde ('-'):
+  win.on('minimize', () => {
+    const currentBehavior = getSetting('app_behavior_settings', {
+      hideTaskbarOnMinimize: true,
+    });
+    if (currentBehavior.hideTaskbarOnMinimize) {
+      win.setSkipTaskbar(true);
+    }
+  });
+
+  win.on('restore', () => {
+    win.setSkipTaskbar(false);
+  });
+
+  win.on('show', () => {
+    win.setSkipTaskbar(false);
+  });
+
   win.on('closed', () => {
     mainWindow = null;
   });
@@ -327,7 +504,6 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  app.setAppUserModelId('com.postaci.app');
   initDb(app.getPath('userData'));
   ipcMain.handle('db:stats', () => getStats());
   ipcMain.handle('accounts:list', () => listAccounts());
@@ -1461,6 +1637,41 @@ app.whenReady().then(() => {
     });
     return true;
   });
+  ipcMain.handle('app:get-settings', () => {
+    return getSetting('app_behavior_settings', {
+      launchOnStartup: false,
+      startMinimized: false,
+      hideTaskbarOnMinimize: true,
+      closeToQuit: false,
+      useGmailShortcuts: true,
+    });
+  });
+  ipcMain.handle('app:save-settings', (_evt, newSettings) => {
+    const current = getSetting('app_behavior_settings', {
+      launchOnStartup: false,
+      startMinimized: false,
+      hideTaskbarOnMinimize: true,
+      closeToQuit: false,
+      useGmailShortcuts: true,
+    });
+    const updated = { ...current, ...newSettings };
+    setSetting('app_behavior_settings', updated);
+
+    if (typeof updated.launchOnStartup === 'boolean') {
+      try {
+        app.setLoginItemSettings({
+          openAtLogin: updated.launchOnStartup,
+          args: updated.startMinimized ? ['--minimized'] : [],
+        });
+      } catch (err) {
+        console.warn('[settings] setLoginItemSettings hatası:', err?.message);
+      }
+    }
+
+    return updated;
+  });
+
+  createTray();
   createWindow();
   updateBackgroundSyncSchedule();
   setTimeout(() => {
@@ -1468,8 +1679,15 @@ app.whenReady().then(() => {
   }, 90000);
 });
 
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  const behavior = getSetting('app_behavior_settings', {
+    closeToQuit: false,
+  });
+  if (isQuitting || behavior.closeToQuit || process.platform === 'darwin') {
     app.quit();
   }
 });

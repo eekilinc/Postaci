@@ -58,6 +58,33 @@ export function SettingsModal({
   const [closeToQuit, setCloseToQuit] = useState(() => localStorage.getItem('postaci_close_to_quit') === 'true');
   const [useGmailShortcuts, setUseGmailShortcuts] = useState(() => localStorage.getItem('postaci_gmail_shortcuts') !== 'false');
 
+  // Electron IPC üzerinden appSettings yükle
+  useEffect(() => {
+    if (window.postaci?.appSettings?.get) {
+      window.postaci.appSettings.get().then((s) => {
+        if (s) {
+          if (typeof s.launchOnStartup === 'boolean') setLaunchOnStartup(s.launchOnStartup);
+          if (typeof s.startMinimized === 'boolean') setStartMinimized(s.startMinimized);
+          if (typeof s.hideTaskbarOnMinimize === 'boolean') setHideTaskbarOnMinimize(s.hideTaskbarOnMinimize);
+          if (typeof s.closeToQuit === 'boolean') setCloseToQuit(s.closeToQuit);
+          if (typeof s.useGmailShortcuts === 'boolean') setUseGmailShortcuts(s.useGmailShortcuts);
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
+  const updateAppBehavior = (updates: Partial<{
+    launchOnStartup: boolean;
+    startMinimized: boolean;
+    hideTaskbarOnMinimize: boolean;
+    closeToQuit: boolean;
+    useGmailShortcuts: boolean;
+  }>) => {
+    if (window.postaci?.appSettings?.save) {
+      window.postaci.appSettings.save(updates).catch(() => {});
+    }
+  };
+
   // Bildirimler
   const [showUnreadBadge, setShowUnreadBadge] = useState(true);
   const [showTaskbarAlert, setShowTaskbarAlert] = useState(true);
@@ -280,7 +307,7 @@ export function SettingsModal({
           {/* Sol Alt Logo & Versiyon */}
           <div className="px-5 pt-3 border-t border-white/10 flex items-center gap-2">
             <PostaciLogo size="xs" variant="squircle" showBadge={false} />
-            <span className="text-[11px] font-semibold text-white/90">Postacı 0.1</span>
+            <span className="text-[11px] font-semibold text-white/90">Postacı v1.0.0</span>
           </div>
         </div>
 
@@ -305,14 +332,16 @@ export function SettingsModal({
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
                     Uygulama davranışı
                   </h3>
-                  <div className="space-y-2.5 text-xs sm:text-[13px]">
+                  <div className="space-y-3 text-xs sm:text-[13px]">
                     <label className="flex items-center gap-2.5 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={launchOnStartup}
                         onChange={(e) => {
-                          setLaunchOnStartup(e.target.checked);
-                          localStorage.setItem('postaci_startup', String(e.target.checked));
+                          const val = e.target.checked;
+                          setLaunchOnStartup(val);
+                          localStorage.setItem('postaci_startup', String(val));
+                          updateAppBehavior({ launchOnStartup: val });
                         }}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
@@ -325,13 +354,15 @@ export function SettingsModal({
                         checked={startMinimized}
                         disabled={!launchOnStartup}
                         onChange={(e) => {
-                          setStartMinimized(e.target.checked);
-                          localStorage.setItem('postaci_minimized', String(e.target.checked));
+                          const val = e.target.checked;
+                          setStartMinimized(val);
+                          localStorage.setItem('postaci_minimized', String(val));
+                          updateAppBehavior({ startMinimized: val });
                         }}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer disabled:opacity-40"
                       />
                       <span className={!launchOnStartup ? 'text-zinc-400' : ''}>
-                        Simge durumunda başlasın
+                        Başlangıçta simge durumunda açılsın
                       </span>
                     </label>
 
@@ -340,38 +371,49 @@ export function SettingsModal({
                         type="checkbox"
                         checked={hideTaskbarOnMinimize}
                         onChange={(e) => {
-                          setHideTaskbarOnMinimize(e.target.checked);
-                          localStorage.setItem('postaci_hide_taskbar', String(e.target.checked));
+                          const val = e.target.checked;
+                          setHideTaskbarOnMinimize(val);
+                          localStorage.setItem('postaci_hide_taskbar', String(val));
+                          updateAppBehavior({ hideTaskbarOnMinimize: val });
                         }}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Simge durumunda iken görev çubuğu simgesi gizlensin</span>
+                      <span>Simge durumunda iken görev çubuğu simgesi gizlensin (yalnızca sistem tepsisinde kalsın)</span>
                     </label>
 
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={closeToQuit}
-                        onChange={(e) => {
-                          setCloseToQuit(e.target.checked);
-                          localStorage.setItem('postaci_close_to_quit', String(e.target.checked));
-                        }}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>Çıkıldığında Postacı kapatılsın</span>
-                    </label>
+                    <div>
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={closeToQuit}
+                          onChange={(e) => {
+                            const val = e.target.checked;
+                            setCloseToQuit(val);
+                            localStorage.setItem('postaci_close_to_quit', String(val));
+                            updateAppBehavior({ closeToQuit: val });
+                          }}
+                          className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
+                        />
+                        <span>Çıkma tuşuna (✕) basıldığında uygulamadan tamamen çıkılsın</span>
+                      </label>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 pl-6.5 mt-0.5 leading-relaxed">
+                        İşaretli değilse (önerilen), çıkma tuşuna basıldığında Postacı arka planda ve sistem tepsisinde çalışmaya devam eder.
+                      </p>
+                    </div>
 
                     <label className="flex items-center gap-2.5 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={useGmailShortcuts}
                         onChange={(e) => {
-                          setUseGmailShortcuts(e.target.checked);
-                          localStorage.setItem('postaci_gmail_shortcuts', String(e.target.checked));
+                          const val = e.target.checked;
+                          setUseGmailShortcuts(val);
+                          localStorage.setItem('postaci_gmail_shortcuts', String(val));
+                          updateAppBehavior({ useGmailShortcuts: val });
                         }}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Gmail klavye kısayollarını kullan</span>
+                      <span>Gmail klavye kısayollarını kullan (C, R, A, E, # vb.)</span>
                     </label>
                   </div>
                 </div>

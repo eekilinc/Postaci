@@ -155,6 +155,28 @@ declare global {
         onOpenMessage: (callback: (data: { email: string; folderPath: string; uid: string }) => void) => () => void;
         onBackgroundSynced: (callback: (data: { email: string; folderPath: string; count: number }) => void) => () => void;
       };
+      appSettings: {
+        get: () => Promise<{
+          launchOnStartup: boolean;
+          startMinimized: boolean;
+          hideTaskbarOnMinimize: boolean;
+          closeToQuit: boolean;
+          useGmailShortcuts: boolean;
+        }>;
+        save: (settings: Partial<{
+          launchOnStartup: boolean;
+          startMinimized: boolean;
+          hideTaskbarOnMinimize: boolean;
+          closeToQuit: boolean;
+          useGmailShortcuts: boolean;
+        }>) => Promise<{
+          launchOnStartup: boolean;
+          startMinimized: boolean;
+          hideTaskbarOnMinimize: boolean;
+          closeToQuit: boolean;
+          useGmailShortcuts: boolean;
+        }>;
+      };
     };
   }
 }

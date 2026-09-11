@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('postaci', {
-  version: '1.0.0',
+  version: '1.0.1',
   platform: process.platform,
   db: {
     stats: () => ipcRenderer.invoke('db:stats'),
@@ -71,5 +71,9 @@ contextBridge.exposeInMainWorld('postaci', {
       ipcRenderer.on('notify:background-synced', listener);
       return () => ipcRenderer.removeListener('notify:background-synced', listener);
     },
+  },
+  appSettings: {
+    get: () => ipcRenderer.invoke('app:get-settings'),
+    save: (settings) => ipcRenderer.invoke('app:save-settings', settings),
   },
 });
