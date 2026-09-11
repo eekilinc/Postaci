@@ -23,6 +23,9 @@ interface SidebarProps {
   unifiedUnreadCount?: number;
   accountUnreadCounts?: Record<string, number>;
   onCloseMobile?: () => void;
+  folderWidth?: number;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export const Sidebar = memo(function Sidebar({
@@ -44,18 +47,27 @@ export const Sidebar = memo(function Sidebar({
   unifiedUnreadCount,
   accountUnreadCounts = {},
   onCloseMobile,
+  folderWidth,
+  isCollapsed: propIsCollapsed,
+  onToggleCollapse: propOnToggleCollapse,
 }: SidebarProps) {
   // Klasör panelinin açık/kapalı durumunu yerel depolamada sakla
-  const [isCollapsed, setIsCollapsed] = useState(() => {
+  const [internalCollapsed, setInternalCollapsed] = useState(() => {
     return localStorage.getItem('postaci_folder_collapsed') === 'true';
   });
 
+  const isCollapsed = propIsCollapsed !== undefined ? propIsCollapsed : internalCollapsed;
+
   const toggleCollapse = () => {
-    setIsCollapsed((prev) => {
-      const next = !prev;
-      localStorage.setItem('postaci_folder_collapsed', String(next));
-      return next;
-    });
+    if (propOnToggleCollapse) {
+      propOnToggleCollapse();
+    } else {
+      setInternalCollapsed((prev) => {
+        const next = !prev;
+        localStorage.setItem('postaci_folder_collapsed', String(next));
+        return next;
+      });
+    }
   };
 
   // Ctrl+B ile hızlı katlama kısayolu
@@ -103,6 +115,7 @@ export const Sidebar = memo(function Sidebar({
           stats={stats}
           accent={accent}
           onCloseMobile={onCloseMobile}
+          width={folderWidth}
         />
       )}
     </aside>

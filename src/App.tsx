@@ -160,6 +160,56 @@ export default function App() {
     });
   }, [folders, activeAccount, unreadCounts.byFolder]);
 
+  // ── Yeniden Boyutlandırılabilir Klasör Paneli Genişliği (Splitter) ──────────
+  const [folderWidth, setFolderWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('postaci_folder_width');
+    const parsed = saved ? parseInt(saved, 10) : 220;
+    return isNaN(parsed) || parsed < 160 || parsed > 450 ? 220 : parsed;
+  });
+  const [isResizingFolder, setIsResizingFolder] = useState(false);
+  const [folderCollapsed, setFolderCollapsed] = useState(() => {
+    return localStorage.getItem('postaci_folder_collapsed') === 'true';
+  });
+
+  const toggleFolderCollapse = useCallback(() => {
+    setFolderCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('postaci_folder_collapsed', String(next));
+      return next;
+    });
+  }, []);
+
+  const handleMouseDownFolderResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingFolder(true);
+    const startX = e.clientX;
+    const startWidth = folderWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const maxW = Math.min(window.innerWidth - 450, 450);
+      const newWidth = Math.max(160, Math.min(startWidth + deltaX, maxW));
+      setFolderWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      setIsResizingFolder(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [folderWidth]);
+
+  useEffect(() => {
+    localStorage.setItem('postaci_folder_width', String(folderWidth));
+  }, [folderWidth]);
+
   // ── Yeniden Boyutlandırılabilir E-posta Listesi Genişliği (Splitter) ────────
   const [listWidth, setListWidth] = useState<number>(() => {
     const saved = localStorage.getItem('postaci_message_list_width');
@@ -1020,8 +1070,31 @@ export default function App() {
           unifiedUnreadCount={unifiedUnreadCount}
           accountUnreadCounts={unreadCounts.byAccount}
           onCloseMobile={() => setMobileSidebarOpen(false)}
+          folderWidth={folderWidth}
+          isCollapsed={folderCollapsed}
+          onToggleCollapse={toggleFolderCollapse}
         />
       </div>
+
+      {/* Klasörler ve Mesaj Listesi Arasındaki Yeniden Boyutlandırma Bölücüsü (Splitter) */}
+      {!folderCollapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={handleMouseDownFolderResize}
+          onDoubleClick={() => setFolderWidth(220)}
+          className="hidden md:flex items-center justify-center w-2 -mx-1 z-20 cursor-col-resize group shrink-0 select-none hover:w-3.5 hover:-mx-1.75 transition-all"
+          title="Klasör panelini genişletmek veya daraltmak için sağa/sola sürükleyin (Sıfırlamak için çift tıklayın)"
+        >
+          <div
+            className={`w-[2px] h-full transition-all ${
+              isResizingFolder
+                ? 'bg-blue-600 dark:bg-blue-400 w-[3px] shadow-sm'
+                : 'bg-zinc-200/90 group-hover:bg-blue-500/80 dark:bg-zinc-800 group-hover:dark:bg-blue-400/80'
+            }`}
+          />
+        </div>
+      )}
 
       {/* Ana İçerik Alanı: Düzen Moduna Göre */}
       <div className="flex-1 flex overflow-hidden min-w-0 h-full">

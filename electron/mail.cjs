@@ -327,6 +327,25 @@ async function markUnseen({ provider, email, accessToken, password, imapHost, im
   });
 }
 
+function detectHasAttachment(structure) {
+  if (!structure) return false;
+  const queue = [structure];
+  while (queue.length > 0) {
+    const node = queue.shift();
+    if (!node) continue;
+    const disp = (node.disposition || '').toLowerCase();
+    const type = (node.type || '').toLowerCase();
+    const filename = node.dispositionParameters?.filename || node.parameters?.name || node.parameters?.filename;
+    if (disp === 'attachment') return true;
+    if (filename && disp !== 'inline') return true;
+    if (filename && !type.includes('text/plain') && !type.includes('text/html') && !type.includes('multipart/')) return true;
+    if (node.childNodes && Array.isArray(node.childNodes)) {
+      queue.push(...node.childNodes);
+    }
+  }
+  return false;
+}
+
 async function syncFolder({ provider, email, accessToken, password, imapHost, imapPort, folderPath = 'INBOX', db, limit = 50, beforeUid = null, skipUid = null }) {
   return withClient({ provider, email, accessToken, password, imapHost, imapPort }, async (client) => {
     if (folderPath === '[Gmail]' || folderPath.toUpperCase() === '[GMAIL]') {
@@ -374,11 +393,11 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     );
 
     const upsertMsg = db.prepare(
-      `INSERT INTO messages (account_id, folder_path, uid, subject, from_addr, to_addr, date, snippet, is_read)
-       VALUES ((SELECT id FROM accounts WHERE email=?), ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO messages (account_id, folder_path, uid, subject, from_addr, to_addr, date, snippet, is_read, has_att)
+       VALUES ((SELECT id FROM accounts WHERE email=?), ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(account_id, folder_path, uid) DO UPDATE SET
          subject=excluded.subject, from_addr=excluded.from_addr, to_addr=excluded.to_addr,
-         date=excluded.date, is_read=excluded.is_read`,
+         date=excluded.date, is_read=excluded.is_read, has_att=excluded.has_att`,
     );
 
     // UID ile çalış: önce UID listesi, son N tanesini (veya beforeUid öncesindekileri) çek
@@ -426,7 +445,7 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     let failed = 0;
     const newMessages = [];
     if (target.length > 0) {
-      for await (const msg of client.fetch(target.join(','), { envelope: true, flags: true }, { uid: true })) {
+      for await (const msg of client.fetch(target.join(','), { envelope: true, flags: true, bodyStructure: true }, { uid: true })) {
         try {
           // Yakın zamanda silinen mesajları yeniden ekleme
           if (skipUid && skipUid(msg.uid)) continue;
@@ -434,6 +453,7 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
           const env = msg.envelope || {};
           const isSeen = !!(msg.flags && msg.flags.has('\\Seen'));
           const isNew = !checkExists.get(email, folderPath, String(msg.uid));
+          const hasAtt = detectHasAttachment(msg.bodyStructure) ? 1 : 0;
 
           upsertMsg.run(
             email,
@@ -445,6 +465,7 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
             env.date ? new Date(env.date).toISOString() : null,
             '',
             isSeen ? 1 : 0,
+            hasAtt,
           );
           synced++;
 

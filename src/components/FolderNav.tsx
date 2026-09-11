@@ -23,6 +23,7 @@ interface FolderNavProps {
   accent: AccentKey;
   onCloseMobile?: () => void;
   className?: string;
+  width?: number;
 }
 
 export const FolderNav = memo(function FolderNav({
@@ -37,6 +38,7 @@ export const FolderNav = memo(function FolderNav({
   accent,
   onCloseMobile,
   className = '',
+  width,
 }: FolderNavProps) {
   const A = ACCENTS[accent];
   const [folderQuery, setFolderQuery] = useState('');
@@ -58,7 +60,12 @@ export const FolderNav = memo(function FolderNav({
   }, [customFolders, folderQuery]);
 
   return (
-    <div className={`w-52 h-full shrink-0 flex flex-col justify-between bg-zinc-50 text-zinc-800 border-r border-zinc-200/90 dark:bg-zinc-925 dark:text-zinc-200 dark:border-zinc-800/80 p-3 select-none transition-colors duration-150 ${className}`}>
+    <div
+      style={{ width: width ? `${width}px` : undefined }}
+      className={`h-full shrink-0 flex flex-col justify-between bg-zinc-50 text-zinc-800 border-r border-zinc-200/90 dark:bg-zinc-925 dark:text-zinc-200 dark:border-zinc-800/80 p-3 select-none transition-colors duration-150 ${
+        width ? '' : 'w-52'
+      } ${className}`}
+    >
       <div className="overflow-y-auto pr-0.5 space-y-3">
         {/* Üst Kısım: Başlık / Hesap Etiketi ve Mobil Kapat Butonu */}
         <div className="flex items-center justify-between px-1 pt-0.5 min-w-0">

@@ -42,6 +42,8 @@ function initDb(userDataPath) {
       body_html TEXT,
       body_text TEXT,
       is_read INTEGER NOT NULL DEFAULT 0,
+      starred INTEGER NOT NULL DEFAULT 0,
+      has_att INTEGER NOT NULL DEFAULT 0,
       UNIQUE(account_id, folder_path, uid)
     );
     CREATE TABLE IF NOT EXISTS attachments (
@@ -101,6 +103,7 @@ function initDb(userDataPath) {
   addMsgCol('message_id', 'TEXT');
   addMsgCol('refs', 'TEXT');
   addMsgCol('starred', 'INTEGER NOT NULL DEFAULT 0');
+  addMsgCol('has_att', 'INTEGER NOT NULL DEFAULT 0');
   // folders tablosu migration'ları
   const folderCols = db.prepare('PRAGMA table_info(folders)').all().map((c) => c.name);
   if (!folderCols.includes('flags')) {
@@ -112,7 +115,22 @@ function initDb(userDataPath) {
     CREATE INDEX IF NOT EXISTS idx_messages_folder ON messages(account_id, folder_path, date DESC);
     CREATE INDEX IF NOT EXISTS idx_messages_search ON messages(subject, from_addr, snippet);
     CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(account_id, folder_path, is_read);
+    CREATE INDEX IF NOT EXISTS idx_messages_att ON messages(account_id, folder_path, has_att);
   `);
+
+  // Geçmişten gelen kayıtlı ekler varsa has_att=1 olarak senkronize et
+  try {
+    db.exec(`
+      UPDATE messages SET has_att = 1 
+      WHERE (has_att IS NULL OR has_att = 0) AND EXISTS (
+        SELECT 1 FROM attachments att 
+        WHERE att.account_id = messages.account_id 
+          AND att.folder_path = messages.folder_path 
+          AND att.msg_uid = messages.uid
+      );
+    `);
+  } catch {}
+
   return db;
 }
 
@@ -181,7 +199,7 @@ function listMessages(email, folderPath, limit = 50, offset = 0) {
       .prepare(
         `SELECT m.uid, m.subject, m.from_addr, m.to_addr, m.date, m.snippet, m.is_read, m.starred, m.folder_path,
                 a.email AS account_email, a.provider AS account_provider,
-                EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid) AS has_att
+                (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
          FROM messages m JOIN accounts a ON a.id = m.account_id
          WHERE a.email=? AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')
          ORDER BY m.date DESC LIMIT ? OFFSET ?`,
@@ -192,7 +210,7 @@ function listMessages(email, folderPath, limit = 50, offset = 0) {
     .prepare(
       `SELECT m.uid, m.subject, m.from_addr, m.to_addr, m.date, m.snippet, m.is_read, m.starred, m.folder_path,
               a.email AS account_email, a.provider AS account_provider,
-              EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid) AS has_att
+              (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
        FROM messages m JOIN accounts a ON a.id = m.account_id
        WHERE a.email=? AND m.folder_path=? ORDER BY m.date DESC LIMIT ? OFFSET ?`,
     )
@@ -234,7 +252,7 @@ function listUnifiedMessages(limit = 50, offset = 0) {
     .prepare(
       `SELECT m.uid, m.subject, m.from_addr, m.to_addr, m.date, m.snippet, m.is_read, m.starred, m.folder_path,
               a.email AS account_email, a.provider AS account_provider,
-              EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid) AS has_att
+              (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
        FROM messages m JOIN accounts a ON a.id = m.account_id
        WHERE upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%'
        ORDER BY m.date DESC LIMIT ? OFFSET ?`,
@@ -263,7 +281,7 @@ function searchUnifiedMessages(query, limit = 100) {
     .prepare(
       `SELECT m.uid, m.subject, m.from_addr, m.to_addr, m.date, m.snippet, m.is_read, m.starred, m.folder_path,
               a.email AS account_email, a.provider AS account_provider,
-              EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid) AS has_att
+              (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
        FROM messages m JOIN accounts a ON a.id = m.account_id
        WHERE (upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%')
          AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
@@ -279,7 +297,7 @@ function searchMessages(email, folderPath, query, limit = 100) {
     return db.prepare(
       `SELECT m.uid, m.subject, m.from_addr, m.to_addr, m.date, m.snippet, m.is_read, m.folder_path, m.starred,
               a.email AS account_email, a.provider AS account_provider,
-              EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid) AS has_att
+              (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
        FROM messages m JOIN accounts a ON a.id = m.account_id
        WHERE a.email=? AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
        ORDER BY m.date DESC LIMIT ?`,
@@ -289,7 +307,7 @@ function searchMessages(email, folderPath, query, limit = 100) {
     return db.prepare(
       `SELECT m.uid, m.subject, m.from_addr, m.to_addr, m.date, m.snippet, m.is_read, m.folder_path, m.starred,
               a.email AS account_email, a.provider AS account_provider,
-              EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid) AS has_att
+              (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
        FROM messages m JOIN accounts a ON a.id = m.account_id
        WHERE a.email=? AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')
          AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
@@ -299,7 +317,7 @@ function searchMessages(email, folderPath, query, limit = 100) {
   return db.prepare(
     `SELECT m.uid, m.subject, m.from_addr, m.to_addr, m.date, m.snippet, m.is_read, m.folder_path, m.starred,
             a.email AS account_email, a.provider AS account_provider,
-            EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid) AS has_att
+            (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
      FROM messages m JOIN accounts a ON a.id = m.account_id
      WHERE a.email=? AND m.folder_path=? AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
      ORDER BY m.date DESC LIMIT ?`,
@@ -392,6 +410,11 @@ function saveAttachments(email, folderPath, uid, list) {
   const txn = d.transaction((items) => {
     del.run(email, folderPath, String(uid));
     items.forEach((a, i) => ins.run(email, folderPath, String(uid), i, a.filename, a.contentType || null, a.size || 0));
+    if (items && items.length > 0) {
+      try {
+        d.prepare(`UPDATE messages SET has_att=1 WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`).run(email, folderPath, String(uid));
+      } catch {}
+    }
   });
   txn(list || []);
 }
