@@ -179,11 +179,41 @@ export function SettingsModal({
     }
   };
 
-  const handleCheckUpdate = () => {
+  const currentVersion = window.postaci?.version || '1.0.3';
+  const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
+    version?: string;
+    hasUpdate?: boolean;
+    url?: string;
+  } | null>(null);
+
+  const openUrl = (url: string) => {
+    if (window.postaci?.openExternal) {
+      window.postaci.openExternal(url).catch(() => window.open(url, '_blank'));
+    } else {
+      window.open(url, '_blank');
+    }
+  };
+
+  const handleCheckUpdate = async () => {
     setUpdateCheckStatus('checking');
-    setTimeout(() => {
-      setUpdateCheckStatus('latest');
-    }, 900);
+    try {
+      const res = await fetch('https://api.github.com/repos/eekilinc/Postaci/releases/latest');
+      if (res.ok) {
+        const data = await res.json();
+        const tag = (data.tag_name || '').replace(/^v/, '');
+        const hasUpdate = Boolean(tag && tag !== currentVersion);
+        setLatestReleaseInfo({
+          version: tag,
+          hasUpdate,
+          url: data.html_url || 'https://github.com/eekilinc/Postaci/releases/latest',
+        });
+        setUpdateCheckStatus(hasUpdate ? 'available' : 'latest');
+      } else {
+        setTimeout(() => setUpdateCheckStatus('latest'), 600);
+      }
+    } catch {
+      setTimeout(() => setUpdateCheckStatus('latest'), 600);
+    }
   };
 
   // Hesap Düzenleme Başlatıcı
@@ -307,7 +337,7 @@ export function SettingsModal({
           {/* Sol Alt Logo & Versiyon */}
           <div className="px-5 pt-3 border-t border-white/10 flex items-center gap-2">
             <PostaciLogo size="xs" variant="squircle" showBadge={false} />
-            <span className="text-[11px] font-semibold text-white/90">Postacı v1.0.0</span>
+            <span className="text-[11px] font-semibold text-white/90">Postacı v{currentVersion}</span>
           </div>
         </div>
 
@@ -1151,23 +1181,111 @@ export function SettingsModal({
 
             {/* ==================== 7. POSTACI HAKKINDA TAB ==================== */}
             {activeTab === 'about' && (
-              <div className="space-y-4 max-w-xl text-center sm:text-left">
-                <div className="flex items-center gap-3 justify-center sm:justify-start">
+              <div className="space-y-4 max-w-xl text-left overflow-y-auto pr-1 no-scrollbar max-h-[460px]">
+                {/* Başlık ve Logo Kartı */}
+                <div className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-gradient-to-r from-blue-50/80 to-indigo-50/40 border border-blue-100/80 dark:from-blue-950/20 dark:to-indigo-950/20 dark:border-blue-900/30">
                   <PostaciLogo size="lg" variant="squircle" showBadge={false} />
-                  <div>
-                    <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                      Postacı
-                    </h3>
-                    <p className="text-xs text-zinc-500">Sürüm 0.1.0 • Windows x64</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+                        Postacı
+                      </h3>
+                      <span className="inline-flex items-center rounded-full bg-blue-600/10 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                        v{currentVersion}
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                      Windows x64 • Yerel SQLite • Modern & Güvenli E-posta İstemcisi
+                    </p>
                   </div>
                 </div>
 
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                  Postacı, modern masaüstü ergonomisi ve yüksek hıza odaklanan, güvenli, ultra-hafif ve
-                  tamamen yerel SQLite veritabanı ile çalışan yeni nesil masaüstü e-posta istemcisidir.
-                </p>
+                {/* GitHub Proje Kartı */}
+                <div className="rounded-2xl border border-zinc-200/90 bg-white p-4 shadow-2xs dark:border-zinc-800 dark:bg-zinc-850/60">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-xs">
+                        <svg className="h-5 w-5 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+                          <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                          <span>eekilinc / Postaci</span>
+                          <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">Açık Kaynak</span>
+                        </h4>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          Resmi GitHub deposu, kaynak kodlar ve katkı yönergeleri.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-                <div className="pt-2">
+                  {/* GitHub Hızlı Butonlar */}
+                  <div className="mt-3.5 flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                    <button
+                      type="button"
+                      onClick={() => openUrl('https://github.com/eekilinc/Postaci')}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-zinc-800 transition dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 active:scale-95"
+                    >
+                      <span>GitHub'da Görüntüle</span>
+                      <span className="text-xs">↗</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openUrl('https://github.com/eekilinc/Postaci/releases')}
+                      className="inline-flex items-center gap-1 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition active:scale-95"
+                    >
+                      <span>Sürümler (Releases)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openUrl('https://github.com/eekilinc/Postaci/issues')}
+                      className="inline-flex items-center gap-1 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition active:scale-95"
+                    >
+                      <span>Hata / İstek Bildir</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Mimari ve Güvenlik Avantajları */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-850/40">
+                    <p className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                      <span>⚡</span> <span>Çevrimdışı & Yerel SQLite</span>
+                    </p>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                      İnternet bağlantınız kopsa bile gelen kutunuzda sıfır gecikmeyle anında arama yapabilirsiniz.
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-850/40">
+                    <p className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                      <span>🔒</span> <span>Donanım Şifreleme</span>
+                    </p>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                      Hesap şifreleriniz ve OAuth tokenlarınız Windows DPAPI ile yerel olarak şifrelenir.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Geliştirici & Lisans */}
+                <div className="rounded-xl bg-zinc-50/60 dark:bg-zinc-850/30 p-3 text-xs border border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between">
+                  <div>
+                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">Geliştirici: </span>
+                    <span className="text-zinc-600 dark:text-zinc-400">Ekrem Eşref Kılınç</span>
+                    <span className="mx-1 text-zinc-400">•</span>
+                    <span className="text-zinc-500">MIT Lisansı</span>
+                  </div>
+                  <a
+                    href="mailto:ekilinc@mehmetakif.edu.tr"
+                    className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                  >
+                    İletişim
+                  </a>
+                </div>
+
+                {/* Güncelleme Denetleyici */}
+                <div className="pt-1 flex items-center gap-3">
                   <button
                     type="button"
                     onClick={handleCheckUpdate}
@@ -1175,11 +1293,22 @@ export function SettingsModal({
                     className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition active:scale-95 disabled:opacity-50"
                   >
                     {updateCheckStatus === 'checking'
-                      ? 'Denetleniyor...'
+                      ? 'GitHub Denetleniyor...'
+                      : updateCheckStatus === 'available'
+                      ? '🚀 Yeni Sürüm Var (İndir)'
                       : updateCheckStatus === 'latest'
-                      ? '✓ En güncel sürümü kullanıyorsunuz'
+                      ? `✓ En güncel sürümü kullanıyorsunuz (v${currentVersion})`
                       : 'Güncellemeleri Denetle'}
                   </button>
+                  {updateCheckStatus === 'available' && latestReleaseInfo?.url && (
+                    <button
+                      type="button"
+                      onClick={() => openUrl(latestReleaseInfo.url!)}
+                      className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline"
+                    >
+                      v{latestReleaseInfo.version} İndir ↗
+                    </button>
+                  )}
                 </div>
               </div>
             )}

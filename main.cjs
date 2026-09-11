@@ -126,7 +126,8 @@ function imapLock(email, fn) {
 function resolveAppIcon(preferIco = true) {
   const filenames = preferIco ? ['icon.ico', 'icon.png'] : ['icon.png', 'icon.ico'];
   const dirs = [
-    // 1. Önce asar dışına çıkarılmış fiziksel disk yolları (Windows Shell, Görev Çubuğu ve Tray için zorunlu)
+    // 1. Packaged extraResources (Fiziksel disk yolu - Win32 Shell ve görev çubuğu için asar dışı doğrudan erişim)
+    process.resourcesPath || null,
     process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'build') : null,
     process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'public') : null,
     process.resourcesPath ? path.join(process.resourcesPath, 'build') : null,
@@ -141,7 +142,9 @@ function resolveAppIcon(preferIco = true) {
   for (const f of filenames) {
     for (const d of dirs) {
       const full = path.join(d, f);
-      if (fs.existsSync(full)) return full;
+      try {
+        if (fs.existsSync(full)) return full;
+      } catch {}
     }
   }
   return null;
@@ -398,17 +401,13 @@ function createTray() {
 function createWindow() {
   const icoPath = resolveAppIcon(true);
   const pngPath = resolveAppIcon(false);
-  let appIcon = undefined;
-  if (icoPath) {
+  const iconPath = icoPath || pngPath;
+
+  let nativeImg = undefined;
+  if (iconPath) {
     try {
-      const img = nativeImage.createFromPath(icoPath);
-      if (!img.isEmpty()) appIcon = img;
-    } catch {}
-  }
-  if (!appIcon && pngPath) {
-    try {
-      const img = nativeImage.createFromPath(pngPath);
-      if (!img.isEmpty()) appIcon = img;
+      const img = nativeImage.createFromPath(iconPath);
+      if (!img.isEmpty()) nativeImg = img;
     } catch {}
   }
 
@@ -426,7 +425,8 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Postacı',
-    icon: appIcon || icoPath || pngPath || undefined,
+    // Windows'ta Win32 Shell doğrudan .ico dosya yolunu almalıdır
+    icon: (process.platform === 'win32' && icoPath) ? icoPath : (nativeImg || iconPath || undefined),
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -436,11 +436,22 @@ function createWindow() {
     },
   });
 
-  if (appIcon) {
-    win.setIcon(appIcon);
-  } else if (icoPath) {
-    win.setIcon(icoPath);
+  if (process.platform === 'win32' && icoPath) {
+    try {
+      win.setIcon(icoPath);
+    } catch {}
+  } else if (nativeImg) {
+    try {
+      win.setIcon(nativeImg);
+    } catch {}
   }
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://') || url.startsWith('http://') || url.startsWith('mailto:')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
 
   mainWindow = win;
 
@@ -1670,6 +1681,18 @@ app.whenReady().then(() => {
 
     return updated;
   });
+
+  ipcMain.handle('shell:open-external', (_evt, url) => {
+    if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://') || url.startsWith('mailto:'))) {
+      shell.openExternal(url);
+      return true;
+    }
+    return false;
+  });
+
+  try {
+    app.setAppUserModelId('com.postaci.app');
+  } catch {}
 
   createTray();
   createWindow();

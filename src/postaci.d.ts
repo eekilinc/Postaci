@@ -177,6 +177,7 @@ declare global {
           useGmailShortcuts: boolean;
         }>;
       };
+      openExternal?: (url: string) => Promise<boolean>;
     };
   }
 }
