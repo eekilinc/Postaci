@@ -718,7 +718,7 @@ app.whenReady().then(() => {
     try {
       event.returnValue = app.getVersion();
     } catch {
-      event.returnValue = '1.0.15';
+      event.returnValue = '1.0.16';
     }
   });
   ipcMain.handle('accounts:add', (_evt, acc) => addAccount(acc));

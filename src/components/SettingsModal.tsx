@@ -371,7 +371,7 @@ export function SettingsModal({
     }
   };
 
-  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.15';
+  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.16';
   const [logoLoadError, setLogoLoadError] = useState(false);
   const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
     version?: string;
