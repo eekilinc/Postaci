@@ -194,6 +194,14 @@ function ensureWindowsShortcut() {
     for (const lnkName of lnkNames) {
       try {
         const lnkPath = path.join(startMenuDir, lnkName);
+        if (fs.existsSync(lnkPath)) {
+          try {
+            const existing = shell.readShortcutLink(lnkPath);
+            if (existing.target !== target || !fs.existsSync(existing.target)) {
+              fs.unlinkSync(lnkPath);
+            }
+          } catch {}
+        }
         shell.writeShortcutLink(lnkPath, fs.existsSync(lnkPath) ? 'replace' : 'create', {
           target,
           args,
@@ -255,56 +263,90 @@ function isInQuietHours() {
   }
 }
 
-function showDesktopNotification({ title, body, email, folderPath, uid, silent = false }) {
+function showDesktopNotification({ title, body, email, folderPath, uid, silent: _silent = false }) {
   try {
     if (isInQuietHours()) {
       console.log('[notification] Sessiz saatler devrede — bildirim susturuldu.');
       return;
     }
-    if (!Notification.isSupported()) return;
-    const notifIcon = resolveAppIcon(false) || resolveAppIcon(true);
-    const notif = new Notification({
-      title: title || 'Postacı',
-      body: body || 'Yeni e-posta alındı.',
-      icon: notifIcon || undefined,
-      silent: !!silent,
-      urgency: 'normal',
-    });
 
-    // V8 Garbage Collector'ın bildirim nesnesini bellekten erken silmesini ve
-    // Windows Toast tıklama olaylarının düşmesini engellemek için referansı sakla
-    _activeNotifications.add(notif);
-    const cleanup = () => {
-      _activeNotifications.delete(notif);
-    };
-    notif.on('close', cleanup);
-    notif.on('failed', (e) => {
-      console.warn('[notification] Windows Toast gösterilemedi (Focus Assist veya sistem izni devrede olabilir):', e);
-      cleanup();
-    });
+    // 1. Windows platformunda doğrudan garantili WinRT Toast API (PowerShell / WinRT köprüsü)
+    // Bu yöntem Windows 10/11'de hem odak durumunda hem arka planda ekranda afiş (Toast Banner) çıkarır ve Win+N İşlem Merkezi'ne yazar
+    if (process.platform === 'win32') {
+      try {
+        const cleanTitle = String(title || 'Postacı')
+          .replace(/[\r\n\t]/g, ' ')
+          .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]);
+        const cleanBody = String(body || 'Yeni e-posta alındı.')
+          .replace(/[\r\n\t]/g, ' ')
+          .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]);
+        const notifIcon = resolveAppIcon(false) || resolveAppIcon(true);
+        const iconXml = notifIcon && fs.existsSync(notifIcon) && notifIcon.toLowerCase().endsWith('.png')
+          ? `<image placement="appLogoOverride" hint-crop="circle" src="${notifIcon.replace(/\\/g, '/')}" />`
+          : '';
 
-    notif.on('click', () => {
-      cleanup();
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        createWindow();
-      } else {
-        mainWindow.setSkipTaskbar(false);
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.setAlwaysOnTop(true);
-        mainWindow.focus();
-        mainWindow.setAlwaysOnTop(false);
-        if (email && mainWindow.webContents) {
-          mainWindow.webContents.send('notify:open-message', {
-            email,
-            folderPath: folderPath || 'INBOX',
-            uid: String(uid || ''),
-          });
-        }
+        const psScript = `
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml('<toast scenario="reminder"><visual><binding template="ToastGeneric"><text>${cleanTitle}</text><text>${cleanBody}</text>${iconXml}</binding></visual></toast>')
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+$toast.Priority = [Windows.UI.Notifications.ToastNotificationPriority]::High
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('com.postaci.app').Show($toast)
+`;
+        const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+        const { exec } = require('child_process');
+        exec(`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`, (err) => {
+          if (err) console.warn('[win-toast] WinRT Toast uyarısı:', err?.message);
+        });
+      } catch (e) {
+        console.warn('[win-toast] PowerShell WinRT hatası:', e);
       }
-    });
+    }
 
-    notif.show();
+    // 2. Electron Notification Fallback (İşletim sistemi tıklama dinleyicisi için)
+    if (Notification.isSupported()) {
+      const notifIcon = resolveAppIcon(false);
+      const notif = new Notification({
+        title: title || 'Postacı',
+        body: body || 'Yeni e-posta alındı.',
+        icon: (notifIcon && notifIcon.toLowerCase().endsWith('.png')) ? notifIcon : undefined,
+        silent: true,
+        urgency: 'critical',
+      });
+
+      _activeNotifications.add(notif);
+      const cleanup = () => {
+        _activeNotifications.delete(notif);
+      };
+      notif.on('close', cleanup);
+      notif.on('failed', cleanup);
+
+      notif.on('click', () => {
+        cleanup();
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          createWindow();
+        } else {
+          mainWindow.setSkipTaskbar(false);
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.setAlwaysOnTop(true);
+          mainWindow.focus();
+          mainWindow.setAlwaysOnTop(false);
+          if (email && mainWindow.webContents) {
+            mainWindow.webContents.send('notify:open-message', {
+              email,
+              folderPath: folderPath || 'INBOX',
+              uid: String(uid || ''),
+            });
+          }
+        }
+      });
+
+      try {
+        notif.show();
+      } catch {}
+    }
   } catch (err) {
     console.error('[notification] Hata:', err);
   }
