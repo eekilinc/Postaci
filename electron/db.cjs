@@ -111,6 +111,7 @@ function initDb(userDataPath) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_folder ON messages(account_id, folder_path, date DESC);
     CREATE INDEX IF NOT EXISTS idx_messages_search ON messages(subject, from_addr, snippet);
+    CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(account_id, folder_path, is_read);
   `);
   return db;
 }
@@ -572,4 +573,56 @@ function saveDraftMessage(email, { to, subject, text, html }) {
   return { uid, folderPath };
 }
 
-module.exports = { initDb, getDb, getStats, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting };
+function getAllUnreadCounts() {
+  const db = getDb();
+  try {
+    // 1. Hesap bazında gelen kutusu okunmamış sayıları (AccountRail için)
+    const accountRows = db.prepare(`
+      SELECT a.email,
+             SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END) as unread
+      FROM messages m
+      JOIN accounts a ON a.id = m.account_id
+      WHERE upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%'
+      GROUP BY a.email
+    `).all();
+
+    // 2. Her hesabın her klasöründeki okunmamış sayısı (FolderNav için)
+    const folderRows = db.prepare(`
+      SELECT a.email, m.folder_path,
+             SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END) as unread
+      FROM messages m
+      JOIN accounts a ON a.id = m.account_id
+      GROUP BY a.email, m.folder_path
+    `).all();
+
+    // 3. Birleşik gelen kutusu okunmamış sayısı
+    const unifiedRow = db.prepare(`
+      SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END) as unread
+      FROM messages m
+      WHERE upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%'
+    `).get();
+
+    const byAccount = {};
+    for (const r of accountRows) {
+      if (r.email) byAccount[r.email] = r.unread || 0;
+    }
+
+    const byFolder = {};
+    for (const r of folderRows) {
+      if (r.email && r.folder_path) {
+        byFolder[`${r.email}:${r.folder_path}`] = r.unread || 0;
+      }
+    }
+
+    return {
+      byAccount,
+      byFolder,
+      unified: unifiedRow?.unread || 0,
+    };
+  } catch (err) {
+    console.warn('[db:unreadCounts] Hata:', err?.message);
+    return { byAccount: {}, byFolder: {}, unified: 0 };
+  }
+}
+
+module.exports = { initDb, getDb, getStats, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts };

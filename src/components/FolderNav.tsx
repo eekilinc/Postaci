@@ -117,8 +117,14 @@ export const FolderNav = memo(function FolderNav({
                   <span className="truncate">{f.displayName}</span>
                 </div>
                 {f.unread_count && f.unread_count > 0 ? (
-                  <span className="rounded-full bg-blue-600 px-2 py-0.2 text-[10px] font-bold text-white shadow-2xs shrink-0">
-                    {f.unread_count}
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold shrink-0 transition-colors shadow-2xs ${
+                      isSelected
+                        ? 'bg-blue-600 text-white dark:bg-blue-500 dark:text-white'
+                        : 'bg-zinc-200/90 text-zinc-800 border border-zinc-300/80 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700/60'
+                    }`}
+                  >
+                    {f.unread_count > 999 ? '999+' : f.unread_count}
                   </span>
                 ) : null}
               </button>
@@ -200,8 +206,14 @@ export const FolderNav = memo(function FolderNav({
                       <span className="truncate">{f.displayName}</span>
                     </div>
                     {f.unread_count && f.unread_count > 0 ? (
-                      <span className="rounded-full bg-blue-600 px-1.5 py-0.2 text-[9px] font-bold text-white shadow-2xs shrink-0">
-                        {f.unread_count}
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold shrink-0 transition-colors shadow-2xs ${
+                          isSelected
+                            ? 'bg-blue-600 text-white dark:bg-blue-500 dark:text-white'
+                            : 'bg-zinc-200/90 text-zinc-800 border border-zinc-300/80 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700/60'
+                        }`}
+                      >
+                        {f.unread_count > 999 ? '999+' : f.unread_count}
                       </span>
                     ) : null}
                   </button>

@@ -16,6 +16,7 @@ interface AccountRailProps {
   isUnified?: boolean;
   onSelectUnified?: () => void;
   unifiedUnreadCount?: number;
+  accountUnreadCounts?: Record<string, number>;
   onShowAdd: () => void;
   onShowSettings: () => void;
   onOpenCommandPalette?: () => void;
@@ -32,6 +33,7 @@ export const AccountRail = memo(function AccountRail({
   isUnified,
   onSelectUnified,
   unifiedUnreadCount = 0,
+  accountUnreadCounts = {},
   onShowAdd,
   onShowSettings,
   onOpenCommandPalette,
@@ -115,6 +117,8 @@ export const AccountRail = memo(function AccountRail({
                 : 'bg-zinc-200/90 text-zinc-700 font-bold border border-zinc-300/80 hover:bg-zinc-300 dark:border-transparent dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 shadow-2xs';
             }
 
+            const accUnread = accountUnreadCounts[acc.email] || 0;
+
             return (
               <div key={acc.id} className="relative group flex items-center justify-center">
                 {isSelected && (
@@ -128,6 +132,11 @@ export const AccountRail = memo(function AccountRail({
                 >
                   <span>{badgeLetter}</span>
                 </button>
+                {accUnread > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white shadow-xs pointer-events-none">
+                    {accUnread > 99 ? '99+' : accUnread}
+                  </span>
+                )}
               </div>
             );
           })}

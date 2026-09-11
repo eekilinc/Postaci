@@ -1,5 +1,5 @@
 /// src/App.tsx — Postacı ana orkestrasyon bileşeni
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // Tipler & sabitler
 import type { ComposeFile, Msg } from './types';
@@ -130,6 +130,75 @@ export default function App() {
     }
   };
 
+  // ── Okunmamış İleti Sayaçları (Tüm Hesaplar ve Klasörler) ──────────────────
+  const [unreadCounts, setUnreadCounts] = useState<{
+    byAccount: Record<string, number>;
+    byFolder: Record<string, number>;
+    unified: number;
+  }>({ byAccount: {}, byFolder: {}, unified: 0 });
+
+  const refreshUnreadCounts = useCallback(async () => {
+    if (!window.postaci?.mail?.unreadCounts) return;
+    try {
+      const data = await window.postaci.mail.unreadCounts();
+      if (data) {
+        setUnreadCounts(data);
+        if (typeof data.unified === 'number') {
+          setUnifiedUnreadCount(data.unified);
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Aktif hesaba göre klasör listesini en güncel okunmamış sayılarıyla eşle
+  const displayFolders = useMemo(() => {
+    if (!activeAccount) return folders;
+    return folders.map((f) => {
+      const key = `${activeAccount}:${f.path}`;
+      const unread = unreadCounts.byFolder[key];
+      return typeof unread === 'number' ? { ...f, unread_count: unread } : f;
+    });
+  }, [folders, activeAccount, unreadCounts.byFolder]);
+
+  // ── Yeniden Boyutlandırılabilir E-posta Listesi Genişliği (Splitter) ────────
+  const [listWidth, setListWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('postaci_message_list_width');
+    const parsed = saved ? parseInt(saved, 10) : 380;
+    return isNaN(parsed) || parsed < 260 || parsed > 750 ? 380 : parsed;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handleMouseDownResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startWidth = listWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const maxW = Math.min(window.innerWidth - 360, 750);
+      const newWidth = Math.max(260, Math.min(startWidth + deltaX, maxW));
+      setListWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      setIsResizing(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [listWidth]);
+
+  useEffect(() => {
+    localStorage.setItem('postaci_message_list_width', String(listWidth));
+  }, [listWidth]);
+
   // Compose state
   const [showCompose, setShowCompose] = useState(false);
   const [composeTitle, setComposeTitle] = useState('Yeni E-posta');
@@ -202,8 +271,14 @@ export default function App() {
   useEffect(() => {
     refresh();
     updateUnifiedCount();
+    refreshUnreadCounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Mesajlar veya aktif hesap değiştikçe okunmamış sayılarını yerel DB'den anında güncelle
+  useEffect(() => {
+    refreshUnreadCounts();
+  }, [messages, activeAccount, refreshUnreadCounts]);
 
   // Aktif hesap değişince klasörleri yükle
   useEffect(() => {
@@ -365,6 +440,7 @@ export default function App() {
           loadMessages(email, currentFolder);
         }
       }
+      refreshUnreadCounts();
       if (count > 0) {
         setNotice(`${count} yeni e-posta alındı.`);
         setTimeout(() => setNotice(null), 4000);
@@ -929,7 +1005,7 @@ export default function App() {
           accounts={accounts}
           activeAccount={activeAccount}
           setActiveAccount={handleSelectAccount}
-          folders={folders}
+          folders={displayFolders}
           activeFolder={activeFolder}
           setActiveFolder={handleSelectFolder}
           stats={stats}
@@ -942,6 +1018,7 @@ export default function App() {
           isUnified={isUnified}
           onSelectUnified={handleSelectUnified}
           unifiedUnreadCount={unifiedUnreadCount}
+          accountUnreadCounts={unreadCounts.byAccount}
           onCloseMobile={() => setMobileSidebarOpen(false)}
         />
       </div>
@@ -950,9 +1027,37 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden min-w-0 h-full">
         {layoutMode === 'three-column' && (
           <>
-            <div className={`flex-1 md:flex-none flex flex-col h-full min-w-0 ${selected ? 'hidden md:flex' : 'flex'}`}>
-              {renderMessageList('w-full md:w-80 lg:w-96 h-full shrink-0 border-r border-zinc-200/80 dark:border-zinc-800/80')}
+            <div
+              style={{
+                width: typeof window !== 'undefined' && window.innerWidth >= 768 ? `${listWidth}px` : undefined,
+                minWidth: typeof window !== 'undefined' && window.innerWidth >= 768 ? '260px' : undefined,
+                maxWidth: typeof window !== 'undefined' && window.innerWidth >= 768 ? '750px' : undefined,
+              }}
+              className={`flex flex-col h-full shrink-0 min-w-0 ${
+                selected ? 'hidden md:flex' : 'flex-1 md:flex-none w-full'
+              }`}
+            >
+              {renderMessageList('w-full h-full border-r border-zinc-200/80 dark:border-zinc-800/80')}
             </div>
+
+            {/* Yeniden Boyutlandırma Bölücüsü (Splitter) */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              onMouseDown={handleMouseDownResize}
+              onDoubleClick={() => setListWidth(380)}
+              className="hidden md:flex items-center justify-center w-2 -mx-1 z-20 cursor-col-resize group shrink-0 select-none hover:w-3.5 hover:-mx-1.75 transition-all"
+              title="Genişletmek veya daraltmak için sağa/sola sürükleyin (Sıfırlamak için çift tıklayın)"
+            >
+              <div
+                className={`w-[2px] h-full transition-all ${
+                  isResizing
+                    ? 'bg-blue-600 dark:bg-blue-400 w-[3px] shadow-sm'
+                    : 'bg-zinc-200/90 group-hover:bg-blue-500/80 dark:bg-zinc-800 group-hover:dark:bg-blue-400/80'
+                }`}
+              />
+            </div>
+
             <div className={`flex-1 flex flex-col h-full min-w-0 ${selected ? 'flex' : 'hidden md:flex'}`}>
               {renderReadingPane(() => setSelected(null))}
             </div>

@@ -85,7 +85,7 @@ declare global {
       mail: {
         sync: (email: string) => Promise<{ total: number; synced: number; failed?: number }>;
         syncFolder: (email: string, folderPath: string) => Promise<{ total: number; synced: number; failed?: number }>;
-        folders: (email: string) => Promise<{ path: string; name: string; flags: string[] }[]>;
+        folders: (email: string) => Promise<{ path: string; name: string; flags: string[]; unread_count?: number }[]>;
         list: (email: string, folderPath?: string, limit?: number, offset?: number) => Promise<
           { uid: string; subject: string | null; from_addr: string | null; to_addr: string | null; date: string | null; snippet: string | null; is_read: number; starred?: number; has_att?: number; account_email?: string; account_provider?: string; folder_path?: string }[]
         >;
@@ -94,6 +94,11 @@ declare global {
           { uid: string; subject: string | null; from_addr: string | null; to_addr: string | null; date: string | null; snippet: string | null; is_read: number; starred?: number; has_att?: number; account_email?: string; account_provider?: string; folder_path?: string }[]
         >;
         countUnified: () => Promise<{ total: number; unread: number }>;
+        unreadCounts: () => Promise<{
+          byAccount: Record<string, number>;
+          byFolder: Record<string, number>;
+          unified: number;
+        }>;
         searchUnified: (query: string) => Promise<
           { uid: string; subject: string | null; from_addr: string | null; to_addr: string | null; date: string | null; snippet: string | null; is_read: number; starred?: number; has_att?: number; account_email?: string; account_provider?: string; folder_path?: string }[]
         >;

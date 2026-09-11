@@ -21,6 +21,7 @@ interface SidebarProps {
   isUnified?: boolean;
   onSelectUnified?: () => void;
   unifiedUnreadCount?: number;
+  accountUnreadCounts?: Record<string, number>;
   onCloseMobile?: () => void;
 }
 
@@ -41,6 +42,7 @@ export const Sidebar = memo(function Sidebar({
   isUnified,
   onSelectUnified,
   unifiedUnreadCount,
+  accountUnreadCounts = {},
   onCloseMobile,
 }: SidebarProps) {
   // Klasör panelinin açık/kapalı durumunu yerel depolamada sakla
@@ -78,6 +80,7 @@ export const Sidebar = memo(function Sidebar({
         isUnified={isUnified}
         onSelectUnified={onSelectUnified}
         unifiedUnreadCount={unifiedUnreadCount}
+        accountUnreadCounts={accountUnreadCounts}
         onShowAdd={onShowAdd}
         onShowSettings={onShowSettings}
         onOpenCommandPalette={onOpenCommandPalette}

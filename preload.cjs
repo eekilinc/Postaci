@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('postaci', {
     count: (email, folderPath) => ipcRenderer.invoke('mail:count', email, folderPath),
     listUnified: (limit, offset) => ipcRenderer.invoke('mail:list-unified', limit, offset),
     countUnified: () => ipcRenderer.invoke('mail:count-unified'),
+    unreadCounts: () => ipcRenderer.invoke('mail:unread-counts'),
     searchUnified: (query) => ipcRenderer.invoke('mail:search-unified', query),
     syncAllInboxes: () => ipcRenderer.invoke('mail:sync-all-inboxes'),
     exportEml: (email, folderPath, uid) => ipcRenderer.invoke('mail:export-eml', email, folderPath, uid),

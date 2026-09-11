@@ -21,7 +21,7 @@ try {
 
 const path = require('path');
 const fs = require('fs');
-const { initDb, getDb, getStats, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting } = require('./electron/db.cjs');
+const { initDb, getDb, getStats, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts } = require('./electron/db.cjs');
 const { startOAuthFlow } = require('./electron/auth.cjs');
 const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient } = require('./electron/mail.cjs');
 const { detectSettings } = require('./electron/providers.cjs');
@@ -698,12 +698,19 @@ app.whenReady().then(() => {
     // Varsa ANINDA (0 ms) dön, UI ve kullanıcı sıfır gecikmeyle açılır!
     try {
       const db = getDb();
-      const cached = db.prepare(`SELECT name, path, flags FROM folders WHERE account_id=(SELECT id FROM accounts WHERE email=?)`).all(email);
+      const cached = db.prepare(`
+        SELECT f.name, f.path, f.flags,
+               COALESCE((SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END)
+                         FROM messages m
+                         WHERE m.account_id = f.account_id AND m.folder_path = f.path), 0) AS unread_count
+        FROM folders f
+        WHERE f.account_id = (SELECT id FROM accounts WHERE email = ?)
+      `).all(email);
       if (cached && cached.length > 0) {
         return cached.map((f) => {
           let flags = [];
           try { if (f.flags) flags = JSON.parse(f.flags); } catch {}
-          return { path: f.path, name: f.name, flags, delimiter: '/' };
+          return { path: f.path, name: f.name, flags, delimiter: '/', unread_count: f.unread_count || 0 };
         });
       }
     } catch {}
@@ -733,6 +740,9 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('mail:count-unified', () => {
     return countUnifiedMessages();
+  });
+  ipcMain.handle('mail:unread-counts', () => {
+    return getAllUnreadCounts();
   });
   ipcMain.handle('mail:search-unified', (_evt, query) => {
     if (!query || !query.trim()) return [];
