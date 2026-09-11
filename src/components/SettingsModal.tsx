@@ -5,6 +5,8 @@ import type { LayoutMode } from './LayoutSwitcher';
 import { ACCENTS } from '../constants';
 import { getAccountSignature, saveAccountSignature } from '../utils/signatures';
 import { CloseIcon } from './icons';
+import { PostaciLogo } from './PostaciLogo';
+import appIcon from '../assets/icon.png';
 
 interface SettingsModalProps {
   theme: ThemeKey;
@@ -178,7 +180,8 @@ export function SettingsModal({
     }
   };
 
-  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.9';
+  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.10';
+  const [logoLoadError, setLogoLoadError] = useState(false);
   const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
     version?: string;
     hasUpdate?: boolean;
@@ -335,7 +338,7 @@ export function SettingsModal({
 
           {/* Sol Alt Logo & Versiyon */}
           <div className="px-5 pt-3 border-t border-white/10 flex items-center gap-2">
-            <img src="/icon.png" alt="Postacı" className="h-4 w-4 rounded-xs object-contain shrink-0" />
+            <PostaciLogo size="xs" variant="squircle" showBadge={false} />
             <span className="text-[11px] font-semibold text-white/90">Postacı v{currentVersion}</span>
           </div>
         </div>
@@ -1184,11 +1187,16 @@ export function SettingsModal({
                 {/* Premium Başlık ve Logo Kartı */}
                 <div className="relative overflow-hidden flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-br from-blue-600/10 via-indigo-500/5 to-purple-600/10 border border-blue-500/20 shadow-xs dark:from-blue-950/40 dark:via-indigo-950/20 dark:to-purple-950/30 dark:border-blue-800/40">
                   <div className="relative shrink-0 flex items-center justify-center">
-                    <img
-                      src="/icon.png"
-                      alt="Postacı Logo"
-                      className="h-16 w-16 rounded-2xl shadow-md border border-white/60 dark:border-zinc-700/60 object-contain p-1 bg-white dark:bg-zinc-800"
-                    />
+                    {!logoLoadError ? (
+                      <img
+                        src={appIcon}
+                        alt="Postacı Logo"
+                        className="h-16 w-16 rounded-2xl shadow-md border border-white/60 dark:border-zinc-700/60 object-contain p-1 bg-white dark:bg-zinc-800"
+                        onError={() => setLogoLoadError(true)}
+                      />
+                    ) : (
+                      <PostaciLogo size="xl" variant="squircle" showBadge={false} />
+                    )}
                     <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-xs" title="Stabil ve Güvenli Sürüm">
                       ✓
                     </span>

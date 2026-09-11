@@ -9,6 +9,9 @@ const pkg = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: './',
+  build: {
+    assetsInlineLimit: 120000,
+  },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

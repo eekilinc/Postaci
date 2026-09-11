@@ -1,6 +1,6 @@
 // src/components/PostaciLogo.tsx — Postacı resmi minimalist vektörel logo bileşeni
 // Hem açık (light) hem koyu (dark) temada kusursuz kontrast ve 60 FPS performans
-import { memo } from 'react';
+import { memo, useId } from 'react';
 
 export interface PostaciLogoProps {
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
@@ -29,6 +29,11 @@ export const PostaciLogo = memo(function PostaciLogo({
   badgeText = 'PRO',
 }: PostaciLogoProps) {
   const conf = SIZES[size] || SIZES.md;
+  const rawId = useId();
+  const uid = rawId.replace(/[^a-zA-Z0-9_-]/g, '');
+  const squircleId = `postaci-squircle-${uid}`;
+  const wingId = `postaci-wing-${uid}`;
+  const glowId = `postaci-subtle-glow-${uid}`;
 
   return (
     <div className={`inline-flex items-center gap-2 select-none ${className}`}>
@@ -42,34 +47,42 @@ export const PostaciLogo = memo(function PostaciLogo({
         >
           <defs>
             {/* Ana Squircle Degradesi: Açık ve koyu temada derinlikli safir mavi */}
-            <linearGradient id="postaci-squircle" x1="4" y1="4" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+            <linearGradient id={squircleId} x1="4" y1="4" x2="44" y2="44" gradientUnits="userSpaceOnUse">
               <stop offset="0%" stopColor="#3b82f6" />
               <stop offset="50%" stopColor="#2563eb" />
               <stop offset="100%" stopColor="#1d4ed8" />
             </linearGradient>
 
             {/* Aerodinamik Posta Kanadı Degradesi */}
-            <linearGradient id="postaci-wing" x1="16" y1="12" x2="36" y2="32" gradientUnits="userSpaceOnUse">
+            <linearGradient id={wingId} x1="16" y1="12" x2="36" y2="32" gradientUnits="userSpaceOnUse">
               <stop offset="0%" stopColor="#93c5fd" />
               <stop offset="100%" stopColor="#38bdf8" />
             </linearGradient>
 
             {/* Koyu tema için hafif iç parıltı filtresi */}
-            <filter id="postaci-subtle-glow" x="0" y="0" width="48" height="48" filterUnits="userSpaceOnUse">
+            <filter id={glowId} x="0" y="0" width="48" height="48" filterUnits="userSpaceOnUse">
               <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#1d4ed8" floodOpacity="0.35" />
             </filter>
           </defs>
 
           {variant === 'squircle' && (
             <>
-              {/* Squircle Kavisli Kare Zemin */}
+              {/* Squircle Kavisli Kare Zemin (Safir Mavi taban + Degrade) */}
               <rect
                 x="3"
                 y="3"
                 width="42"
                 height="42"
                 rx="12"
-                fill="url(#postaci-squircle)"
+                fill="#2563eb"
+              />
+              <rect
+                x="3"
+                y="3"
+                width="42"
+                height="42"
+                rx="12"
+                fill={`url(#${squircleId})`}
               />
               {/* Koyu modda pürüzsüz kenar ayrımı için mikro çerçeve */}
               <rect
@@ -115,7 +128,11 @@ export const PostaciLogo = memo(function PostaciLogo({
           {/* 4. Dinamik Uçuş Kanadı (Postacı Origami Motifi) */}
           <path
             d="M24 22L36 12L28 30L24 22Z"
-            fill="url(#postaci-wing)"
+            fill="#38bdf8"
+          />
+          <path
+            d="M24 22L36 12L28 30L24 22Z"
+            fill={`url(#${wingId})`}
             fillOpacity="0.92"
           />
 
