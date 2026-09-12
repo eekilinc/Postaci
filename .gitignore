@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Electron build output (GitHub Releases'a yuklenir, kaynak koda gitmez)
+release
+
 electron/oauth-config.json
 *.db
 *.sqlite
