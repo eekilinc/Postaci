@@ -4,7 +4,7 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 const selfsigned = require('selfsigned');
-const { shell } = require('electron');
+const { shell, clipboard } = require('electron');
 
 const YAHOO_PORT = 55433;
 const YAHOO_REDIRECT = `https://127.0.0.1:${YAHOO_PORT}/callback`;
@@ -137,7 +137,13 @@ async function startOAuthFlow(provider) {
         params.set('access_type', 'offline');
         params.set('prompt', 'consent');
       }
-      shell.openExternal(`${def.authUrl}?${params.toString()}`);
+      const authUrlWithParams = `${def.authUrl}?${params.toString()}`;
+      try {
+        if (clipboard && typeof clipboard.writeText === 'function') {
+          clipboard.writeText(authUrlWithParams);
+        }
+      } catch {}
+      shell.openExternal(authUrlWithParams);
     });
     // Timeout: 5 dk
     setTimeout(() => {

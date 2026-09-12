@@ -218,6 +218,11 @@ export function AddAccountModal({
                 </button>
               ))}
             </div>
+            {busy && (
+              <p className="mt-3 text-[11px] text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800/80 p-2.5 rounded-xl border border-zinc-200/70 dark:border-zinc-700/70 leading-relaxed animate-fadeIn">
+                💡 Giriş linki panonuza kopyalandı. Varsayılan tarayıcınız (Zen vb.) hata verirse linki Edge veya Chrome&apos;a yapıştırarak tamamlayabilirsiniz.
+              </p>
+            )}
           </>
         ) : (
           <div className="space-y-2">
