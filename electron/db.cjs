@@ -62,6 +62,18 @@ function initDb(userDataPath) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS contacts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT,
+      phone TEXT,
+      company TEXT,
+      notes TEXT,
+      is_manual INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
+    CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
 
     -- OAuth token sütunları (safeStorage ile şifreli saklanır, base64)
     -- Eski DB'lerle uyumlu olması için IF NOT EXISTS yok; PRAGMA kontrolü:
@@ -499,50 +511,181 @@ function setSetting(key, value) {
   getDb().prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(key, str);
 }
 
+function syncContactsFromMessages() {
+  const db = getDb();
+  try {
+    const rows = db.prepare(`
+      SELECT DISTINCT from_addr as raw FROM messages WHERE from_addr IS NOT NULL
+      UNION
+      SELECT DISTINCT to_addr as raw FROM messages WHERE to_addr IS NOT NULL
+      LIMIT 350
+    `).all();
+
+    const insertStmt = db.prepare(`
+      INSERT OR IGNORE INTO contacts (email, name, is_manual)
+      VALUES (?, ?, 0)
+    `);
+
+    const tx = db.transaction(() => {
+      for (const r of rows) {
+        if (!r.raw) continue;
+        const parts = r.raw.split(/[,;]/);
+        for (const part of parts) {
+          const clean = part.trim();
+          if (!clean || !clean.includes('@')) continue;
+          const match = clean.match(/^(?:"?([^"<]*)"?\s*)?<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>?$/);
+          if (match) {
+            const name = (match[1] || '').trim();
+            const email = (match[2] || '').trim().toLowerCase();
+            if (email) insertStmt.run(email, name || null);
+          } else if (clean.includes('@')) {
+            const email = clean.toLowerCase();
+            insertStmt.run(email, null);
+          }
+        }
+      }
+    });
+    tx();
+  } catch (err) {
+    console.warn('[db:syncContacts] Hata:', err?.message);
+  }
+}
+
+function listContacts(query = '') {
+  const db = getDb();
+  try {
+    // İlk açılışta veya tablo boşken e-postalardan otomatik keşfet
+    const count = db.prepare('SELECT count(*) as count FROM contacts').get()?.count || 0;
+    if (count === 0) {
+      syncContactsFromMessages();
+    }
+    if (query && query.trim()) {
+      const q = `%${query.trim().toLowerCase()}%`;
+      return db.prepare(`
+        SELECT * FROM contacts 
+        WHERE lower(coalesce(name, '')) LIKE ? OR lower(email) LIKE ? OR lower(coalesce(company, '')) LIKE ?
+        ORDER BY is_manual DESC, updated_at DESC, coalesce(name, email) ASC
+        LIMIT 150
+      `).all(q, q, q);
+    }
+    return db.prepare(`
+      SELECT * FROM contacts 
+      ORDER BY is_manual DESC, updated_at DESC, coalesce(name, email) ASC
+      LIMIT 250
+    `).all();
+  } catch (err) {
+    console.error('[db:listContacts] Hata:', err);
+    return [];
+  }
+}
+
+function upsertContact({ id, email, name, phone, company, notes }) {
+  const db = getDb();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) throw new Error('Geçerli bir e-posta adresi zorunludur.');
+  const cleanName = (name || '').trim();
+  const cleanPhone = (phone || '').trim();
+  const cleanCompany = (company || '').trim();
+  const cleanNotes = (notes || '').trim();
+
+  if (id) {
+    db.prepare(`
+      UPDATE contacts 
+      SET email = ?, name = ?, phone = ?, company = ?, notes = ?, is_manual = 1, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(cleanEmail, cleanName || null, cleanPhone || null, cleanCompany || null, cleanNotes || null, Number(id));
+    return db.prepare('SELECT * FROM contacts WHERE id = ?').get(Number(id));
+  } else {
+    const res = db.prepare(`
+      INSERT INTO contacts (email, name, phone, company, notes, is_manual, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, datetime('now'))
+      ON CONFLICT(email) DO UPDATE SET 
+        name = excluded.name, 
+        phone = excluded.phone, 
+        company = excluded.company, 
+        notes = excluded.notes, 
+        is_manual = 1, 
+        updated_at = datetime('now')
+    `).run(cleanEmail, cleanName || null, cleanPhone || null, cleanCompany || null, cleanNotes || null);
+    return db.prepare('SELECT * FROM contacts WHERE id = ?').get(res.lastInsertRowid) || db.prepare('SELECT * FROM contacts WHERE email = ?').get(cleanEmail);
+  }
+}
+
+function deleteContact(id) {
+  const db = getDb();
+  try {
+    db.prepare('DELETE FROM contacts WHERE id = ?').run(Number(id));
+    return true;
+  } catch (err) {
+    console.error('[db:deleteContact] Hata:', err);
+    return false;
+  }
+}
+
 function searchContacts(query, limit = 8) {
   if (!query || typeof query !== 'string' || !query.trim()) return [];
   const q = query.trim().toLowerCase();
   const db = getDb();
-  const rows = db.prepare(`
-    SELECT DISTINCT from_addr, to_addr 
-    FROM messages 
-    WHERE (from_addr LIKE ? OR to_addr LIKE ?) 
-    ORDER BY id DESC
-    LIMIT 60
-  `).all(`%${q}%`, `%${q}%`);
-
   const results = [];
   const seen = new Set();
 
-  function addContact(raw) {
-    if (!raw) return false;
-    const parts = raw.split(/[,;]/);
-    for (const part of parts) {
-      const clean = part.trim();
-      if (!clean) continue;
-      const match = clean.match(/^(?:"?([^"<]*)"?\s*)?<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>?$/);
-      let name = '';
-      let email = '';
-      if (match) {
-        name = (match[1] || '').trim();
-        email = (match[2] || '').trim().toLowerCase();
-      } else if (clean.includes('@')) {
-        email = clean.toLowerCase();
-      }
-      if (!email || seen.has(email)) continue;
-      if (email.includes(q) || name.toLowerCase().includes(q)) {
-        seen.add(email);
-        results.push({ name: name || email.split('@')[0], email });
-        if (results.length >= limit) return true;
-      }
+  // 1. Öncelik: Kullanıcının düzenlediği ve rehbere kayıtlı kişiler
+  try {
+    const contactRows = db.prepare(`
+      SELECT id, email, name, phone, company FROM contacts
+      WHERE lower(coalesce(name, '')) LIKE ? OR lower(email) LIKE ?
+      ORDER BY is_manual DESC, updated_at DESC
+      LIMIT ?
+    `).all(`%${q}%`, `%${q}%`, limit);
+    for (const c of contactRows) {
+      if (!c.email) continue;
+      const lowerEmail = c.email.toLowerCase();
+      seen.add(lowerEmail);
+      results.push({ id: c.id, name: c.name || c.email.split('@')[0], email: c.email });
+      if (results.length >= limit) return results;
     }
-    return false;
-  }
+  } catch {}
 
-  for (const r of rows) {
-    if (addContact(r.from_addr)) break;
-    if (addContact(r.to_addr)) break;
-  }
+  // 2. İkinci Öncelik: Gelen/giden iletilerdeki dinamik adresler
+  try {
+    const rows = db.prepare(`
+      SELECT DISTINCT from_addr, to_addr 
+      FROM messages 
+      WHERE (from_addr LIKE ? OR to_addr LIKE ?) 
+      ORDER BY id DESC
+      LIMIT 60
+    `).all(`%${q}%`, `%${q}%`);
+
+    function addContact(raw) {
+      if (!raw) return false;
+      const parts = raw.split(/[,;]/);
+      for (const part of parts) {
+        const clean = part.trim();
+        if (!clean) continue;
+        const match = clean.match(/^(?:"?([^"<]*)"?\s*)?<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>?$/);
+        let name = '';
+        let email = '';
+        if (match) {
+          name = (match[1] || '').trim();
+          email = (match[2] || '').trim().toLowerCase();
+        } else if (clean.includes('@')) {
+          email = clean.toLowerCase();
+        }
+        if (!email || seen.has(email)) continue;
+        if (email.includes(q) || name.toLowerCase().includes(q)) {
+          seen.add(email);
+          results.push({ name: name || email.split('@')[0], email });
+          if (results.length >= limit) return true;
+        }
+      }
+      return false;
+    }
+
+    for (const r of rows) {
+      if (addContact(r.from_addr)) break;
+      if (addContact(r.to_addr)) break;
+    }
+  } catch {}
 
   return results;
 }
@@ -659,4 +802,4 @@ function getAllUnreadCounts() {
   }
 }
 
-module.exports = { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts };
+module.exports = { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, listContacts, upsertContact, deleteContact, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts };

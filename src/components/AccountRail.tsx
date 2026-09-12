@@ -8,6 +8,7 @@ import {
   SettingsIcon,
   SearchIcon,
   HelpIcon,
+  ContactsIcon,
 } from './icons';
 
 interface AccountRailProps {
@@ -20,6 +21,7 @@ interface AccountRailProps {
   accountUnreadCounts?: Record<string, number>;
   onShowAdd: () => void;
   onShowSettings: () => void;
+  onShowContacts?: () => void;
   onOpenCommandPalette?: () => void;
   onOpenShortcutsHelp?: () => void;
   isCollapsed: boolean;
@@ -37,6 +39,7 @@ export const AccountRail = memo(function AccountRail({
   accountUnreadCounts = {},
   onShowAdd,
   onShowSettings,
+  onShowContacts,
   onOpenCommandPalette,
   onOpenShortcutsHelp,
   isCollapsed,
@@ -158,6 +161,18 @@ export const AccountRail = memo(function AccountRail({
 
       {/* 3. Alt Kısım: Araçlar ve Ayarlar (mt-auto ile her zaman en altta kilitli, ASLA kaybolmaz) */}
       <div className="flex flex-col items-center gap-2 w-full shrink-0 mt-auto pt-2 border-t border-zinc-200/70 dark:border-zinc-800/80">
+        {/* Kişiler / Rehber (Address Book) */}
+        {onShowContacts && (
+          <button
+            type="button"
+            onClick={onShowContacts}
+            className="h-8 w-8 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-850 transition active:scale-95 shrink-0"
+            title={language === 'en' ? 'Contacts / Address Book' : 'Kişiler / Adres Defteri'}
+          >
+            <ContactsIcon size={16} />
+          </button>
+        )}
+
         {/* Komut Paleti */}
         {onOpenCommandPalette && (
           <button

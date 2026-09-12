@@ -13,9 +13,16 @@ export function getAllSignatures(): Record<string, AccountSignature> {
 }
 
 export function getAccountSignature(email: string | null | undefined): AccountSignature {
-  if (!email) return { enabled: false, text: '' };
+  if (!email) return { enabled: false, text: '', isHtml: false, html: '' };
   const all = getAllSignatures();
-  return all[email] || { enabled: false, text: '' };
+  const found = all[email];
+  if (!found) return { enabled: false, text: '', isHtml: false, html: '' };
+  return {
+    enabled: !!found.enabled,
+    text: found.text || '',
+    isHtml: !!found.isHtml,
+    html: found.html || '',
+  };
 }
 
 export function saveAccountSignature(email: string, signature: AccountSignature): void {

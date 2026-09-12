@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import type { AccentKey, Account, DateFormatPreference, ListDensity, MarkReadTiming, QuickSnippet, SnippetLines, ThemeKey } from '../types';
 import type { LayoutMode } from './LayoutSwitcher';
 import { ACCENTS } from '../constants';
@@ -327,8 +327,24 @@ export function SettingsModal({
   // 5. İmzalar (Oluşturma)
   const [selectedEmail, setSelectedEmail] = useState(activeAccount || accounts[0]?.email || '');
   const [sigEnabled, setSigEnabled] = useState(() => getAccountSignature(selectedEmail).enabled);
+  const [sigIsHtml, setSigIsHtml] = useState(() => getAccountSignature(selectedEmail).isHtml ?? false);
   const [sigText, setSigText] = useState(() => getAccountSignature(selectedEmail).text);
+  const [sigHtml, setSigHtml] = useState(() => getAccountSignature(selectedEmail).html ?? '');
   const [savedNotice, setSavedNotice] = useState(false);
+  const sigEditorRef = useRef<HTMLDivElement | null>(null);
+
+  // Dahili İmla / Yazım Denetimi (Spellchecker)
+  const [spellcheckEnabled, setSpellcheckEnabled] = useState(() => {
+    return localStorage.getItem('postaci_spellcheck') !== 'false';
+  });
+
+  const handleToggleSpellcheck = (val: boolean) => {
+    setSpellcheckEnabled(val);
+    localStorage.setItem('postaci_spellcheck', String(val));
+    if (window.postaci?.appSettings?.setSpellcheck) {
+      window.postaci.appSettings.setSpellcheck(val);
+    }
+  };
 
   // 6. İstatistikler (Gelişmiş)
   const [dbStats, setDbStats] = useState<{ accounts: number; folders: number; messages: number } | null>(null);
@@ -385,16 +401,87 @@ export function SettingsModal({
     setSelectedEmail(email);
     const s = getAccountSignature(email);
     setSigEnabled(s.enabled);
+    setSigIsHtml(s.isHtml ?? false);
     setSigText(s.text);
+    setSigHtml(s.html ?? '');
+    if (sigEditorRef.current) {
+      sigEditorRef.current.innerHTML = s.html ?? '';
+    }
     setSavedNotice(false);
   };
 
   const handleSaveSignature = () => {
     if (!selectedEmail) return;
-    saveAccountSignature(selectedEmail, { enabled: sigEnabled, text: sigText });
+    const currentHtml = sigEditorRef.current ? sigEditorRef.current.innerHTML : sigHtml;
+    saveAccountSignature(selectedEmail, {
+      enabled: sigEnabled,
+      text: sigText,
+      isHtml: sigIsHtml,
+      html: currentHtml,
+    });
+    setSigHtml(currentHtml);
     setSavedNotice(true);
     setTimeout(() => setSavedNotice(false), 2500);
   };
+
+  const execSigCommand = (cmd: string, val: string | undefined = undefined) => {
+    if (sigEditorRef.current) {
+      sigEditorRef.current.focus();
+    }
+    document.execCommand(cmd, false, val);
+    if (sigEditorRef.current) {
+      setSigHtml(sigEditorRef.current.innerHTML);
+    }
+  };
+
+  const handleInsertSigLogo = async () => {
+    if (!window.postaci?.openFileDialog) return;
+    try {
+      const dataUrl = await window.postaci.openFileDialog({
+        title: language === 'en' ? 'Choose Signature Logo' : 'İmza Logosu veya Görseli Seç',
+        filters: [{ name: 'Görseller / Images', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp', 'gif'] }],
+      });
+      if (dataUrl) {
+        const imgTag = `<img src="${dataUrl}" alt="Logo" style="max-height: 50px; max-width: 180px; object-fit: contain; margin-top: 8px; display: block;" />`;
+        execSigCommand('insertHTML', imgTag);
+      }
+    } catch (e) {
+      console.error('Failed to insert logo:', e);
+    }
+  };
+
+  const handleInsertSigLink = () => {
+    const url = prompt(language === 'en' ? 'Enter website address (URL):' : 'Web sitesi adresi girin (URL):');
+    if (url) {
+      const href = url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:') ? url : `https://${url}`;
+      execSigCommand('createLink', href);
+    }
+  };
+
+  const handleApplySigTemplate = (templateType: 'modern' | 'two-column' | 'simple') => {
+    const accountName = accounts.find((a) => a.email === selectedEmail)?.display_name || selectedEmail.split('@')[0];
+    let templateHtml = '';
+    if (templateType === 'modern') {
+      templateHtml = `<div style="font-family: Arial, sans-serif; font-size: 13px; color: #333; line-height: 1.5; border-left: 3px solid #2563eb; padding-left: 12px; margin-top: 8px;"><div style="font-weight: bold; font-size: 14px; color: #1e293b;">${accountName}</div><div style="color: #64748b; font-size: 12px;">Unvan / Departman</div><div style="margin-top: 4px; color: #475569; font-size: 12px;">📧 <a href="mailto:${selectedEmail}" style="color: #2563eb; text-decoration: none;">${selectedEmail}</a> &nbsp;|&nbsp; 🌐 <a href="https://example.com" style="color: #2563eb; text-decoration: none;">example.com</a></div></div>`;
+    } else if (templateType === 'two-column') {
+      templateHtml = `<table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; font-size: 13px; color: #333; margin-top: 8px;"><tr><td style="padding-right: 14px; border-right: 2px solid #cbd5e1; vertical-align: middle;"><div style="width: 44px; height: 44px; border-radius: 8px; background: #2563eb; color: #fff; font-weight: bold; font-size: 18px; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 44px;">${accountName.slice(0, 2).toUpperCase()}</div></td><td style="padding-left: 14px; vertical-align: middle; line-height: 1.4;"><strong style="color: #0f172a; font-size: 14px;">${accountName}</strong><br/><span style="color: #64748b; font-size: 12px;">Şirket / Kuruluş</span><br/><span style="font-size: 11px; color: #2563eb;">${selectedEmail}</span></td></tr></table>`;
+    } else {
+      templateHtml = `<div style="font-family: Arial, sans-serif; font-size: 13px; color: #4b5563; line-height: 1.4; margin-top: 8px;">Saygılarımla / Best regards,<br/><strong style="color: #111827;">${accountName}</strong><br/><span style="font-size: 12px; color: #6b7280;">Tel: +90 (5XX) XXX XX XX</span></div>`;
+    }
+    setSigHtml(templateHtml);
+    if (sigEditorRef.current) {
+      sigEditorRef.current.innerHTML = templateHtml;
+    }
+  };
+
+  useEffect(() => {
+    if (sigEditorRef.current && sigIsHtml) {
+      if (sigEditorRef.current.innerHTML !== sigHtml) {
+        sigEditorRef.current.innerHTML = sigHtml;
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sigIsHtml, selectedEmail]);
 
   const handleTestNotification = async () => {
     if (!window.postaci?.notifications) return;
@@ -754,6 +841,23 @@ export function SettingsModal({
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
                       <span>{language === 'en' ? 'Enable Gmail keyboard shortcuts (C, R, A, E, # etc.)' : 'Gmail klavye kısayollarını kullan (C, R, A, E, # vb.)'}</span>
+                    </label>
+
+                    <label className="flex items-start gap-2.5 cursor-pointer pt-1">
+                      <input
+                        type="checkbox"
+                        checked={spellcheckEnabled}
+                        onChange={(e) => handleToggleSpellcheck(e.target.checked)}
+                        className="h-4 w-4 mt-0.5 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
+                      />
+                      <div className="flex flex-col">
+                        <span>{language === 'en' ? 'Check spelling as you type (TR & EN)' : 'Yazarken dahili imla ve yazım denetimi yap (Türkçe & İngilizce)'}</span>
+                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                          {language === 'en'
+                            ? 'Underlines spelling errors. Right-click words to view suggestions or add to custom dictionary.'
+                            : 'Yazım hatalarını kırmızı dalgalı çizgiyle belirtir. Sağ tıklayarak düzeltme önerilerini görebilir veya sözlüğe ekleyebilirsiniz.'}
+                        </span>
+                      </div>
                     </label>
                   </div>
                 </div>
@@ -1746,22 +1850,184 @@ export function SettingsModal({
                       </label>
                     </div>
 
-                    <div>
-                      <textarea
-                        rows={5}
-                        disabled={!sigEnabled}
-                        value={sigText}
-                        onChange={(e) => setSigText(e.target.value)}
-                        placeholder={
-                          language === 'en'
-                            ? 'Best regards,\nYour Name\nTitle / Phone'
-                            : 'Saygılarımla,\nAdınız Soyadınız\nUnvan / Telefon'
-                        }
-                        className="w-full rounded-xl border border-zinc-300 p-3 text-xs outline-none focus:border-blue-500 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 font-sans"
-                      />
+                    {/* İmza Biçimi Seçici (Düz Metin vs Zengin HTML) */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="text-xs font-medium text-zinc-500">
+                        {language === 'en' ? 'Format:' : 'Biçim:'}
+                      </span>
+                      <div className="inline-flex rounded-xl bg-zinc-200/70 p-0.5 dark:bg-zinc-800">
+                        <button
+                          type="button"
+                          onClick={() => setSigIsHtml(false)}
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                            !sigIsHtml
+                              ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-xs'
+                              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                          }`}
+                        >
+                          {language === 'en' ? 'Plain Text' : 'Düz Metin'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSigIsHtml(true);
+                            if (!sigHtml && sigText) {
+                              const converted = sigText.replace(/\n/g, '<br>');
+                              setSigHtml(converted);
+                              if (sigEditorRef.current) sigEditorRef.current.innerHTML = converted;
+                            }
+                          }}
+                          className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                            sigIsHtml
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                          }`}
+                        >
+                          <span>✨</span>
+                          <span>{language === 'en' ? 'Rich HTML & Logo' : 'Zengin HTML & Logo'}</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    {!sigIsHtml ? (
+                      <div>
+                        <textarea
+                          rows={5}
+                          disabled={!sigEnabled}
+                          value={sigText}
+                          onChange={(e) => setSigText(e.target.value)}
+                          placeholder={
+                            language === 'en'
+                              ? 'Best regards,\nYour Name\nTitle / Phone'
+                              : 'Saygılarımla,\nAdınız Soyadınız\nUnvan / Telefon'
+                          }
+                          className="w-full rounded-xl border border-zinc-300 p-3 text-xs outline-none focus:border-blue-500 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 font-sans"
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {/* Zengin İmza Araç Çubuğu */}
+                        <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-850">
+                          <button
+                            type="button"
+                            onClick={() => execSigCommand('bold')}
+                            disabled={!sigEnabled}
+                            className="w-7 h-7 rounded-lg border border-zinc-300 dark:border-zinc-750 bg-white dark:bg-zinc-800 text-xs font-bold hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer disabled:opacity-40"
+                            title={language === 'en' ? 'Bold' : 'Kalın'}
+                          >
+                            B
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => execSigCommand('italic')}
+                            disabled={!sigEnabled}
+                            className="w-7 h-7 rounded-lg border border-zinc-300 dark:border-zinc-750 bg-white dark:bg-zinc-800 text-xs italic font-serif hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer disabled:opacity-40"
+                            title={language === 'en' ? 'Italic' : 'İtalik'}
+                          >
+                            I
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => execSigCommand('underline')}
+                            disabled={!sigEnabled}
+                            className="w-7 h-7 rounded-lg border border-zinc-300 dark:border-zinc-750 bg-white dark:bg-zinc-800 text-xs underline hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer disabled:opacity-40"
+                            title={language === 'en' ? 'Underline' : 'Altı Çizili'}
+                          >
+                            U
+                          </button>
+
+                          <div className="w-px h-5 bg-zinc-300 dark:bg-zinc-700 mx-0.5" />
+
+                          <button
+                            type="button"
+                            onClick={handleInsertSigLink}
+                            disabled={!sigEnabled}
+                            className="px-2 h-7 rounded-lg border border-zinc-300 dark:border-zinc-750 bg-white dark:bg-zinc-800 text-xs flex items-center gap-1 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer disabled:opacity-40"
+                            title={language === 'en' ? 'Insert Link' : 'Bağlantı Ekle'}
+                          >
+                            <span>🔗</span>
+                            <span>{language === 'en' ? 'Link' : 'Link'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleInsertSigLogo}
+                            disabled={!sigEnabled}
+                            className="px-2.5 h-7 rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/80 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 text-xs font-semibold flex items-center gap-1 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition cursor-pointer disabled:opacity-40"
+                            title={language === 'en' ? 'Insert Logo or Image from disk' : 'Diskten Logo veya Görsel Ekle'}
+                          >
+                            <span>🖼️</span>
+                            <span>{language === 'en' ? 'Logo / Image' : 'Logo / Resim'}</span>
+                          </button>
+
+                          <div className="w-px h-5 bg-zinc-300 dark:bg-zinc-700 mx-0.5" />
+
+                          {/* Hazır Şablonlar */}
+                          <div className="flex items-center gap-1 ml-auto">
+                            <span className="text-[10px] font-medium text-zinc-400">
+                              {language === 'en' ? 'Templates:' : 'Şablon:'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleApplySigTemplate('modern')}
+                              disabled={!sigEnabled}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 transition cursor-pointer disabled:opacity-40"
+                            >
+                              {language === 'en' ? 'Modern' : 'Modern'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleApplySigTemplate('two-column')}
+                              disabled={!sigEnabled}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 transition cursor-pointer disabled:opacity-40"
+                            >
+                              {language === 'en' ? 'Card' : 'Kart'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleApplySigTemplate('simple')}
+                              disabled={!sigEnabled}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 transition cursor-pointer disabled:opacity-40"
+                            >
+                              {language === 'en' ? 'Minimal' : 'Minimal'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Düzenlenebilir Alan */}
+                        <div
+                          ref={sigEditorRef}
+                          contentEditable={sigEnabled}
+                          onInput={(e) => setSigHtml(e.currentTarget.innerHTML)}
+                          className="w-full min-h-[120px] max-h-[220px] overflow-y-auto rounded-xl border border-zinc-300 p-3 text-xs outline-none focus:border-blue-500 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 bg-white"
+                          style={{ minHeight: '120px' }}
+                        />
+
+                        {/* Canlı Önizleme Kartı */}
+                        <div className="mt-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40">
+                          <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">
+                            {language === 'en' ? 'Live Email Preview' : 'Canlı E-posta Önizlemesi'}
+                          </div>
+                          <div className="text-xs text-zinc-500 italic mb-2">
+                            ...görüşmek üzere, iyi çalışmalar.
+                          </div>
+                          <div className="pt-2 border-t border-zinc-200 dark:border-zinc-700">
+                            {sigHtml ? (
+                              <div
+                                className="text-xs"
+                                dangerouslySetInnerHTML={{ __html: sigHtml }}
+                              />
+                            ) : (
+                              <span className="text-xs text-zinc-400 italic">
+                                {language === 'en' ? 'No signature content' : 'İmza içeriği girilmedi'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 pt-2">
                       <button
                         type="button"
                         onClick={handleSaveSignature}

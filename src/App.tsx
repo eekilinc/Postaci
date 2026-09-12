@@ -23,6 +23,7 @@ import { MessageList } from './components/MessageList';
 import { ReadingPane } from './components/ReadingPane';
 import { AddAccountModal } from './components/AddAccountModal';
 import { SettingsModal } from './components/SettingsModal';
+import { ContactsModal } from './components/ContactsModal';
 import { ComposeModal } from './components/ComposeModal';
 import { Toast } from './components/Toast';
 import { AttachmentPreviewModal } from './components/AttachmentPreviewModal';
@@ -126,6 +127,7 @@ export default function App() {
   const [inAppAlert, setInAppAlert] = useState<IncomingMailData | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showContacts, setShowContacts] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [isUnified, setIsUnified] = useState(false);
@@ -733,7 +735,9 @@ export default function App() {
     }
   };
 
-  const openNew = () => {
+  const openNew = (targetTo?: unknown, targetSubject?: unknown) => {
+    const toStr = typeof targetTo === 'string' ? targetTo : '';
+    const subjStr = typeof targetSubject === 'string' ? targetSubject : '';
     setComposeTitle('Yeni E-posta');
     const sender = activeAccount || '';
     setCFrom(sender);
@@ -742,33 +746,43 @@ export default function App() {
     setError(null);
     setNotice(null);
 
-    // Kaydedilmiş aktif taslak var mı kontrol et
-    const savedDraftRaw = localStorage.getItem('postaci_active_draft');
-    if (savedDraftRaw) {
-      try {
-        const d = JSON.parse(savedDraftRaw);
-        if (d && (d.to || d.cc || d.subject || d.text || d.html)) {
-          if (d.from) setCFrom(d.from);
-          setCTo(d.to || '');
-          setCCc(d.cc || '');
-          setCSubject(d.subject || '');
-          setCText(d.text || '');
-          setCHtml(d.html || '');
-          setCFiles([]);
-          setShowCompose(true);
-          setNotice('Önceki taslağınız geri yüklendi.');
-          setTimeout(() => setNotice(null), 3000);
-          return;
-        }
-      } catch {}
+    // Hedef alıcı belirtilmemişse kaydedilmiş aktif taslak var mı kontrol et
+    if (!toStr) {
+      const savedDraftRaw = localStorage.getItem('postaci_active_draft');
+      if (savedDraftRaw) {
+        try {
+          const d = JSON.parse(savedDraftRaw);
+          if (d && (d.to || d.cc || d.subject || d.text || d.html)) {
+            if (d.from) setCFrom(d.from);
+            setCTo(d.to || '');
+            setCCc(d.cc || '');
+            setCSubject(d.subject || '');
+            setCText(d.text || '');
+            setCHtml(d.html || '');
+            setCFiles([]);
+            setShowCompose(true);
+            setNotice('Önceki taslağınız geri yüklendi.');
+            setTimeout(() => setNotice(null), 3000);
+            return;
+          }
+        } catch {}
+      }
     }
 
-    setCTo(''); setCCc(''); setCSubject(''); setCFiles([]);
+    setCTo(toStr); setCCc(''); setCSubject(subjStr); setCFiles([]);
     // Otomatik imza kontrolü
     const sig = getAccountSignature(sender);
-    if (sig.enabled && sig.text) {
-      setCText(`\n\n--\n${sig.text}`);
-      setCHtml(`<br><br><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${sig.text.replace(/\n/g, '<br>')}</div>`);
+    if (sig.enabled) {
+      if (sig.isHtml && sig.html) {
+        setCText(`\n\n--\n${sig.text || ''}`);
+        setCHtml(`<br><br><div class="postaci-signature" style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:14px;">${sig.html}</div>`);
+      } else if (sig.text) {
+        setCText(`\n\n--\n${sig.text}`);
+        setCHtml(`<br><br><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${sig.text.replace(/\n/g, '<br>')}</div>`);
+      } else {
+        setCText('');
+        setCHtml('');
+      }
     } else {
       setCText('');
       setCHtml('');
@@ -811,8 +825,18 @@ export default function App() {
     const subject = selected.subject?.startsWith('Re:') ? selected.subject : `Re: ${selected.subject || ''}`;
 
     const sig = getAccountSignature(targetAccount);
-    const fullText = sig.enabled && sig.text ? `${text}\n\n--\n${sig.text}` : text;
-    const fullHtml = `<div style="font-family: sans-serif; font-size: 14px; line-height: 1.6;">${text.replace(/\n/g, '<br/>')}${sig.enabled && sig.text ? `<br/><br/><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${sig.text.replace(/\n/g, '<br/>')}</div>` : ''}</div>`;
+    let fullText = text;
+    let sigHtmlBlock = '';
+    if (sig.enabled) {
+      if (sig.isHtml && sig.html) {
+        fullText = sig.text ? `${text}\n\n--\n${sig.text}` : text;
+        sigHtmlBlock = `<br/><br/><div class="postaci-signature" style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:14px;">${sig.html}</div>`;
+      } else if (sig.text) {
+        fullText = `${text}\n\n--\n${sig.text}`;
+        sigHtmlBlock = `<br/><br/><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${sig.text.replace(/\n/g, '<br/>')}</div>`;
+      }
+    }
+    const fullHtml = `<div style="font-family: sans-serif; font-size: 14px; line-height: 1.6;">${text.replace(/\n/g, '<br/>')}${sigHtmlBlock}</div>`;
 
     const payload = {
       fromEmail: targetAccount,
@@ -1143,6 +1167,7 @@ export default function App() {
           onNewEmail={openNew}
           onShowAdd={() => { setError(null); setNotice(null); setShowAdd(true); }}
           onShowSettings={() => setShowSettings(true)}
+          onShowContacts={() => setShowContacts(true)}
           onOpenCommandPalette={() => setShowCommandPalette(true)}
           onOpenShortcutsHelp={() => setShowShortcutsHelp(true)}
           isUnified={isUnified}
@@ -1286,6 +1311,15 @@ export default function App() {
             setShowShortcutsHelp(true);
           }}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {showContacts && (
+        <ContactsModal
+          onClose={() => setShowContacts(false)}
+          onComposeTo={(email, name) => {
+            openNew(name ? `"${name}" <${email}>` : email);
+          }}
         />
       )}
 

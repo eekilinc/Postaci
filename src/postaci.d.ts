@@ -150,7 +150,10 @@ declare global {
         batchArchive: (email: string, folderPath: string, uids: string[]) => Promise<boolean>;
       };
       contacts: {
-        search: (query: string) => Promise<{ name: string; email: string }[]>;
+        search: (query: string) => Promise<{ id?: number; name: string; email: string }[]>;
+        list: (query?: string) => Promise<import('./types').ContactItem[]>;
+        upsert: (contact: import('./types').ContactItem) => Promise<import('./types').ContactItem>;
+        delete: (id: number) => Promise<boolean>;
       };
       notifications: {
         getSettings: () => Promise<{
@@ -208,6 +211,7 @@ declare global {
           useGmailShortcuts: boolean;
           language?: 'tr' | 'en';
         }>;
+        setSpellcheck?: (enabled: boolean) => Promise<boolean>;
       };
       openExternal: (url: string) => Promise<boolean>;
       setBadge: (count: number) => Promise<boolean>;

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage, dialog, Notification, nativeImage, Tray, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, dialog, Notification, nativeImage, Tray, Menu, MenuItem, shell } = require('electron');
 
 // 1. Uygulama Adı ve Kimliği (Windows Bildirimlerinde ve Başlığında 'electron' yazmasını engeller)
 app.name = 'Postacı';
@@ -29,7 +29,7 @@ try {
 
 const path = require('path');
 const fs = require('fs');
-const { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts } = require('./electron/db.cjs');
+const { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, listContacts, upsertContact, deleteContact, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts } = require('./electron/db.cjs');
 const { startOAuthFlow } = require('./electron/auth.cjs');
 const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient } = require('./electron/mail.cjs');
 const { detectSettings } = require('./electron/providers.cjs');
@@ -780,6 +780,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      spellcheck: true,
       preload: path.join(__dirname, 'preload.cjs'),
     },
   });
@@ -813,6 +814,52 @@ function createWindow() {
   });
 
   mainWindow = win;
+
+  // Dahili İmla / Yazım Denetimi (Native Spellchecker) Ayarı
+  try {
+    win.webContents.session.setSpellCheckerLanguages(['tr-TR', 'en-US']);
+  } catch (e) {
+    console.warn('[spellcheck] Diller ayarlanamadı:', e?.message);
+  }
+
+  // Yazılabilir alanlarda sağ tık imla önerileri ve pano menüsü
+  win.webContents.on('context-menu', (_event, params) => {
+    if (params.isEditable) {
+      const menu = new Menu();
+
+      // İmla Denetimi Kelime Önerileri
+      if (params.dictionarySuggestions && params.dictionarySuggestions.length > 0) {
+        for (const suggestion of params.dictionarySuggestions) {
+          menu.append(
+            new MenuItem({
+              label: suggestion,
+              click: () => win.webContents.replaceMisspelling(suggestion),
+            })
+          );
+        }
+        menu.append(new MenuItem({ type: 'separator' }));
+      }
+
+      // Hatalı kelimeyi yerel sözlüğe ekle
+      if (params.misspelledWord) {
+        menu.append(
+          new MenuItem({
+            label: `"${params.misspelledWord}" Sözlüğe Ekle`,
+            click: () => win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord),
+          })
+        );
+        menu.append(new MenuItem({ type: 'separator' }));
+      }
+
+      // Standart Pano İşlemleri
+      menu.append(new MenuItem({ role: 'cut', label: 'Kes' }));
+      menu.append(new MenuItem({ role: 'copy', label: 'Kopyala' }));
+      menu.append(new MenuItem({ role: 'paste', label: 'Yapıştır' }));
+      menu.append(new MenuItem({ type: 'separator' }));
+      menu.append(new MenuItem({ role: 'selectAll', label: 'Tümünü Seç' }));
+      menu.popup();
+    }
+  });
 
   const isStartedFromStartup = Array.isArray(process.argv) && (
     process.argv.includes('--minimized') ||
@@ -1883,6 +1930,45 @@ app.whenReady().then(() => {
       return searchContacts(query);
     } catch {
       return [];
+    }
+  });
+
+  ipcMain.handle('contacts:list', async (_evt, query) => {
+    try {
+      return listContacts(query);
+    } catch (e) {
+      console.error('[contacts:list] error:', e);
+      return [];
+    }
+  });
+
+  ipcMain.handle('contacts:upsert', async (_evt, contact) => {
+    try {
+      return upsertContact(contact);
+    } catch (e) {
+      console.error('[contacts:upsert] error:', e);
+      throw e;
+    }
+  });
+
+  ipcMain.handle('contacts:delete', async (_evt, id) => {
+    try {
+      return deleteContact(id);
+    } catch (e) {
+      console.error('[contacts:delete] error:', e);
+      return false;
+    }
+  });
+
+  ipcMain.handle('app:set-spellcheck', async (_evt, enabled) => {
+    try {
+      if (mainWindow?.webContents?.session) {
+        mainWindow.webContents.session.setSpellCheckerEnabled(Boolean(enabled));
+      }
+      return true;
+    } catch (e) {
+      console.error('[app:set-spellcheck] error:', e);
+      return false;
     }
   });
 

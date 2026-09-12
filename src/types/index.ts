@@ -62,6 +62,19 @@ export type FilterKey = 'all' | 'unread' | 'starred' | 'attachment';
 export type AccountSignature = {
   enabled: boolean;
   text: string;
+  isHtml?: boolean;
+  html?: string;
+};
+
+export type ContactItem = {
+  id?: number;
+  email: string;
+  name?: string | null;
+  phone?: string | null;
+  company?: string | null;
+  notes?: string | null;
+  is_manual?: number;
+  updated_at?: string;
 };
 
 export type ListDensity = 'compact' | 'normal' | 'relaxed';

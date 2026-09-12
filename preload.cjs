@@ -68,6 +68,9 @@ contextBridge.exposeInMainWorld('postaci', {
   },
   contacts: {
     search: (query) => ipcRenderer.invoke('contacts:search', query),
+    list: (query) => ipcRenderer.invoke('contacts:list', query),
+    upsert: (contact) => ipcRenderer.invoke('contacts:upsert', contact),
+    delete: (id) => ipcRenderer.invoke('contacts:delete', id),
   },
   notifications: {
     getSettings: () => ipcRenderer.invoke('notifications:get-settings'),
@@ -92,6 +95,7 @@ contextBridge.exposeInMainWorld('postaci', {
   appSettings: {
     get: () => ipcRenderer.invoke('app:get-settings'),
     save: (settings) => ipcRenderer.invoke('app:save-settings', settings),
+    setSpellcheck: (enabled) => ipcRenderer.invoke('app:set-spellcheck', enabled),
   },
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   setBadge: (count) => ipcRenderer.invoke('app:set-badge', count),

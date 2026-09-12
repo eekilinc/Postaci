@@ -154,10 +154,16 @@ export function ComposeModal({
   useEffect(() => {
     if (title === 'Yeni E-posta' && !cHtml && !cText) {
       const sig = getAccountSignature(cFrom);
-      if (sig.enabled && sig.text) {
-        const sigHtml = `<br><br><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${sig.text.replace(/\n/g, '<br>')}</div>`;
-        setCHtml(sigHtml);
-        setCText(`\n\n--\n${sig.text}`);
+      if (sig.enabled) {
+        if (sig.isHtml && sig.html) {
+          const sigHtml = `<br><br><div class="postaci-signature" style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:14px;">${sig.html}</div>`;
+          setCHtml(sigHtml);
+          setCText(`\n\n--\n${sig.text || ''}`);
+        } else if (sig.text) {
+          const sigHtml = `<br><br><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${sig.text.replace(/\n/g, '<br>')}</div>`;
+          setCHtml(sigHtml);
+          setCText(`\n\n--\n${sig.text}`);
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -356,11 +362,13 @@ export function ComposeModal({
 
   const handleInsertSignature = () => {
     const sig = getAccountSignature(cFrom);
-    if (!sig.text) {
+    if (!sig.text && !(sig.isHtml && sig.html)) {
       alert(t('compose.noSignatureAlert'));
       return;
     }
-    const sigHtml = `<br><br><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${sig.text.replace(/\n/g, '<br>')}</div>`;
+    const sigHtml = sig.isHtml && sig.html
+      ? `<br><br><div class="postaci-signature" style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:14px;">${sig.html}</div>`
+      : `<br><br><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${(sig.text || '').replace(/\n/g, '<br>')}</div>`;
     exec('insertHTML', sigHtml);
   };
 

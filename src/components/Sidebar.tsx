@@ -16,6 +16,7 @@ interface SidebarProps {
   onNewEmail: () => void;
   onShowAdd: () => void;
   onShowSettings: () => void;
+  onShowContacts?: () => void;
   onOpenCommandPalette?: () => void;
   onOpenShortcutsHelp?: () => void;
   isUnified?: boolean;
@@ -40,6 +41,7 @@ export const Sidebar = memo(function Sidebar({
   onNewEmail,
   onShowAdd,
   onShowSettings,
+  onShowContacts,
   onOpenCommandPalette,
   onOpenShortcutsHelp,
   isUnified,
@@ -95,6 +97,7 @@ export const Sidebar = memo(function Sidebar({
         accountUnreadCounts={accountUnreadCounts}
         onShowAdd={onShowAdd}
         onShowSettings={onShowSettings}
+        onShowContacts={onShowContacts}
         onOpenCommandPalette={onOpenCommandPalette}
         onOpenShortcutsHelp={onOpenShortcutsHelp}
         isCollapsed={isCollapsed}
