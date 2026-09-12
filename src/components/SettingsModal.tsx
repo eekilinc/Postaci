@@ -534,14 +534,14 @@ export function SettingsModal({
   // Mailbird Duvar Kağıtları Önizlemeleri
   const wallpapers = useMemo(
     () => [
-      { id: 'default', label: 'Varsayılan', color: '#2b56bf' },
-      { id: 'blue-abstract', label: 'Mavi Geometri', bg: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)' },
-      { id: 'dark-violet', label: 'Mor Gece', bg: 'linear-gradient(135deg, #2e1065 0%, #7e22ce 100%)' },
-      { id: 'emerald-glow', label: 'Zümrüt Orman', bg: 'linear-gradient(135deg, #064e3b 0%, #059669 100%)' },
-      { id: 'sunset-amber', label: 'Gün Batımı', bg: 'linear-gradient(135deg, #7c2d12 0%, #f97316 100%)' },
-      { id: 'slate-cyber', label: 'Siber Grafit', bg: 'linear-gradient(135deg, #0f172a 0%, #334155 100%)' },
+      { id: 'default', label: language === 'en' ? 'Default' : 'Varsayılan', color: '#2b56bf' },
+      { id: 'blue-abstract', label: language === 'en' ? 'Blue Geometry' : 'Mavi Geometri', bg: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)' },
+      { id: 'dark-violet', label: language === 'en' ? 'Dark Violet' : 'Mor Gece', bg: 'linear-gradient(135deg, #2e1065 0%, #7e22ce 100%)' },
+      { id: 'emerald-glow', label: language === 'en' ? 'Emerald Forest' : 'Zümrüt Orman', bg: 'linear-gradient(135deg, #064e3b 0%, #059669 100%)' },
+      { id: 'sunset-amber', label: language === 'en' ? 'Sunset Amber' : 'Gün Batımı', bg: 'linear-gradient(135deg, #7c2d12 0%, #f97316 100%)' },
+      { id: 'slate-cyber', label: language === 'en' ? 'Cyber Slate' : 'Siber Grafit', bg: 'linear-gradient(135deg, #0f172a 0%, #334155 100%)' },
     ],
-    []
+    [language]
   );
 
   // Sadece gerçek, dolu ve çalışan sekmeler (İçeriği olmayan boş sekmeler kaldırıldı!)
@@ -572,9 +572,14 @@ export function SettingsModal({
                 <span className="text-red-600 dark:text-red-400 text-lg">⚠</span>
               </div>
               <div>
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Hesabı Kaldır</h3>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                  {language === 'en' ? 'Remove Account' : 'Hesabı Kaldır'}
+                </h3>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
-                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">{confirmDeleteAcc.email}</span> hesabı Postacı'dan kaldırılacak. Yerel iletiler silinir, sunucudaki e-postalarınız etkilenmez.
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">{confirmDeleteAcc.email}</span>{' '}
+                  {language === 'en'
+                    ? 'will be removed from Postacı. Local cached messages will be cleared; emails on your server are not affected.'
+                    : "hesabı Postacı'dan kaldırılacak. Yerel iletiler silinir, sunucudaki e-postalarınız etkilenmez."}
                 </p>
                 {deleteAccError && (
                   <p className="text-xs text-red-600 dark:text-red-400 mt-2">{deleteAccError}</p>
@@ -588,7 +593,7 @@ export function SettingsModal({
                 disabled={deletingAcc}
                 className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-4 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition disabled:opacity-50"
               >
-                İptal
+                {language === 'en' ? 'Cancel' : 'İptal'}
               </button>
               <button
                 type="button"
@@ -597,8 +602,8 @@ export function SettingsModal({
                 className="rounded-xl bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 text-xs font-semibold transition active:scale-95 disabled:opacity-50 inline-flex items-center gap-1.5"
               >
                 {deletingAcc ? (
-                  <><span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" /><span>Kaldırılıyor...</span></>
-                ) : 'Hesabı Kaldır'}
+                  <><span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" /><span>{language === 'en' ? 'Removing...' : 'Kaldırılıyor...'}</span></>
+                ) : (language === 'en' ? 'Remove Account' : 'Hesabı Kaldır')}
               </button>
             </div>
           </div>
@@ -838,7 +843,18 @@ export function SettingsModal({
                       {/* Windows Bildirim İpucu & Doğrudan Ayar Butonu */}
                       <div className="mt-2.5 rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-[11px] leading-relaxed text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200">
                         <p>
-                          <span className="font-semibold">💡 Windows Bildirim İpucu:</span> Windows 10/11'de saat 23:00 - 07:00 arasında veya tam ekran modundayken <span className="font-semibold">Odaklanma Yardımı (Rahatsız Etmeyin)</span> otomatik açılabilir. Bu modda Windows, bildirim pencerelerini masaüstüne çıkarmak yerine sağ alttaki Windows Bildirim Merkezi'ne (<kbd className="rounded bg-blue-100 dark:bg-blue-900 px-1 py-0.5 font-mono text-[10px]">Win + N</kbd>) sessizce depolar.
+                          <span className="font-semibold">
+                            {language === 'en' ? '💡 Windows Notification Tip:' : '💡 Windows Bildirim İpucu:'}
+                          </span>{' '}
+                          {language === 'en' ? (
+                            <>
+                              In Windows 10/11, <span className="font-semibold">Focus Assist (Do Not Disturb)</span> may activate automatically between 23:00 - 07:00 or during full screen. In this mode, Windows stores notifications quietly in the Action Center (<kbd className="rounded bg-blue-100 dark:bg-blue-900 px-1 py-0.5 font-mono text-[10px]">Win + N</kbd>) instead of popping up.
+                            </>
+                          ) : (
+                            <>
+                              Windows 10/11'de saat 23:00 - 07:00 arasında veya tam ekran modundayken <span className="font-semibold">Odaklanma Yardımı (Rahatsız Etmeyin)</span> otomatik açılabilir. Bu modda Windows, bildirim pencerelerini masaüstüne çıkarmak yerine sağ alttaki Windows Bildirim Merkezi'ne (<kbd className="rounded bg-blue-100 dark:bg-blue-900 px-1 py-0.5 font-mono text-[10px]">Win + N</kbd>) sessizce depolar.
+                            </>
+                          )}
                         </p>
                         {window.postaci?.openExternal && (
                           <div className="mt-2">
@@ -847,7 +863,7 @@ export function SettingsModal({
                               onClick={() => window.postaci?.openExternal?.('ms-settings:notifications')}
                               className="inline-flex items-center gap-1.5 font-semibold text-blue-700 dark:text-blue-300 hover:underline cursor-pointer"
                             >
-                              ⚙ Windows Sistem Bildirim Ayarlarını Aç ↗
+                              ⚙ {language === 'en' ? 'Open Windows Notification Settings ↗' : 'Windows Sistem Bildirim Ayarlarını Aç ↗'}
                             </button>
                           </div>
                         )}
@@ -864,16 +880,20 @@ export function SettingsModal({
                           className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                         />
                         <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                          Sessiz Saatler / Rahatsız Etmeyin (Quiet Hours)
+                          {language === 'en' ? 'Quiet Hours / Do Not Disturb' : 'Sessiz Saatler / Rahatsız Etmeyin (Quiet Hours)'}
                         </span>
                       </label>
                       <p className="text-[11px] text-zinc-500 pl-6.5">
-                        Belirtilen zaman aralığında gelen yeni e-postalarda Windows masaüstü bildirimi ve sesleri otomatik susturulur.
+                        {language === 'en'
+                          ? 'Desktop notifications and alert sounds are automatically muted during the specified time range.'
+                          : 'Belirtilen zaman aralığında gelen yeni e-postalarda Windows masaüstü bildirimi ve sesleri otomatik susturulur.'}
                       </p>
                       {quietHoursEnabled && (
                         <div className="flex items-center gap-4 pl-6.5 pt-1 animate-fadeIn">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-xs text-zinc-600 dark:text-zinc-400">Başlangıç:</span>
+                            <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                              {language === 'en' ? 'Start:' : 'Başlangıç:'}
+                            </span>
                             <input
                               type="time"
                               value={quietHoursStart}
@@ -882,7 +902,9 @@ export function SettingsModal({
                             />
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-xs text-zinc-600 dark:text-zinc-400">Bitiş:</span>
+                            <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                              {language === 'en' ? 'End:' : 'Bitiş:'}
+                            </span>
                             <input
                               type="time"
                               value={quietHoursEnd}
@@ -922,7 +944,7 @@ export function SettingsModal({
                 {/* Arayüz ve Tema Rengi */}
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
-                    Arayüz ve tema rengi
+                    {language === 'en' ? 'Interface & theme color' : 'Arayüz ve tema rengi'}
                   </h3>
 
                   {/* Mailbird Tel Kafes Görsel Yerleşim Kartları */}
@@ -946,8 +968,12 @@ export function SettingsModal({
                         <div className="w-8 h-full border-r border-blue-300/40 dark:border-blue-700/40" />
                         <div className="flex-1 h-full" />
                       </div>
-                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">3 Sütunlu Düzen</span>
-                      <span className="text-[10px] text-zinc-400">Klasik 3 Sütun</span>
+                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                        {language === 'en' ? '3-Column Layout' : '3 Sütunlu Düzen'}
+                      </span>
+                      <span className="text-[10px] text-zinc-400">
+                        {language === 'en' ? 'Classic 3-Column' : 'Klasik 3 Sütun'}
+                      </span>
                     </button>
 
                     {/* Kart 2: Alt Alta / Yatay Bölmeli */}
@@ -970,8 +996,12 @@ export function SettingsModal({
                           <div className="w-full h-1/2" />
                         </div>
                       </div>
-                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">Alt Alta Bölmeli</span>
-                      <span className="text-[10px] text-zinc-400">Yatay Okuma</span>
+                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                        {language === 'en' ? 'Horizontal Split' : 'Alt Alta Bölmeli'}
+                      </span>
+                      <span className="text-[10px] text-zinc-400">
+                        {language === 'en' ? 'Horizontal Reading' : 'Yatay Okuma'}
+                      </span>
                     </button>
 
                     {/* Kart 3: Odak / Kompakt */}
@@ -988,8 +1018,12 @@ export function SettingsModal({
                         <div className="w-3 h-full bg-blue-500/20 rounded-xs" />
                         <div className="flex-1 h-full" />
                       </div>
-                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">Odak Modu</span>
-                      <span className="text-[10px] text-zinc-400">Kompakt Liste</span>
+                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                        {language === 'en' ? 'Focus Mode' : 'Odak Modu'}
+                      </span>
+                      <span className="text-[10px] text-zinc-400">
+                        {language === 'en' ? 'Compact List' : 'Kompakt Liste'}
+                      </span>
                     </button>
                   </div>
 
@@ -1002,7 +1036,7 @@ export function SettingsModal({
                         onChange={(e) => setShowReadingPane(e.target.checked)}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Okuma bölmesini göster</span>
+                      <span>{language === 'en' ? 'Show reading pane' : 'Okuma bölmesini göster'}</span>
                     </label>
 
                     <label className="flex items-center gap-2.5 cursor-pointer">
@@ -1012,7 +1046,7 @@ export function SettingsModal({
                         onChange={(e) => setShowFoldersSeparately(e.target.checked)}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Klasörleri genişletilmiş gezinti penceresinde ayrı göster</span>
+                      <span>{language === 'en' ? 'Show folders separately in expanded navigation' : 'Klasörleri genişletilmiş gezinti penceresinde ayrı göster'}</span>
                     </label>
                   </div>
 
@@ -1026,7 +1060,7 @@ export function SettingsModal({
                         onChange={() => setTheme('light')}
                         className="h-4 w-4 border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Açık Tema</span>
+                      <span>{language === 'en' ? 'Light Theme' : 'Açık Tema'}</span>
                     </label>
 
                     <label className="flex items-center gap-2.5 cursor-pointer text-xs sm:text-[13px]">
@@ -1037,7 +1071,7 @@ export function SettingsModal({
                         onChange={() => setTheme('dark')}
                         className="h-4 w-4 border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Koyu Tema</span>
+                      <span>{language === 'en' ? 'Dark Theme' : 'Koyu Tema'}</span>
                     </label>
 
                     <label className="flex items-center gap-2.5 cursor-pointer text-xs sm:text-[13px]">
@@ -1048,14 +1082,14 @@ export function SettingsModal({
                         onChange={() => setTheme('system')}
                         className="h-4 w-4 border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Sistem Temasıyla Eşitle</span>
+                      <span>{language === 'en' ? 'Match System Theme' : 'Sistem Temasıyla Eşitle'}</span>
                     </label>
                   </div>
 
                   {/* Vurgu Rengi Seçici */}
                   <div className="pt-2">
                     <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-2">
-                      Tema rengini seç
+                      {language === 'en' ? 'Choose theme accent color' : 'Tema rengini seç'}
                     </p>
                     <div className="flex items-center gap-2">
                       {(Object.keys(ACCENTS) as AccentKey[]).map((k) => (
@@ -1077,7 +1111,7 @@ export function SettingsModal({
                 {/* Arkaplan Duvar Kağıtları (Mailbird Screenshot 2 İmzası) */}
                 <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
-                    Arkaplan
+                    {language === 'en' ? 'Background' : 'Arkaplan'}
                   </h3>
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                     <button
@@ -1085,7 +1119,7 @@ export function SettingsModal({
                       onClick={async () => {
                         if (!window.postaci?.openFileDialog) return;
                         const dataUrl = await window.postaci.openFileDialog({
-                          title: 'Özel Arkaplan Resmi Seç',
+                          title: language === 'en' ? 'Choose Custom Background Image' : 'Özel Arkaplan Resmi Seç',
                           filters: [{ name: 'Resim', extensions: ['jpg','jpeg','png','webp','gif','bmp'] }],
                         });
                         if (dataUrl) {
@@ -1097,7 +1131,7 @@ export function SettingsModal({
                         }
                       }}
                       className="h-16 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-blue-500 flex items-center justify-center text-zinc-400 hover:text-blue-500 transition relative group"
-                      title="Özel arkaplan ekle"
+                      title={language === 'en' ? 'Add custom background' : 'Özel arkaplan ekle'}
                     >
                       <span className="text-2xl leading-none">+</span>
                       {customWallpaperDataUrl && (
@@ -1137,11 +1171,13 @@ export function SettingsModal({
                       className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                     />
                     <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                      OLED Saf Siyah (True Black) Modu
+                      {language === 'en' ? 'OLED True Black Mode (#000000)' : 'OLED Saf Siyah (True Black) Modu'}
                     </span>
                   </label>
                   <p className="text-[11px] text-zinc-500 pl-6.5 mt-0.5">
-                    Koyu temada arka planı tam #000000 yaparak OLED/AMOLED ekranlarda maksimum kontrast ve enerji tasarrufu sağlar.
+                    {language === 'en'
+                      ? 'Sets pure #000000 black background in dark mode for maximum contrast and battery saving on OLED/AMOLED screens.'
+                      : 'Koyu temada arka planı tam #000000 yaparak OLED/AMOLED ekranlarda maksimum kontrast ve enerji tasarrufu sağlar.'}
                   </p>
                 </div>
 
@@ -1149,13 +1185,25 @@ export function SettingsModal({
                 <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
                   <div>
                     <label className="block text-xs font-bold text-zinc-900 dark:text-zinc-100 mb-2">
-                      İleti Listesi Yoğunluğu
+                      {language === 'en' ? 'Message List Density' : 'İleti Listesi Yoğunluğu'}
                     </label>
                     <div className="grid grid-cols-3 gap-2">
                       {[
-                        { id: 'compact', label: 'Kompakt', desc: 'Dar satırlar, çok ileti' },
-                        { id: 'normal', label: 'Normal', desc: 'Dengeli satır aralığı' },
-                        { id: 'relaxed', label: 'Rahat', desc: 'Geniş ve ferah görünüm' },
+                        {
+                          id: 'compact',
+                          label: language === 'en' ? 'Compact' : 'Kompakt',
+                          desc: language === 'en' ? 'Tight rows, more emails' : 'Dar satırlar, çok ileti',
+                        },
+                        {
+                          id: 'normal',
+                          label: language === 'en' ? 'Normal' : 'Normal',
+                          desc: language === 'en' ? 'Balanced spacing' : 'Dengeli satır aralığı',
+                        },
+                        {
+                          id: 'relaxed',
+                          label: language === 'en' ? 'Relaxed' : 'Rahat',
+                          desc: language === 'en' ? 'Spacious view' : 'Geniş ve ferah görünüm',
+                        },
                       ].map((d) => (
                         <button
                           key={d.id}
@@ -1178,32 +1226,32 @@ export function SettingsModal({
                     {/* Snippet Satır Sayısı */}
                     <div>
                       <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                        Özet (Snippet) Satır Sayısı
+                        {language === 'en' ? 'Snippet Lines' : 'Özet (Snippet) Satır Sayısı'}
                       </label>
                       <select
                         value={localSnippetLines}
                         onChange={(e) => handleSnippetLinesChange(Number(e.target.value) as SnippetLines)}
                         className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                       >
-                        <option value={0}>Yalnızca Konu (0 satır)</option>
-                        <option value={1}>Tek Satır Akıcı (1 satır)</option>
-                        <option value={2}>Detaylı Özet (2 satır)</option>
+                        <option value={0}>{language === 'en' ? 'Subject only (0 lines)' : 'Yalnızca Konu (0 satır)'}</option>
+                        <option value={1}>{language === 'en' ? 'Single line (1 line)' : 'Tek Satır Akıcı (1 satır)'}</option>
+                        <option value={2}>{language === 'en' ? 'Detailed snippet (2 lines)' : 'Detaylı Özet (2 satır)'}</option>
                       </select>
                     </div>
 
                     {/* Tarih Formatı */}
                     <div>
                       <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                        Tarih Gösterim Formatı
+                        {language === 'en' ? 'Date Format' : 'Tarih Gösterim Formatı'}
                       </label>
                       <select
                         value={localDateFormat}
                         onChange={(e) => handleDateFormatChange(e.target.value as DateFormatPreference)}
                         className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                       >
-                        <option value="smart">Akıllı (Bugün saat, eski gün/ay)</option>
-                        <option value="relative">Göreceli (2 saat önce, Dün)</option>
-                        <option value="absolute">Tam Tarih (11.09.2026 14:30)</option>
+                        <option value="smart">{language === 'en' ? 'Smart (Time today, date older)' : 'Akıllı (Bugün saat, eski gün/ay)'}</option>
+                        <option value="relative">{language === 'en' ? 'Relative (2 hours ago, Yesterday)' : 'Göreceli (2 saat önce, Dün)'}</option>
+                        <option value="absolute">{language === 'en' ? 'Full Date (11.09.2026 14:30)' : 'Tam Tarih (11.09.2026 14:30)'}</option>
                       </select>
                     </div>
                   </div>
@@ -1217,7 +1265,9 @@ export function SettingsModal({
                       className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                     />
                     <span className="text-xs text-zinc-700 dark:text-zinc-300">
-                      İleti listesinde kişi avatarlarını göster (Gizlendiğinde liste daha hızlı kaydırılır)
+                      {language === 'en'
+                        ? 'Show sender avatars in message list (faster scrolling when disabled)'
+                        : 'İleti listesinde kişi avatarlarını göster (Gizlendiğinde liste daha hızlı kaydırılır)'}
                     </span>
                   </label>
                 </div>
@@ -1229,7 +1279,7 @@ export function SettingsModal({
               <div className="space-y-6 max-w-xl">
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-2 tracking-tight">
-                    Uygulama ölçekleme seviyesi
+                    {language === 'en' ? 'Application scaling level' : 'Uygulama ölçekleme seviyesi'}
                   </h3>
                   <div className="flex items-center gap-4">
                     <input
@@ -1249,7 +1299,7 @@ export function SettingsModal({
                         onClick={() => handleAppScaleChange(100)}
                         className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
                       >
-                        Sıfırla (%100)
+                        {language === 'en' ? 'Reset (100%)' : 'Sıfırla (%100)'}
                       </button>
                     )}
                   </div>
@@ -1257,17 +1307,19 @@ export function SettingsModal({
 
                 <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-1 tracking-tight">
-                    Diğer ölçeklendirme seviyeleri
+                    {language === 'en' ? 'Other scaling levels' : 'Diğer ölçeklendirme seviyeleri'}
                   </h3>
                   <p className="text-xs text-zinc-500 italic mb-4">
-                    Aşağıdaki ölçeklendirme seviyeleri uygulama ölçekleme seviyesine uygulanır ve
-                    e-postaları ve onu destekleyen bileşenlerin düzeyini hassas ayarlamak için
-                    kullanılabilir.
+                    {language === 'en'
+                      ? 'The following scaling levels are applied on top of the app scale to fine-tune the size of emails and supporting panes.'
+                      : 'Aşağıdaki ölçeklendirme seviyeleri uygulama ölçekleme seviyesine uygulanır ve e-postaları ve onu destekleyen bileşenlerin düzeyini hassas ayarlamak için kullanılabilir.'}
                   </p>
 
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-zinc-700 dark:text-zinc-300 w-24">E-posta</span>
+                      <span className="text-xs text-zinc-700 dark:text-zinc-300 w-24">
+                        {language === 'en' ? 'Email' : 'E-posta'}
+                      </span>
                       <input
                         type="range"
                         min={80}
@@ -1286,18 +1338,20 @@ export function SettingsModal({
 
                 <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-1 tracking-tight">
-                    Metin biçimlendirme modu
+                    {language === 'en' ? 'Text rendering mode' : 'Metin biçimlendirme modu'}
                   </h3>
                   <p className="text-xs text-zinc-500 italic mb-3">
-                    Ölçekleme sırasında bulanıklık oluşması durumunda bu değeri değiştirin.
+                    {language === 'en'
+                      ? 'Change this value if blurriness occurs during scaling.'
+                      : 'Ölçekleme sırasında bulanıklık oluşması durumunda bu değeri değiştirin.'}
                   </p>
                   <select
                     value={textRenderingMode}
                     onChange={(e) => setTextRenderingMode(e.target.value as 'ideal' | 'standard')}
                     className="w-48 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                   >
-                    <option value="ideal">İdeal (Subpixel Smooth)</option>
-                    <option value="standard">Standart</option>
+                    <option value="ideal">{language === 'en' ? 'Ideal (Subpixel Smooth)' : 'İdeal (Subpixel Smooth)'}</option>
+                    <option value="standard">{language === 'en' ? 'Standard' : 'Standart'}</option>
                   </select>
                 </div>
               </div>
@@ -1309,10 +1363,14 @@ export function SettingsModal({
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                      Bağlı E-posta Hesapları ({accounts.length})
+                      {language === 'en'
+                        ? `Connected Email Accounts (${accounts.length})`
+                        : `Bağlı E-posta Hesapları (${accounts.length})`}
                     </h3>
                     <p className="text-[11px] text-zinc-500">
-                      Hesaplarınızı yönetin, sunucu veya görünen ad bilgilerini düzenleyin.
+                      {language === 'en'
+                        ? 'Manage your accounts, edit server credentials or sender display name.'
+                        : 'Hesaplarınızı yönetin, sunucu veya görünen ad bilgilerini düzenleyin.'}
                     </p>
                   </div>
                   {onOpenAddAccount && !editingAccountId && (
@@ -1322,7 +1380,7 @@ export function SettingsModal({
                       className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition flex items-center gap-1.5 active:scale-95 shrink-0"
                     >
                       <span className="text-sm leading-none">+</span>
-                      <span>Yeni Hesap Ekle</span>
+                      <span>{language === 'en' ? 'Add New Account' : 'Yeni Hesap Ekle'}</span>
                     </button>
                   )}
                 </div>
@@ -1332,43 +1390,47 @@ export function SettingsModal({
                   <div className="rounded-2xl border border-blue-300/80 bg-blue-50/30 p-4 text-xs dark:border-blue-800/80 dark:bg-blue-950/20 space-y-3.5 animate-fadeIn">
                     <div className="flex items-center justify-between pb-2 border-b border-blue-200/60 dark:border-blue-900/60">
                       <span className="font-bold text-blue-900 dark:text-blue-200 text-sm">
-                        Hesap Ayarlarını Düzenle
+                        {language === 'en' ? 'Edit Account Settings' : 'Hesap Ayarlarını Düzenle'}
                       </span>
                       <button
                         type="button"
                         onClick={() => setEditingAccountId(null)}
                         className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-xs"
                       >
-                        Vazgeç
+                        {language === 'en' ? 'Cancel' : 'Vazgeç'}
                       </button>
                     </div>
 
                     {/* Görünen Ad */}
                     <div>
                       <label className="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                        Görünen Ad (Gönderici İsmi)
+                        {language === 'en' ? 'Display Name (Sender Name)' : 'Görünen Ad (Gönderici İsmi)'}
                       </label>
                       <input
                         type="text"
                         value={editDisplayName}
                         onChange={(e) => setEditDisplayName(e.target.value)}
-                        placeholder="Örn: Ekrem Eşref Kılınç"
+                        placeholder={language === 'en' ? 'e.g. John Doe' : 'Örn: Ekrem Eşref Kılınç'}
                         className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
                       />
                       <p className="text-[10px] text-zinc-400 mt-0.5">
-                        Gönderdiğiniz e-postalarda alıcıların göreceği isimdir.
+                        {language === 'en'
+                          ? 'The name recipients see when they receive your emails.'
+                          : 'Gönderdiğiniz e-postalarda alıcıların göreceği isimdir.'}
                       </p>
                     </div>
 
                     {/* IMAP / SMTP Sunucu Ayarları */}
                     <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70 space-y-3">
                       <p className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
-                        Sunucu & Bağlantı Ayarları
+                        {language === 'en' ? 'Server & Connection Settings' : 'Sunucu & Bağlantı Ayarları'}
                       </p>
 
                       <div className="grid grid-cols-3 gap-2">
                         <div className="col-span-2">
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">Gelen Sunucu (IMAP)</label>
+                          <label className="block text-[10px] text-zinc-500 mb-0.5">
+                            {language === 'en' ? 'Incoming Server (IMAP)' : 'Gelen Sunucu (IMAP)'}
+                          </label>
                           <input
                             type="text"
                             value={editImapHost}
@@ -1378,7 +1440,9 @@ export function SettingsModal({
                           />
                         </div>
                         <div>
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">Port</label>
+                          <label className="block text-[10px] text-zinc-500 mb-0.5">
+                            {language === 'en' ? 'Port' : 'Port'}
+                          </label>
                           <input
                             type="number"
                             value={editImapPort}
@@ -1390,7 +1454,9 @@ export function SettingsModal({
 
                       <div className="grid grid-cols-3 gap-2">
                         <div className="col-span-2">
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">Giden Sunucu (SMTP)</label>
+                          <label className="block text-[10px] text-zinc-500 mb-0.5">
+                            {language === 'en' ? 'Outgoing Server (SMTP)' : 'Giden Sunucu (SMTP)'}
+                          </label>
                           <input
                             type="text"
                             value={editSmtpHost}
@@ -1400,7 +1466,9 @@ export function SettingsModal({
                           />
                         </div>
                         <div>
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">Port</label>
+                          <label className="block text-[10px] text-zinc-500 mb-0.5">
+                            {language === 'en' ? 'Port' : 'Port'}
+                          </label>
                           <input
                             type="number"
                             value={editSmtpPort}
@@ -1417,28 +1485,32 @@ export function SettingsModal({
                           onChange={(e) => setEditSmtpSecure(e.target.checked)}
                           className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-0"
                         />
-                        <span className="text-[11px] text-zinc-600 dark:text-zinc-400">SMTP Güvenli Bağlantı (SSL/TLS) kullan</span>
+                        <span className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                          {language === 'en' ? 'Use SMTP Secure Connection (SSL/TLS)' : 'SMTP Güvenli Bağlantı (SSL/TLS) kullan'}
+                        </span>
                       </label>
 
                       {/* Şifre Güncelleme (Opsiyonel) */}
                       <div>
                         <div className="flex items-center justify-between mb-0.5">
                           <label className="block text-[10px] text-zinc-500">
-                            Şifre / Uygulama Şifresi (Yalnızca değiştirmek istiyorsanız doldurun)
+                            {language === 'en'
+                              ? 'Password / App Password (leave blank to keep current)'
+                              : 'Şifre / Uygulama Şifresi (Yalnızca değiştirmek istiyorsanız doldurun)'}
                           </label>
                           <button
                             type="button"
                             onClick={() => setShowEditPassword(!showEditPassword)}
                             className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
                           >
-                            {showEditPassword ? 'Gizle' : 'Göster'}
+                            {showEditPassword ? (language === 'en' ? 'Hide' : 'Gizle') : (language === 'en' ? 'Show' : 'Göster')}
                           </button>
                         </div>
                         <input
                           type={showEditPassword ? 'text' : 'password'}
                           value={editPassword}
                           onChange={(e) => setEditPassword(e.target.value)}
-                          placeholder="Mevcut şifreyi korumak için boş bırakın"
+                          placeholder={language === 'en' ? 'Leave empty to preserve existing password' : 'Mevcut şifreyi korumak için boş bırakın'}
                           className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                         />
                       </div>
@@ -1456,12 +1528,12 @@ export function SettingsModal({
                           {testingConnection ? (
                             <>
                               <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent" />
-                              <span>Test ediliyor...</span>
+                              <span>{language === 'en' ? 'Testing...' : 'Test ediliyor...'}</span>
                             </>
                           ) : (
                             <>
                               <span>🔌</span>
-                              <span>Bağlantıyı Test Et</span>
+                              <span>{language === 'en' ? 'Test Connection' : 'Bağlantıyı Test Et'}</span>
                             </>
                           )}
                         </button>
@@ -1517,14 +1589,16 @@ export function SettingsModal({
                           disabled={savingAccount}
                           className="rounded-xl bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition active:scale-95 disabled:opacity-50"
                         >
-                          {savingAccount ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
+                          {savingAccount
+                            ? (language === 'en' ? 'Saving...' : 'Kaydediliyor...')
+                            : (language === 'en' ? 'Save Changes' : 'Değişiklikleri Kaydet')}
                         </button>
                         <button
                           type="button"
                           onClick={() => setEditingAccountId(null)}
                           className="rounded-xl border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 transition"
                         >
-                          İptal
+                          {language === 'en' ? 'Cancel' : 'İptal'}
                         </button>
                       </div>
 
@@ -1537,7 +1611,7 @@ export function SettingsModal({
                   </div>
                 ) : accounts.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-xs text-zinc-500 dark:border-zinc-750">
-                    Henüz bağlı bir e-posta hesabı bulunmuyor.
+                    {language === 'en' ? 'No connected email accounts yet.' : 'Henüz bağlı bir e-posta hesabı bulunmuyor.'}
                   </div>
                 ) : (
                   /* Hesaplar Listesi */
@@ -1562,7 +1636,7 @@ export function SettingsModal({
                         badgeClass =
                           'bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 dark:border-sky-800/60';
                       } else if (isEdu) {
-                        badge = 'Kurumsal';
+                        badge = language === 'en' ? 'Institutional' : 'Kurumsal';
                         badgeClass =
                           'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border-purple-200 dark:border-purple-800/60';
                       }
@@ -1586,12 +1660,14 @@ export function SettingsModal({
 
                             <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-400">
                               <span className="truncate">
-                                {acc.display_name ? `Görünen: ${acc.display_name}` : 'İsim belirtilmemiş'}
+                                {acc.display_name
+                                  ? `${language === 'en' ? 'Display' : 'Görünen'}: ${acc.display_name}`
+                                  : (language === 'en' ? 'No name specified' : 'İsim belirtilmemiş')}
                               </span>
                               <span>•</span>
                               <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
                                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                Aktif & Senkronize
+                                {language === 'en' ? 'Active & Synced' : 'Aktif & Senkronize'}
                               </span>
                             </div>
                           </div>
@@ -1603,15 +1679,15 @@ export function SettingsModal({
                               onClick={() => handleStartEdit(acc)}
                               className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-750 transition"
                             >
-                              Düzenle
+                              {language === 'en' ? 'Edit' : 'Düzenle'}
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDeleteAccount(acc)}
                               className="rounded-lg border border-red-200 bg-red-50/60 px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/60 transition"
-                              title="Hesabı Postacı'dan kaldır"
+                              title={language === 'en' ? "Remove account from Postacı" : "Hesabı Postacı'dan kaldır"}
                             >
-                              Kaldır
+                              {language === 'en' ? 'Remove' : 'Kaldır'}
                             </button>
                           </div>
                         </div>
@@ -1626,18 +1702,20 @@ export function SettingsModal({
             {activeTab === 'composing' && (
               <div className="space-y-4 max-w-xl">
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                  E-posta İmzaları ve Oluşturma
+                  {language === 'en' ? 'Email Signatures & Composing' : 'E-posta İmzaları ve Oluşturma'}
                 </h3>
 
                 {accounts.length === 0 ? (
                   <p className="text-xs text-zinc-400 py-4">
-                    İmza eklemek için önce bir e-posta hesabı bağlamalısınız.
+                    {language === 'en'
+                      ? 'You must connect an email account first to configure signatures.'
+                      : 'İmza eklemek için önce bir e-posta hesabı bağlamalısınız.'}
                   </p>
                 ) : (
                   <div className="space-y-3.5">
                     <div>
                       <label className="mb-1 block text-xs font-medium text-zinc-500">
-                        Hesap Seçin
+                        {language === 'en' ? 'Select Account' : 'Hesap Seçin'}
                       </label>
                       <select
                         value={selectedEmail}
@@ -1660,7 +1738,11 @@ export function SettingsModal({
                           onChange={(e) => setSigEnabled(e.target.checked)}
                           className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                         />
-                        <span>Bu hesap için otomatik imza ekle</span>
+                        <span>
+                          {language === 'en'
+                            ? 'Automatically append signature for this account'
+                            : 'Bu hesap için otomatik imza ekle'}
+                        </span>
                       </label>
                     </div>
 
@@ -1670,7 +1752,11 @@ export function SettingsModal({
                         disabled={!sigEnabled}
                         value={sigText}
                         onChange={(e) => setSigText(e.target.value)}
-                        placeholder="Saygılarımla,&#10;Adınız Soyadınız&#10;Unvan / Telefon"
+                        placeholder={
+                          language === 'en'
+                            ? 'Best regards,\nYour Name\nTitle / Phone'
+                            : 'Saygılarımla,\nAdınız Soyadınız\nUnvan / Telefon'
+                        }
                         className="w-full rounded-xl border border-zinc-300 p-3 text-xs outline-none focus:border-blue-500 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 font-sans"
                       />
                     </div>
@@ -1681,11 +1767,11 @@ export function SettingsModal({
                         onClick={handleSaveSignature}
                         className="rounded-xl bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition active:scale-95 cursor-pointer"
                       >
-                        İmzayı Kaydet
+                        {language === 'en' ? 'Save Signature' : 'İmzayı Kaydet'}
                       </button>
                       {savedNotice && (
                         <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                          ✓ İmza kaydedildi!
+                          {language === 'en' ? '✓ Signature saved!' : '✓ İmza kaydedildi!'}
                         </span>
                       )}
                     </div>
@@ -1695,10 +1781,12 @@ export function SettingsModal({
                 {/* Göndermeyi Geri Alma Süresi (Undo Send) */}
                 <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
                   <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                    Göndermeyi Geri Alma Penceresi (Undo Send)
+                    {language === 'en' ? 'Undo Send Window' : 'Göndermeyi Geri Alma Penceresi (Undo Send)'}
                   </h4>
                   <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                    E-posta gönderdikten sonra gönderimi iptal etmek için verilen bekleme süresidir.
+                    {language === 'en'
+                      ? 'Grace period after sending an email during which delivery can be canceled.'
+                      : 'E-posta gönderdikten sonra gönderimi iptal etmek için verilen bekleme süresidir.'}
                   </p>
                   <div className="flex items-center gap-3 pt-1">
                     <select
@@ -1706,14 +1794,18 @@ export function SettingsModal({
                       onChange={(e) => handleUndoDelayChange(Number(e.target.value))}
                       className="w-48 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                     >
-                      <option value={0}>Devre Dışı (Anında Gönder)</option>
-                      <option value={5}>5 Saniye (Standart)</option>
-                      <option value={10}>10 Saniye</option>
-                      <option value={20}>20 Saniye</option>
-                      <option value={30}>30 Saniye (Maksimum)</option>
+                      <option value={0}>{language === 'en' ? 'Disabled (Send immediately)' : 'Devre Dışı (Anında Gönder)'}</option>
+                      <option value={5}>{language === 'en' ? '5 Seconds (Standard)' : '5 Saniye (Standart)'}</option>
+                      <option value={10}>{language === 'en' ? '10 Seconds' : '10 Saniye'}</option>
+                      <option value={20}>{language === 'en' ? '20 Seconds' : '20 Saniye'}</option>
+                      <option value={30}>{language === 'en' ? '30 Seconds (Maximum)' : '30 Saniye (Maksimum)'}</option>
                     </select>
                     <span className="text-xs text-zinc-400">
-                      {localUndoDelay === 0 ? 'İletiler beklemeden derhal iletilir' : `${localUndoDelay} saniye boyunca geri al düğmesi aktif kalır`}
+                      {localUndoDelay === 0
+                        ? (language === 'en' ? 'Emails are sent immediately without delay' : 'İletiler beklemeden derhal iletilir')
+                        : (language === 'en'
+                            ? `Undo button remains active for ${localUndoDelay} seconds`
+                            : `${localUndoDelay} saniye boyunca geri al düğmesi aktif kalır`)}
                     </span>
                   </div>
                 </div>
@@ -1724,10 +1816,12 @@ export function SettingsModal({
                     <div>
                       <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
                         <SnippetIcon size={14} className="text-blue-600 dark:text-blue-400" />
-                        <span>Hızlı Yanıt Şablonları (Hazır Metinler)</span>
+                        <span>{language === 'en' ? 'Quick Snippets (Canned Responses)' : 'Hızlı Yanıt Şablonları (Hazır Metinler)'}</span>
                       </h4>
                       <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                        E-posta yazarken araç çubuğundaki şablonlar simgesinden tek tıkla eklenecek hazır yanıtlar.
+                        {language === 'en'
+                          ? 'Insert pre-saved responses with one click from the compose toolbar.'
+                          : 'E-posta yazarken araç çubuğundaki şablonlar simgesinden tek tıkla eklenecek hazır yanıtlar.'}
                       </p>
                     </div>
                   </div>
@@ -1735,7 +1829,9 @@ export function SettingsModal({
                   {/* Yeni Şablon Ekleme Formu */}
                   <form onSubmit={handleAddSnippet} className="rounded-xl border border-zinc-200/90 bg-zinc-50/60 p-3 space-y-2.5 dark:border-zinc-800 dark:bg-zinc-850/40">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">Yeni Şablon Ekle</span>
+                      <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
+                        {language === 'en' ? 'Add New Snippet' : 'Yeni Şablon Ekle'}
+                      </span>
                       {snippetNotice && (
                         <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
                           {snippetNotice}
@@ -1744,14 +1840,14 @@ export function SettingsModal({
                     </div>
                     <input
                       type="text"
-                      placeholder="Şablon Başlığı (Örn: Fatura Talebi, Onay)"
+                      placeholder={language === 'en' ? 'Snippet Title (e.g. Invoice Request, Approval)' : 'Şablon Başlığı (Örn: Fatura Talebi, Onay)'}
                       value={snippetTitle}
                       onChange={(e) => setSnippetTitle(e.target.value)}
                       className="w-full rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                     />
                     <textarea
                       rows={3}
-                      placeholder="Şablon metni içeriği..."
+                      placeholder={language === 'en' ? 'Snippet body content...' : 'Şablon metni içeriği...'}
                       value={snippetBody}
                       onChange={(e) => setSnippetBody(e.target.value)}
                       className="w-full rounded-lg border border-zinc-300 bg-white p-2.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
@@ -1762,7 +1858,7 @@ export function SettingsModal({
                         disabled={!snippetTitle.trim() || !snippetBody.trim()}
                         className="rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-blue-700 disabled:opacity-40 transition cursor-pointer"
                       >
-                        + Şablonu Kaydet
+                        {language === 'en' ? '+ Save Snippet' : '+ Şablonu Kaydet'}
                       </button>
                     </div>
                   </form>
@@ -1770,7 +1866,9 @@ export function SettingsModal({
                   {/* Kayıtlı Şablonlar Listesi */}
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {quickSnippets.length === 0 ? (
-                      <p className="text-xs text-zinc-400 italic py-2">Henüz kayıtlı bir şablon bulunmuyor.</p>
+                      <p className="text-xs text-zinc-400 italic py-2">
+                        {language === 'en' ? 'No saved snippets yet.' : 'Henüz kayıtlı bir şablon bulunmuyor.'}
+                      </p>
                     ) : (
                       quickSnippets.map((s) => (
                         <div
@@ -1789,7 +1887,7 @@ export function SettingsModal({
                             type="button"
                             onClick={() => handleDeleteSnippet(s.id)}
                             className="p-1 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition shrink-0 cursor-pointer"
-                            title="Şablonu Sil"
+                            title={language === 'en' ? 'Delete Snippet' : 'Şablonu Sil'}
                           >
                             <TrashIcon size={14} />
                           </button>
@@ -1806,27 +1904,47 @@ export function SettingsModal({
               <div className="space-y-5 max-w-xl">
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                    Gelişmiş Ayarlar ve Gizlilik
+                    {language === 'en' ? 'Advanced Settings & Privacy' : 'Gelişmiş Ayarlar ve Gizlilik'}
                   </h3>
                   <p className="text-[11px] text-zinc-500">
-                    Okuma zamanlaması, harici görsel gizlilik kalkanı ve yerel veritabanı yönetimi.
+                    {language === 'en'
+                      ? 'Read timing, remote image privacy shield, and local database maintenance.'
+                      : 'Okuma zamanlaması, harici görsel gizlilik kalkanı ve yerel veritabanı yönetimi.'}
                   </p>
                 </div>
 
                 {/* Okundu Olarak İşaretleme Zamanlaması */}
                 <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3.5 dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
                   <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                    Okundu Olarak İşaretleme Zamanlaması
+                    {language === 'en' ? 'Mark as Read Timing' : 'Okundu Olarak İşaretleme Zamanlaması'}
                   </h4>
                   <p className="text-[11px] text-zinc-500">
-                    Bir ileti seçildiğinde ne zaman okundu olarak işaretleneceğini belirleyin.
+                    {language === 'en'
+                      ? 'Determine when an email is automatically marked as read upon selection.'
+                      : 'Bir ileti seçildiğinde ne zaman okundu olarak işaretleneceğini belirleyin.'}
                   </p>
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     {[
-                      { id: 'instant', label: 'Anında', desc: 'İleti tıklandığı anda' },
-                      { id: 'delay_3s', label: '3 Saniye Sonra', desc: 'İletide 3 sn kalındığında' },
-                      { id: 'delay_5s', label: '5 Saniye Sonra', desc: 'İletide 5 sn kalındığında' },
-                      { id: 'manual', label: 'Manuel', desc: 'Sadece düğmeye basıldığında' },
+                      {
+                        id: 'instant',
+                        label: language === 'en' ? 'Instant' : 'Anında',
+                        desc: language === 'en' ? 'As soon as email is clicked' : 'İleti tıklandığı anda',
+                      },
+                      {
+                        id: 'delay_3s',
+                        label: language === 'en' ? 'After 3 Seconds' : '3 Saniye Sonra',
+                        desc: language === 'en' ? 'When viewing for 3 seconds' : 'İletide 3 sn kalındığında',
+                      },
+                      {
+                        id: 'delay_5s',
+                        label: language === 'en' ? 'After 5 Seconds' : '5 Saniye Sonra',
+                        desc: language === 'en' ? 'When viewing for 5 seconds' : 'İletide 5 sn kalındığında',
+                      },
+                      {
+                        id: 'manual',
+                        label: language === 'en' ? 'Manual' : 'Manuel',
+                        desc: language === 'en' ? 'Only when button is pressed' : 'Sadece düğmeye basıldığında',
+                      },
                     ].map((m) => (
                       <button
                         key={m.id}
@@ -1855,45 +1973,51 @@ export function SettingsModal({
                       className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                     />
                     <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                      Harici Görselleri ve İzleme Piksellerini Otomatik Engelle
+                      {language === 'en'
+                        ? 'Automatically Block Remote Images & Tracking Pixels'
+                        : 'Harici Görselleri ve İzleme Piksellerini Otomatik Engelle'}
                     </span>
                   </label>
                   <p className="text-[11px] text-zinc-500 pl-6.5 leading-relaxed">
-                    E-postalardaki harici web bağlantılı görselleri varsayılan olarak engeller. Bu sayede gönderenlerin IP adresinizi, konumunuzu veya e-postayı açtığınız saati izlemesini önler. İstediğinizde ileti bölmesinden görsellere izin verebilirsiniz.
+                    {language === 'en'
+                      ? 'Blocks external web images by default. Prevents senders from tracking your IP address, location, or open time. You can allow images per email anytime.'
+                      : 'E-postalardaki harici web bağlantılı görselleri varsayılan olarak engeller. Bu sayede gönderenlerin IP adresinizi, konumunuzu veya e-postayı açtığınız saati izlemesini önler. İstediğinizde ileti bölmesinden görsellere izin verebilirsiniz.'}
                   </p>
                 </div>
 
                 {/* SQLite Durumu + RAM + Boyut */}
                 <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">Yerel SQLite Durumu:</p>
+                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">
+                      {language === 'en' ? 'Local SQLite Status:' : 'Yerel SQLite Durumu:'}
+                    </p>
                     <button
                       type="button"
                       onClick={loadSystemInfo}
-                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
                     >
-                      Yenile
+                      {language === 'en' ? 'Refresh' : 'Yenile'}
                     </button>
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="bg-white dark:bg-zinc-800 p-2 rounded-lg border border-zinc-200/80 dark:border-zinc-700">
                       <p className="text-lg font-bold text-blue-600">{dbStats?.accounts ?? accounts.length}</p>
-                      <p className="text-[10px] text-zinc-400">Hesap</p>
+                      <p className="text-[10px] text-zinc-400">{language === 'en' ? 'Accounts' : 'Hesap'}</p>
                     </div>
                     <div className="bg-white dark:bg-zinc-800 p-2 rounded-lg border border-zinc-200/80 dark:border-zinc-700">
                       <p className="text-lg font-bold text-emerald-600">{dbStats?.folders ?? '-'}</p>
-                      <p className="text-[10px] text-zinc-400">Klasör</p>
+                      <p className="text-[10px] text-zinc-400">{language === 'en' ? 'Folders' : 'Klasör'}</p>
                     </div>
                     <div className="bg-white dark:bg-zinc-800 p-2 rounded-lg border border-zinc-200/80 dark:border-zinc-700">
                       <p className="text-lg font-bold text-purple-600">{dbStats?.messages ?? '-'}</p>
-                      <p className="text-[10px] text-zinc-400">Kayıtlı İleti</p>
+                      <p className="text-[10px] text-zinc-400">{language === 'en' ? 'Cached Emails' : 'Kayıtlı İleti'}</p>
                     </div>
                   </div>
 
                   {/* DB Boyutu */}
                   {systemInfo && (
                     <div className="flex items-center justify-between rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700 px-3 py-2">
-                      <span className="text-zinc-500">DB Dosya Boyutu</span>
+                      <span className="text-zinc-500">{language === 'en' ? 'Database File Size' : 'DB Dosya Boyutu'}</span>
                       <span className="font-bold text-zinc-800 dark:text-zinc-200">
                         {systemInfo.db.sizeMB < 1
                           ? `${Math.round(systemInfo.db.sizeBytes / 1024)} KB`
@@ -1906,22 +2030,24 @@ export function SettingsModal({
                 {/* RAM Kullanımı */}
                 {systemInfo && (
                   <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
-                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">Bellek Kullanımı (Ana Süreç):</p>
+                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">
+                      {language === 'en' ? 'Memory Usage (Main Process):' : 'Bellek Kullanımı (Ana Süreç):'}
+                    </p>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
-                        <span className="text-zinc-500">RSS (Toplam)</span>
+                        <span className="text-zinc-500">{language === 'en' ? 'RSS (Total)' : 'RSS (Toplam)'}</span>
                         <span className="font-bold text-orange-600 dark:text-orange-400">{systemInfo.ram.rssMB} MB</span>
                       </div>
                       <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
-                        <span className="text-zinc-500">Heap Kullanılan</span>
+                        <span className="text-zinc-500">{language === 'en' ? 'Heap Used' : 'Heap Kullanılan'}</span>
                         <span className="font-bold text-blue-600 dark:text-blue-400">{systemInfo.ram.heapUsedMB} MB</span>
                       </div>
                       <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
-                        <span className="text-zinc-500">Heap Toplam</span>
+                        <span className="text-zinc-500">{language === 'en' ? 'Heap Total' : 'Heap Toplam'}</span>
                         <span className="font-bold text-zinc-700 dark:text-zinc-300">{systemInfo.ram.heapTotalMB} MB</span>
                       </div>
                       <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
-                        <span className="text-zinc-500">Harici</span>
+                        <span className="text-zinc-500">{language === 'en' ? 'External' : 'Harici'}</span>
                         <span className="font-bold text-zinc-600 dark:text-zinc-400">{systemInfo.ram.externalMB} MB</span>
                       </div>
                     </div>
@@ -1936,13 +2062,16 @@ export function SettingsModal({
                     className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
                   >
                     {vacuumStatus === 'running' ? (
-                      <><span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent" /><span>Optimize ediliyor...</span></>
+                      <>
+                        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent" />
+                        <span>{language === 'en' ? 'Optimizing...' : 'Optimize ediliyor...'}</span>
+                      </>
                     ) : vacuumStatus === 'done' ? (
-                      <span className="text-emerald-600 dark:text-emerald-400">✓ Optimize edildi!</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">{language === 'en' ? '✓ Optimized!' : '✓ Optimize edildi!'}</span>
                     ) : vacuumStatus === 'error' ? (
-                      <span className="text-red-600">✕ Hata oluştu</span>
+                      <span className="text-red-600">{language === 'en' ? '✕ Error occurred' : '✕ Hata oluştu'}</span>
                     ) : (
-                      <span>Veritabanını Optimize Et (VACUUM)</span>
+                      <span>{language === 'en' ? 'Optimize Database (VACUUM)' : 'Veritabanını Optimize Et (VACUUM)'}</span>
                     )}
                   </button>
                   {onOpenShortcutsHelp && (
@@ -1951,7 +2080,7 @@ export function SettingsModal({
                       onClick={onOpenShortcutsHelp}
                       className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
                     >
-                      Klavye Kısayolları Haritası
+                      {language === 'en' ? 'Keyboard Shortcuts Map' : 'Klavye Kısayolları Haritası'}
                     </button>
                   )}
                 </div>
@@ -1974,7 +2103,10 @@ export function SettingsModal({
                     ) : (
                       <PostaciLogo size="xl" variant="squircle" showBadge={false} />
                     )}
-                    <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-xs" title="Stabil ve Güvenli Sürüm">
+                    <span
+                      className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-xs"
+                      title={language === 'en' ? 'Stable & Secure Version' : 'Stabil ve Güvenli Sürüm'}
+                    >
                       ✓
                     </span>
                   </div>
@@ -1988,7 +2120,9 @@ export function SettingsModal({
                       </span>
                     </div>
                     <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1 leading-relaxed">
-                      Yıldırım hızında, güvenli, modern ve şık masaüstü e-posta istemcisi.
+                      {language === 'en'
+                        ? 'Lightning-fast, secure, modern and sleek desktop email client.'
+                        : 'Yıldırım hızında, güvenli, modern ve şık masaüstü e-posta istemcisi.'}
                     </p>
                     <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
                       <span className="inline-flex items-center gap-1">
@@ -1996,9 +2130,9 @@ export function SettingsModal({
                         Windows x64
                       </span>
                       <span>•</span>
-                      <span>Yerel SQLite</span>
+                      <span>{language === 'en' ? 'Local SQLite' : 'Yerel SQLite'}</span>
                       <span>•</span>
-                      <span>Donanım Korumalı DPAPI</span>
+                      <span>{language === 'en' ? 'Hardware-Protected DPAPI' : 'Donanım Korumalı DPAPI'}</span>
                     </div>
                   </div>
                 </div>
@@ -2008,14 +2142,16 @@ export function SettingsModal({
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                        <span>Yazılım Güncellemeleri</span>
+                        <span>{language === 'en' ? 'Software Updates' : 'Yazılım Güncellemeleri'}</span>
                       </h4>
                       <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                         {updateCheckStatus === 'available' && latestReleaseInfo?.version
-                          ? `Yeni sürüm mevcut: v${latestReleaseInfo.version}`
+                          ? (language === 'en' ? `New version available: v${latestReleaseInfo.version}` : `Yeni sürüm mevcut: v${latestReleaseInfo.version}`)
                           : updateCheckStatus === 'latest'
-                          ? `Tebrikler, en güncel sürümü kullanıyorsunuz (v${currentVersion}).`
-                          : 'Resmi GitHub sürümlerini kontrol edin.'}
+                          ? (language === 'en'
+                              ? `You are running the latest version (v${currentVersion}).`
+                              : `Tebrikler, en güncel sürümü kullanıyorsunuz (v${currentVersion}).`)
+                          : (language === 'en' ? 'Check official GitHub releases.' : 'Resmi GitHub sürümlerini kontrol edin.')}
                       </p>
                     </div>
 
@@ -2029,10 +2165,10 @@ export function SettingsModal({
                         {updateCheckStatus === 'checking' ? (
                           <>
                             <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            <span>Denetleniyor...</span>
+                            <span>{language === 'en' ? 'Checking...' : 'Denetleniyor...'}</span>
                           </>
                         ) : (
-                          <span>Güncellemeleri Denetle</span>
+                          <span>{language === 'en' ? 'Check for Updates' : 'Güncellemeleri Denetle'}</span>
                         )}
                       </button>
                       {updateCheckStatus === 'available' && latestReleaseInfo?.url && (
@@ -2041,7 +2177,7 @@ export function SettingsModal({
                           onClick={() => openUrl(latestReleaseInfo.url!)}
                           className="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition active:scale-95 inline-flex items-center gap-1"
                         >
-                          <span>v{latestReleaseInfo.version} İndir</span>
+                          <span>{language === 'en' ? `Download v${latestReleaseInfo.version}` : `v${latestReleaseInfo.version} İndir`}</span>
                           <span>↗</span>
                         </button>
                       )}
@@ -2061,10 +2197,14 @@ export function SettingsModal({
                       <div>
                         <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
                           <span>eekilinc / Postaci</span>
-                          <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">Açık Kaynak</span>
+                          <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                            {language === 'en' ? 'Open Source' : 'Açık Kaynak'}
+                          </span>
                         </h4>
                         <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                          Resmi GitHub deposu, kaynak kodlar ve katkı yönergeleri.
+                          {language === 'en'
+                            ? 'Official GitHub repository, source code, and contribution guidelines.'
+                            : 'Resmi GitHub deposu, kaynak kodlar ve katkı yönergeleri.'}
                         </p>
                       </div>
                     </div>
@@ -2075,24 +2215,24 @@ export function SettingsModal({
                     <button
                       type="button"
                       onClick={() => openUrl('https://github.com/eekilinc/Postaci')}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-zinc-800 transition dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 active:scale-95"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-zinc-800 transition dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 active:scale-95 cursor-pointer"
                     >
-                      <span>GitHub'da Görüntüle</span>
+                      <span>{language === 'en' ? 'View on GitHub' : "GitHub'da Görüntüle"}</span>
                       <span className="text-xs">↗</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => openUrl('https://github.com/eekilinc/Postaci/releases')}
-                      className="inline-flex items-center gap-1 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition active:scale-95"
+                      className="inline-flex items-center gap-1 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition active:scale-95 cursor-pointer"
                     >
-                      <span>Sürümler (Releases)</span>
+                      <span>{language === 'en' ? 'Releases' : 'Sürümler (Releases)'}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => openUrl('https://github.com/eekilinc/Postaci/issues')}
-                      className="inline-flex items-center gap-1 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition active:scale-95"
+                      className="inline-flex items-center gap-1 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition active:scale-95 cursor-pointer"
                     >
-                      <span>Hata / İstek Bildir</span>
+                      <span>{language === 'en' ? 'Report Bug / Request' : 'Hata / İstek Bildir'}</span>
                     </button>
                   </div>
                 </div>
@@ -2101,18 +2241,22 @@ export function SettingsModal({
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-850/40">
                     <p className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                      <span>⚡</span> <span>Çevrimdışı & Yerel SQLite</span>
+                      <span>⚡</span> <span>{language === 'en' ? 'Offline & Local SQLite' : 'Çevrimdışı & Yerel SQLite'}</span>
                     </p>
                     <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
-                      İnternet bağlantınız kopsa bile gelen kutunuzda sıfır gecikmeyle anında arama yapabilirsiniz.
+                      {language === 'en'
+                        ? 'Search your inbox with zero latency even without an active internet connection.'
+                        : 'İnternet bağlantınız kopsa bile gelen kutunuzda sıfır gecikmeyle anında arama yapabilirsiniz.'}
                     </p>
                   </div>
                   <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-850/40">
                     <p className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                      <span>🔒</span> <span>Donanım Şifreleme</span>
+                      <span>🔒</span> <span>{language === 'en' ? 'Hardware Encryption' : 'Donanım Şifreleme'}</span>
                     </p>
                     <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
-                      Hesap şifreleriniz ve OAuth tokenlarınız Windows DPAPI ile yerel olarak şifrelenir.
+                      {language === 'en'
+                        ? 'Passwords and OAuth credentials are saved locally encrypted via Windows DPAPI.'
+                        : 'Hesap şifreleriniz ve OAuth tokenlarınız Windows DPAPI ile yerel olarak şifrelenir.'}
                     </p>
                   </div>
                 </div>
@@ -2120,7 +2264,9 @@ export function SettingsModal({
                 {/* Sistem Versiyonları */}
                 {systemInfo && (
                   <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
-                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">Çalışma Ortamı Versiyonları:</p>
+                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">
+                      {language === 'en' ? 'Runtime Environment Versions:' : 'Çalışma Ortamı Versiyonları:'}
+                    </p>
                     <div className="grid grid-cols-2 gap-1.5">
                       {[
                         { label: 'Electron', value: systemInfo.versions.electron },
@@ -2140,16 +2286,18 @@ export function SettingsModal({
                 {/* Geliştirici & Lisans */}
                 <div className="rounded-xl bg-zinc-50/60 dark:bg-zinc-850/30 p-3 text-xs border border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between">
                   <div>
-                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">Geliştirici: </span>
+                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                      {language === 'en' ? 'Developer: ' : 'Geliştirici: '}
+                    </span>
                     <span className="text-zinc-600 dark:text-zinc-400">Ekrem Eşref Kılınç</span>
                     <span className="mx-1 text-zinc-400">•</span>
-                    <span className="text-zinc-500">MIT Lisansı</span>
+                    <span className="text-zinc-500">{language === 'en' ? 'MIT License' : 'MIT Lisansı'}</span>
                   </div>
                   <a
                     href="mailto:ekilinc@mehmetakif.edu.tr"
                     className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
                   >
-                    İletişim
+                    {language === 'en' ? 'Contact' : 'İletişim'}
                   </a>
                 </div>
 
