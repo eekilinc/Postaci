@@ -261,6 +261,85 @@ function ensureProtocolRegistration() {
   }
 }
 
+function syncStartupSettings(launchOnStartup, startMinimized) {
+  if (process.platform !== 'win32') return;
+  try {
+    const isPackaged = app.isPackaged;
+    const target = process.execPath;
+    const argList = isPackaged
+      ? (startMinimized ? ['--minimized'] : [])
+      : [path.resolve(__dirname), ...(startMinimized ? ['--minimized'] : [])];
+    const argsStr = argList.length > 0 ? ' ' + argList.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ') : '';
+
+    // 1. Electron yerleşik LoginItemSettings API'si
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: !!launchOnStartup,
+        path: target,
+        args: isPackaged ? (startMinimized ? ['--minimized'] : []) : [],
+      });
+    } catch (errLogin) {
+      console.warn('[startup] app.setLoginItemSettings uyarısı:', errLogin?.message);
+    }
+
+    const { exec } = require('child_process');
+
+    // 2. Windows Registry HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+    if (launchOnStartup) {
+      const regCmd = `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "Postaci" /t REG_SZ /d "\\"${target}\\"${argsStr}" /f`;
+      const regCmdAumid = `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "com.postaci.app" /t REG_SZ /d "\\"${target}\\"${argsStr}" /f`;
+
+      // 3. Windows Explorer StartupApproved\\Run (020000000000000000000000 = Etkin)
+      const approvedCmd = `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" /v "Postaci" /t REG_BINARY /d "020000000000000000000000" /f`;
+      const approvedCmdAumid = `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" /v "com.postaci.app" /t REG_BINARY /d "020000000000000000000000" /f`;
+
+      exec([regCmd, regCmdAumid, approvedCmd, approvedCmdAumid].join(' & '), () => {});
+    } else {
+      const delCmd = `reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "Postaci" /f`;
+      const delCmdAumid = `reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "com.postaci.app" /f`;
+      const delApproved = `reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" /v "Postaci" /f`;
+      const delApprovedAumid = `reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" /v "com.postaci.app" /f`;
+
+      exec([delCmd, delCmdAumid, delApproved, delApprovedAumid].join(' & '), () => {});
+    }
+
+    // 4. Windows Başlangıç Klasörü (%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\Postaci.lnk)
+    const startupDir = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
+    if (!fs.existsSync(startupDir)) fs.mkdirSync(startupDir, { recursive: true });
+
+    const startupLnkNames = ['Postaci.lnk', 'Postacı.lnk'];
+    if (launchOnStartup) {
+      const icoPath = resolveAppIcon(true) || resolveAppIcon(false) || target;
+      const lnkPath = path.join(startupDir, 'Postaci.lnk');
+      try {
+        shell.writeShortcutLink(lnkPath, fs.existsSync(lnkPath) ? 'replace' : 'create', {
+          target,
+          args: argsStr.trim(),
+          appUserModelId: 'com.postaci.app',
+          icon: icoPath,
+          iconIndex: 0,
+          description: 'Postacı — Masaüstü E-posta İstemcisi',
+        });
+        const approvedFolderCmd = `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\StartupFolder" /v "Postaci.lnk" /t REG_BINARY /d "020000000000000000000000" /f`;
+        exec(approvedFolderCmd, () => {});
+      } catch (errLnk) {
+        console.warn('[startup] Startup kısayolu oluşturulamadı:', errLnk?.message);
+      }
+    } else {
+      for (const name of startupLnkNames) {
+        const lnkPath = path.join(startupDir, name);
+        if (fs.existsSync(lnkPath)) {
+          try { fs.unlinkSync(lnkPath); } catch {}
+        }
+      }
+      const delFolderApproved = `reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\StartupFolder" /v "Postaci.lnk" /f`;
+      exec(delFolderApproved, () => {});
+    }
+  } catch (err) {
+    console.warn('[startup] syncStartupSettings hatası:', err?.message);
+  }
+}
+
 function isInQuietHours() {
   try {
     const settings = getSetting('notification_settings', {
@@ -735,14 +814,26 @@ function createWindow() {
 
   mainWindow = win;
 
+  const isStartedFromStartup = Array.isArray(process.argv) && (
+    process.argv.includes('--minimized') ||
+    process.argv.includes('--hidden') ||
+    process.argv.includes('--startup') ||
+    process.argv.includes('--autostart')
+  );
+
   win.once('ready-to-show', () => {
-    if (behavior.startMinimized) {
-      win.hide();
+    if (isStartedFromStartup && behavior.startMinimized) {
       if (behavior.hideTaskbarOnMinimize) {
+        win.hide();
         win.setSkipTaskbar(true);
+      } else {
+        win.minimize();
+        win.setSkipTaskbar(false);
       }
     } else {
+      win.setSkipTaskbar(false);
       win.show();
+      win.focus();
     }
     if (Array.isArray(process.argv)) {
       setTimeout(() => {
@@ -2002,15 +2093,8 @@ app.whenReady().then(() => {
     const updated = { ...current, ...newSettings };
     setSetting('app_behavior_settings', updated);
 
-    if (typeof updated.launchOnStartup === 'boolean') {
-      try {
-        app.setLoginItemSettings({
-          openAtLogin: updated.launchOnStartup,
-          args: updated.startMinimized ? ['--minimized'] : [],
-        });
-      } catch (err) {
-        console.warn('[settings] setLoginItemSettings hatası:', err?.message);
-      }
+    if (typeof updated.launchOnStartup === 'boolean' || typeof updated.startMinimized === 'boolean') {
+      syncStartupSettings(!!updated.launchOnStartup, !!updated.startMinimized);
     }
 
     return updated;
@@ -2029,6 +2113,15 @@ app.whenReady().then(() => {
     app.setAppUserModelId('com.postaci.app');
   } catch {}
 
+  // Başlangıç ayarlarını uygulama her açıldığında Windows ile senkronize et
+  const initialBehavior = getSetting('app_behavior_settings', {
+    launchOnStartup: false,
+    startMinimized: false,
+  });
+  if (initialBehavior.launchOnStartup) {
+    syncStartupSettings(true, !!initialBehavior.startMinimized);
+  }
+
   createTray();
   createWindow();
   updateBackgroundSyncSchedule();
@@ -2041,8 +2134,10 @@ app.on('second-instance', (_event, commandLine, _workingDirectory) => {
   // Bildirime tıklanması veya uygulamanın tekrar çalıştırılması halinde mevcut pencereyi öne getir
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setSkipTaskbar(false);
-    if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
     mainWindow.setAlwaysOnTop(true);
     mainWindow.focus();
     mainWindow.setAlwaysOnTop(false);

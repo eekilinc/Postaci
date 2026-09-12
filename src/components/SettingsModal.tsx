@@ -571,7 +571,7 @@ export function SettingsModal({
                       <span>Windows başlangıcında açılsın</span>
                     </label>
 
-                    <label className="flex items-center gap-2.5 ml-6 cursor-pointer opacity-90">
+                    <label className="flex items-start gap-2.5 ml-6 cursor-pointer opacity-90">
                       <input
                         type="checkbox"
                         checked={startMinimized}
@@ -582,11 +582,16 @@ export function SettingsModal({
                           localStorage.setItem('postaci_minimized', String(val));
                           updateAppBehavior({ startMinimized: val });
                         }}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer disabled:opacity-40"
+                        className="h-4 w-4 mt-0.5 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer disabled:opacity-40"
                       />
-                      <span className={!launchOnStartup ? 'text-zinc-400' : ''}>
-                        Başlangıçta simge durumunda açılsın
-                      </span>
+                      <div className="flex flex-col">
+                        <span className={!launchOnStartup ? 'text-zinc-400' : ''}>
+                          Başlangıçta simge durumunda açılsın (arka planda sessizce başlar)
+                        </span>
+                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                          Açık olduğunda Windows açılırken ana pencere ekrana gelmez, sistem tepsisinde (saat yanında) hazır bekler.
+                        </span>
+                      </div>
                     </label>
 
                     <label className="flex items-center gap-2.5 cursor-pointer">
