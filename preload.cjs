@@ -1,7 +1,7 @@
 // preload.cjs - güvenli IPC köprüsü
 const { contextBridge, ipcRenderer } = require('electron');
 
-let appVersion = '1.0.22';
+let appVersion = '1.0.24';
 try {
   const v = ipcRenderer.sendSync('app:get-version-sync');
   if (v) appVersion = v;
