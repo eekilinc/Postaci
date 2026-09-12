@@ -1,6 +1,7 @@
 // src/components/ReadingToolbar.tsx — Okuma paneli eylem çubuğu
 import { memo, useEffect, useRef, useState } from 'react';
 import type { Folder } from '../types';
+import { useTranslation } from '../i18n';
 import {
   ReplyIcon,
   ForwardIcon,
@@ -49,6 +50,7 @@ export const ReadingToolbar = memo(function ReadingToolbar({
   onExportEml,
   onEditDraft,
 }: ReadingToolbarProps) {
+  const { t, language } = useTranslation();
   const [showMoveMenu, setShowMoveMenu] = useState(false);
   const moveMenuRef = useRef<HTMLDivElement>(null);
 
@@ -73,10 +75,10 @@ export const ReadingToolbar = memo(function ReadingToolbar({
             type="button"
             onClick={onBackToList}
             className="inline-flex items-center gap-1 rounded-xl border border-zinc-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold text-zinc-700 shadow-2xs transition-all hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-200 mr-1 shrink-0"
-            title="Mesaj listesine dön"
+            title={language === 'en' ? 'Back to message list' : 'Mesaj listesine dön'}
           >
             <ChevronLeftIcon size={15} />
-            <span className="hidden sm:inline">Listeye Dön</span>
+            <span className="hidden sm:inline">{language === 'en' ? 'Back to List' : 'Listeye Dön'}</span>
           </button>
         )}
         {isDraft ? (
@@ -86,7 +88,7 @@ export const ReadingToolbar = memo(function ReadingToolbar({
             className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-blue-700 shrink-0"
           >
             <ComposeIcon size={14} />
-            <span>Taslağı Düzenle</span>
+            <span>{language === 'en' ? 'Edit Draft' : 'Taslağı Düzenle'}</span>
           </button>
         ) : (
           <>
@@ -94,10 +96,10 @@ export const ReadingToolbar = memo(function ReadingToolbar({
               type="button"
               onClick={onReply}
               className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/90 px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-2xs transition-all hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-200 dark:hover:bg-zinc-750 shrink-0"
-              title="Yanıtla (r)"
+              title={`${t('read.reply')} (r)`}
             >
               <ReplyIcon size={14} />
-              <span className="hidden sm:inline">Yanıtla</span>
+              <span className="hidden sm:inline">{t('read.reply')}</span>
               <kbd className="hidden md:inline-block rounded-md border border-zinc-200 px-1 py-0.2 text-[9px] text-zinc-400 dark:border-zinc-700">
                 R
               </kbd>
@@ -107,10 +109,10 @@ export const ReadingToolbar = memo(function ReadingToolbar({
               type="button"
               onClick={onForward}
               className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/90 px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-2xs transition-all hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-200 dark:hover:bg-zinc-750 shrink-0"
-              title="İlet (f)"
+              title={`${t('read.forward')} (f)`}
             >
               <ForwardIcon size={14} />
-              <span className="hidden sm:inline">İlet</span>
+              <span className="hidden sm:inline">{t('read.forward')}</span>
               <kbd className="hidden md:inline-block rounded-md border border-zinc-200 px-1 py-0.2 text-[9px] text-zinc-400 dark:border-zinc-700">
                 F
               </kbd>
@@ -126,10 +128,10 @@ export const ReadingToolbar = memo(function ReadingToolbar({
             type="button"
             onClick={onArchive}
             className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/90 px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-2xs transition-all hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-200 dark:hover:bg-zinc-750 shrink-0"
-            title="Arşivle (e)"
+            title={`${language === 'en' ? 'Archive' : 'Arşivle'} (e)`}
           >
             <ArchiveIcon size={14} />
-            <span className="hidden md:inline">Arşivle</span>
+            <span className="hidden md:inline">{language === 'en' ? 'Archive' : 'Arşivle'}</span>
             <kbd className="hidden lg:inline-block rounded-md border border-zinc-200 px-1 py-0.2 text-[9px] text-zinc-400 dark:border-zinc-700">
               E
             </kbd>
@@ -143,17 +145,17 @@ export const ReadingToolbar = memo(function ReadingToolbar({
               type="button"
               onClick={() => setShowMoveMenu((v) => !v)}
               className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/90 px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-2xs transition-all hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-200 dark:hover:bg-zinc-750"
-              title="Klasöre Taşı (v)"
+              title={`${language === 'en' ? 'Move to Folder' : 'Klasöre Taşı'} (v)`}
             >
               <FolderIcon size={14} />
-              <span className="hidden md:inline">Taşı</span>
+              <span className="hidden md:inline">{language === 'en' ? 'Move' : 'Taşı'}</span>
               <ChevronDownIcon size={12} className="text-zinc-400" />
             </button>
 
             {showMoveMenu && (
               <div className="absolute right-0 mt-1 z-50 w-52 rounded-2xl border border-zinc-200 bg-white/95 py-1.5 shadow-xl backdrop-blur-md dark:border-zinc-700 dark:bg-zinc-800/95 max-h-60 overflow-y-auto animate-fadeIn">
                 <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 border-b border-zinc-100 dark:border-zinc-800">
-                  Klasör Seçin
+                  {language === 'en' ? 'Select Folder' : 'Klasör Seçin'}
                 </div>
                 {moveCandidates.map((f) => (
                   <button
@@ -179,10 +181,10 @@ export const ReadingToolbar = memo(function ReadingToolbar({
           type="button"
           onClick={onToggleRead}
           className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/90 px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-2xs transition-all hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-200 dark:hover:bg-zinc-750 shrink-0"
-          title={isRead ? 'Okunmadı İşaretle (u)' : 'Okundu İşaretle (i)'}
+          title={isRead ? `${t('read.markUnread')} (u)` : `${language === 'en' ? 'Mark as Read' : 'Okundu İşaretle'} (i)`}
         >
           {isRead ? <MailIcon size={14} /> : <CheckIcon size={14} />}
-          <span className="hidden lg:inline">{isRead ? 'Okunmadı' : 'Okundu'}</span>
+          <span className="hidden lg:inline">{isRead ? (language === 'en' ? 'Unread' : 'Okunmadı') : (language === 'en' ? 'Read' : 'Okundu')}</span>
         </button>
 
         {/* Sil Butonu */}
@@ -191,10 +193,10 @@ export const ReadingToolbar = memo(function ReadingToolbar({
             type="button"
             onClick={onDelete}
             className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50/60 px-2.5 py-1.5 text-xs font-medium text-red-600 shadow-2xs transition hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-900/40 shrink-0"
-            title={isTrash ? 'Kalıcı Olarak Sil (#)' : 'Çöp Kutusuna Taşı (#)'}
+            title={isTrash ? (language === 'en' ? 'Permanently Delete (#)' : 'Kalıcı Olarak Sil (#)') : (language === 'en' ? 'Move to Trash (#)' : 'Çöp Kutusuna Taşı (#)')}
           >
             <TrashIcon size={14} />
-            <span className="hidden md:inline">{isTrash ? 'Kalıcı Sil' : 'Sil'}</span>
+            <span className="hidden md:inline">{isTrash ? (language === 'en' ? 'Delete' : 'Kalıcı Sil') : t('read.delete')}</span>
             <kbd className="hidden lg:inline-block rounded-md border border-red-200 px-1 py-0.2 text-[9px] text-red-400 dark:border-red-800">
               #
             </kbd>
@@ -206,7 +208,7 @@ export const ReadingToolbar = memo(function ReadingToolbar({
           type="button"
           onClick={() => window.print()}
           className="inline-flex items-center rounded-xl border border-zinc-200/80 bg-white/90 p-2 text-xs text-zinc-500 shadow-2xs transition-all hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-400 dark:hover:bg-zinc-750 shrink-0"
-          title="Yazdır (Ctrl+P)"
+          title={`${t('read.print')} (Ctrl+P)`}
         >
           <PrintIcon size={14} />
         </button>
@@ -217,7 +219,7 @@ export const ReadingToolbar = memo(function ReadingToolbar({
             type="button"
             onClick={onExportEml}
             className="inline-flex items-center rounded-xl border border-zinc-200/80 bg-white/90 p-2 text-xs text-zinc-500 shadow-2xs transition-all hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-400 dark:hover:bg-zinc-750 shrink-0"
-            title="E-posta dosyasını kaydet (.eml)"
+            title={language === 'en' ? 'Save email file (.eml)' : 'E-posta dosyasını kaydet (.eml)'}
           >
             <DownloadIcon size={14} />
           </button>

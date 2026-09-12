@@ -1,6 +1,7 @@
 // src/components/EmptyState.tsx — Modern ve minimalist boş durum ekranı
 import React, { memo } from 'react';
 import { PostaciLogo } from './PostaciLogo';
+import { useTranslation } from '../i18n';
 import {
   CheckIcon,
   SparklesIcon,
@@ -28,60 +29,62 @@ interface EmptyStateProps {
   actionLabel?: string;
 }
 
-const CONFIGS: Record<
-  EmptyStateType,
-  { renderIcon: () => React.ReactNode; title: string; desc: string; badge?: string }
-> = {
-  'inbox-zero': {
-    renderIcon: () => <CheckIcon size={28} className="text-emerald-500" strokeWidth={2.5} />,
-    title: 'Gelen Kutunuz Tertemiz!',
-    desc: 'Okunacak tüm e-postalar tamamlandı. Harika bir iş çıkardınız!',
-    badge: 'Inbox Zero',
-  },
-  'no-unread': {
-    renderIcon: () => <SparklesIcon size={28} className="text-blue-500" />,
-    title: 'Okunmamış E-posta Yok',
-    desc: 'Tüm iletilerinizi okudunuz.',
-  },
-  'no-starred': {
-    renderIcon: () => <StarIcon size={28} className="text-amber-500" filled />,
-    title: 'Yıldızlı E-posta Yok',
-    desc: 'Önemli e-postalarınızı yıldızlayarak burada hızlıca bulabilirsiniz.',
-  },
-  'no-attachment': {
-    renderIcon: () => <AttachmentIcon size={28} className="text-zinc-400 dark:text-zinc-500" />,
-    title: 'Ekli E-posta Bulunamadı',
-    desc: 'Bu klasörde ek dosya içeren ileti bulunmuyor.',
-  },
-  'no-search': {
-    renderIcon: () => <SearchIcon size={28} className="text-zinc-400 dark:text-zinc-500" />,
-    title: 'Sonuç Bulunamadı',
-    desc: 'Arama kriterlerinize uygun e-posta bulunamadı.',
-  },
-  'no-selection': {
-    renderIcon: () => <MailOpenIcon size={28} className="text-zinc-400 dark:text-zinc-500" />,
-    title: 'E-posta Seçilmedi',
-    desc: 'Okumak ve yanıtlamak için sol listeden bir e-posta seçin.',
-  },
-  'empty-folder': {
-    renderIcon: () => <FolderIcon size={28} className="text-zinc-400 dark:text-zinc-500" />,
-    title: 'Bu Klasör Boş',
-    desc: 'Burada henüz bir e-posta bulunmuyor.',
-  },
-  'no-account': {
-    renderIcon: () => <PostaciLogo size="lg" />,
-    title: 'Hesap Ekleyin',
-    desc: 'E-postalarınızı görüntülemek için bir e-posta hesabı bağlayın.',
-  },
-};
-
 export const EmptyState = memo(function EmptyState({
   type,
   searchQuery,
   onAction,
   actionLabel,
 }: EmptyStateProps) {
-  const config = CONFIGS[type] || CONFIGS['empty-folder'];
+  const { t, language } = useTranslation();
+
+  const configs: Record<
+    EmptyStateType,
+    { renderIcon: () => React.ReactNode; title: string; desc: string; badge?: string }
+  > = {
+    'inbox-zero': {
+      renderIcon: () => <CheckIcon size={28} className="text-emerald-500" strokeWidth={2.5} />,
+      title: t('empty.inboxZeroTitle'),
+      desc: t('empty.inboxZeroDesc'),
+      badge: 'Inbox Zero',
+    },
+    'no-unread': {
+      renderIcon: () => <SparklesIcon size={28} className="text-blue-500" />,
+      title: t('empty.noUnreadTitle'),
+      desc: t('empty.noUnreadDesc'),
+    },
+    'no-starred': {
+      renderIcon: () => <StarIcon size={28} className="text-amber-500" filled />,
+      title: t('empty.noStarredTitle'),
+      desc: t('empty.noStarredDesc'),
+    },
+    'no-attachment': {
+      renderIcon: () => <AttachmentIcon size={28} className="text-zinc-400 dark:text-zinc-500" />,
+      title: t('empty.noAttachmentTitle'),
+      desc: t('empty.noAttachmentDesc'),
+    },
+    'no-search': {
+      renderIcon: () => <SearchIcon size={28} className="text-zinc-400 dark:text-zinc-500" />,
+      title: t('empty.noSearchTitle'),
+      desc: t('empty.noSearchDesc'),
+    },
+    'no-selection': {
+      renderIcon: () => <MailOpenIcon size={28} className="text-zinc-400 dark:text-zinc-500" />,
+      title: language === 'en' ? 'No Email Selected' : 'E-posta Seçilmedi',
+      desc: t('empty.noMessageSelected'),
+    },
+    'empty-folder': {
+      renderIcon: () => <FolderIcon size={28} className="text-zinc-400 dark:text-zinc-500" />,
+      title: t('empty.emptyFolderTitle'),
+      desc: t('empty.emptyFolderDesc'),
+    },
+    'no-account': {
+      renderIcon: () => <PostaciLogo size="lg" />,
+      title: t('empty.noAccountTitle'),
+      desc: t('empty.noAccountDesc'),
+    },
+  };
+
+  const config = configs[type] || configs['empty-folder'];
   const isBranded = type === 'no-account' || type === 'no-selection';
 
   return (
@@ -106,7 +109,7 @@ export const EmptyState = memo(function EmptyState({
         {config.title}
       </h3>
       <p className="mt-1 max-w-xs text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-        {searchQuery ? `"${searchQuery}" için sonuç bulunamadı.` : config.desc}
+        {searchQuery ? (language === 'en' ? `No results found for "${searchQuery}".` : `"${searchQuery}" için sonuç bulunamadı.`) : config.desc}
       </p>
       {onAction && actionLabel && (
         <button

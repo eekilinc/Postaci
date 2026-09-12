@@ -1,12 +1,13 @@
 // src/components/AccountRail.tsx — Mailbird 3.0 tarzı dar sol hesap ve araç rayı (Açık ve Koyu Tema Uyumlu)
 import { memo } from 'react';
-import type { AccentKey, Account } from '../types';
+import type { Account, AccentKey } from '../types';
+import { useTranslation } from '../i18n';
 import {
   AllMailIcon,
-  SearchIcon,
-  SettingsIcon,
-  HelpIcon,
   MenuIcon,
+  SettingsIcon,
+  SearchIcon,
+  HelpIcon,
 } from './icons';
 
 interface AccountRailProps {
@@ -41,6 +42,8 @@ export const AccountRail = memo(function AccountRail({
   isCollapsed,
   onToggleCollapse,
 }: AccountRailProps) {
+  const { t, language } = useTranslation();
+
   return (
     <div className="w-[52px] h-full shrink-0 flex flex-col items-center py-2 bg-zinc-100 text-zinc-700 border-r border-zinc-200/90 dark:bg-zinc-950 dark:text-zinc-300 dark:border-zinc-850 select-none z-20 overflow-y-auto overflow-x-hidden no-scrollbar transition-colors duration-150">
       {/* 1. Üst Kısım: Hamburger Menü & Birleşik Kutu (Sabit) */}
@@ -50,7 +53,7 @@ export const AccountRail = memo(function AccountRail({
           type="button"
           onClick={onToggleCollapse}
           className="h-8 w-8 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-850 transition active:scale-95"
-          title={isCollapsed ? 'Klasörleri Genişlet (Ctrl+B)' : 'Klasörleri Daralt (Ctrl+B)'}
+          title={isCollapsed ? (language === 'en' ? 'Expand Folders (Ctrl+B)' : 'Klasörleri Genişlet (Ctrl+B)') : (language === 'en' ? 'Collapse Folders (Ctrl+B)' : 'Klasörleri Daralt (Ctrl+B)')}
         >
           <MenuIcon size={18} />
         </button>
@@ -71,7 +74,7 @@ export const AccountRail = memo(function AccountRail({
                   ? 'bg-blue-600 text-white shadow-md'
                   : 'bg-white hover:bg-zinc-200/80 text-zinc-700 hover:text-zinc-950 border border-zinc-200/80 shadow-2xs dark:border-transparent dark:bg-zinc-850/80 dark:hover:bg-zinc-800 dark:text-zinc-300 dark:hover:text-white'
               }`}
-              title="Tüm Gelen Kutuları (Birleşik Görünüm)"
+              title={language === 'en' ? 'All Inboxes (Unified View)' : 'Tüm Gelen Kutuları (Birleşik Görünüm)'}
             >
               <AllMailIcon size={18} />
             </button>
@@ -147,7 +150,7 @@ export const AccountRail = memo(function AccountRail({
           type="button"
           onClick={onShowAdd}
           className="h-8 w-8 shrink-0 rounded-xl border border-dashed border-zinc-300 hover:border-zinc-500 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/50 dark:border-zinc-700 dark:hover:border-zinc-400 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-850 transition active:scale-95 text-base font-medium"
-          title="Yeni Hesap Ekle (+)"
+          title={language === 'en' ? 'Add New Account (+)' : 'Yeni Hesap Ekle (+)'}
         >
           +
         </button>
@@ -161,7 +164,7 @@ export const AccountRail = memo(function AccountRail({
             type="button"
             onClick={onOpenCommandPalette}
             className="h-8 w-8 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-850 transition shrink-0"
-            title="Komut Paleti (Ctrl+K)"
+            title={language === 'en' ? 'Command Palette (Ctrl+K)' : 'Komut Paleti (Ctrl+K)'}
           >
             <SearchIcon size={16} />
           </button>
@@ -173,7 +176,7 @@ export const AccountRail = memo(function AccountRail({
             type="button"
             onClick={onOpenShortcutsHelp}
             className="h-8 w-8 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-850 transition shrink-0"
-            title="Klavye Kısayolları (?)"
+            title={language === 'en' ? 'Keyboard Shortcuts (?)' : 'Klavye Kısayolları (?)'}
           >
             <HelpIcon size={16} />
           </button>
@@ -184,7 +187,7 @@ export const AccountRail = memo(function AccountRail({
           type="button"
           onClick={onShowSettings}
           className="h-8 w-8 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-850 transition active:rotate-45 shrink-0"
-          title="Ayarlar"
+          title={t('common.settings')}
         >
           <SettingsIcon size={16} />
         </button>

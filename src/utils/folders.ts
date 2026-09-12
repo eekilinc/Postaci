@@ -20,6 +20,31 @@ export const ROLE_INFO: Record<SystemRole, { name: string; icon: string; order: 
   archive: { name: 'Tüm Postalar', icon: '📦', order: 7 },
 };
 
+export const ROLE_NAMES: Record<'tr' | 'en', Record<SystemRole, string>> = {
+  tr: {
+    inbox: 'Gelen Kutusu',
+    starred: 'Yıldızlı',
+    sent: 'Gönderilenler',
+    drafts: 'Taslaklar',
+    trash: 'Çöp Kutusu',
+    junk: 'Spam',
+    archive: 'Tüm Postalar',
+  },
+  en: {
+    inbox: 'Inbox',
+    starred: 'Starred',
+    sent: 'Sent',
+    drafts: 'Drafts',
+    trash: 'Trash',
+    junk: 'Spam',
+    archive: 'All Mail',
+  },
+};
+
+export function getRoleName(role: SystemRole, lang: 'tr' | 'en' = 'tr'): string {
+  return ROLE_NAMES[lang]?.[role] || ROLE_NAMES.tr[role];
+}
+
 /**
  * Bir klasörün özel bir sistem rolüne (Gelen, Giden, Taslak, Çöp vb.) ait olup olmadığını tespit eder.
  */
@@ -112,7 +137,8 @@ export function getFolderRole(f: { path: string; name?: string; flags?: string[]
 export function organizeAndDeduplicateFolders(
   rawFolders: Folder[],
   activeFolder?: string | null,
-  isGoogleAccount?: boolean
+  isGoogleAccount?: boolean,
+  lang: 'tr' | 'en' = 'tr'
 ): {
   systemFolders: ProcessedFolder[];
   customFolders: ProcessedFolder[];
@@ -198,7 +224,7 @@ export function organizeAndDeduplicateFolders(
 
     systemFolders.push({
       ...winner,
-      displayName: info.name,
+      displayName: getRoleName(role, lang),
       icon: info.icon,
       role,
       order: info.order,
@@ -212,7 +238,7 @@ export function organizeAndDeduplicateFolders(
       name: 'Taslaklar',
       path: draftPath,
       flags: ['\\Drafts'],
-      displayName: ROLE_INFO.drafts.name,
+      displayName: getRoleName('drafts', lang),
       icon: ROLE_INFO.drafts.icon,
       role: 'drafts',
       order: ROLE_INFO.drafts.order,
@@ -236,7 +262,7 @@ export function organizeAndDeduplicateFolders(
   });
 
   // Özel klasörleri alfabetik sırala
-  processedCustom.sort((a, b) => a.displayName.localeCompare(b.displayName, 'tr'));
+  processedCustom.sort((a, b) => a.displayName.localeCompare(b.displayName, lang));
 
   return {
     systemFolders,

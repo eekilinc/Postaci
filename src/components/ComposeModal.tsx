@@ -3,6 +3,7 @@ import type { AccentKey, Account, ComposeFile, QuickSnippet } from '../types';
 import { ACCENTS } from '../constants';
 import { getAccountSignature } from '../utils/signatures';
 import { PostaciLogo } from './PostaciLogo';
+import { useTranslation } from '../i18n';
 import {
   CloseIcon,
   AttachmentIcon,
@@ -74,10 +75,24 @@ export function ComposeModal({
   onSend,
   onClose,
 }: ComposeModalProps) {
+  const { t } = useTranslation();
   const A = ACCENTS[accent];
   const [editorMode, setEditorMode] = useState<'rich' | 'plain'>('rich');
   const editorRef = useRef<HTMLDivElement>(null);
   const isInternalUpdate = useRef(false);
+
+  const displayTitle =
+    title === 'Yeni E-posta'
+      ? t('compose.newTitle')
+      : title === 'Yanıtla'
+      ? t('compose.replyTitle')
+      : title === 'Tümünü Yanıtla'
+      ? t('compose.replyAllTitle')
+      : title === 'İlet'
+      ? t('compose.forwardTitle')
+      : title === 'Taslağı Düzenle'
+      ? t('compose.editDraftTitle')
+      : title;
 
   // Otomatik tamamlama (Recipient Autocomplete) state'leri
   const [suggestions, setSuggestions] = useState<{ name: string; email: string }[]>([]);
@@ -215,12 +230,12 @@ export function ComposeModal({
         html: cHtml,
       });
       if (res) {
-        setDraftNotice(`✓ Taslak kaydedildi (${res.folderPath})`);
+        setDraftNotice(t('compose.draftSavedNotice', { folder: res.folderPath }));
         onDraftSaved?.(res.folderPath);
         setTimeout(() => setDraftNotice(null), 2500);
       }
     } catch {
-      setDraftNotice('✕ Taslak kaydedilemedi.');
+      setDraftNotice(t('compose.draftSaveFailed'));
       setTimeout(() => setDraftNotice(null), 2500);
     } finally {
       setSavingDraft(false);
@@ -332,7 +347,7 @@ export function ComposeModal({
   };
 
   const handleAddLink = () => {
-    const url = prompt('Bağlantı adresi (URL) girin:');
+    const url = prompt(t('compose.linkPrompt'));
     if (url) {
       const href = url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:') ? url : `https://${url}`;
       exec('createLink', href);
@@ -342,7 +357,7 @@ export function ComposeModal({
   const handleInsertSignature = () => {
     const sig = getAccountSignature(cFrom);
     if (!sig.text) {
-      alert('Bu hesap için kayıtlı bir imza bulunamadı. Ayarlar > İmzalar sekmesinden ekleyebilirsiniz.');
+      alert(t('compose.noSignatureAlert'));
       return;
     }
     const sigHtml = `<br><br><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${sig.text.replace(/\n/g, '<br>')}</div>`;
@@ -407,17 +422,17 @@ export function ComposeModal({
           <div
             className="flex items-center gap-2.5 cursor-pointer group"
             onClick={handleMaximize}
-            title="Büyütmek için tıklayın"
+            title={t('compose.clickToExpand')}
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
               <ComposeIcon size={15} />
             </div>
             <div className="flex flex-col max-w-[220px]">
               <span className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100 group-hover:text-blue-500 transition-colors">
-                {cSubject.trim() || 'Yeni E-posta (Taslak)'}
+                {cSubject.trim() || t('compose.newMailDraft')}
               </span>
               <span className="truncate text-[10px] text-zinc-400">
-                {cTo ? `Kime: ${cTo}` : 'Yazmaya devam etmek için tıklayın'}
+                {cTo ? `${t('compose.toPrefix')}${cTo}` : t('compose.clickToContinue')}
               </span>
             </div>
           </div>
@@ -425,14 +440,14 @@ export function ComposeModal({
           <div className="flex items-center gap-1 border-l border-zinc-200 pl-2 dark:border-zinc-700">
             <button
               onClick={handleMaximize}
-              title="Pencereyi Genişlet"
+              title={t('compose.expandWindow')}
               className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200 transition"
             >
               <MaximizeIcon size={14} />
             </button>
             <button
               onClick={handleClosePrompt}
-              title="Kapat"
+              title={t('common.close')}
               className="rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20 transition"
             >
               <CloseIcon size={14} />
@@ -456,15 +471,15 @@ export function ComposeModal({
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <PostaciLogo size="xs" />
-              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">{title}</h2>
+              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">{displayTitle}</h2>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="mr-1 text-[11px] text-zinc-400">Ctrl+Enter ile Gönder</span>
+              <span className="mr-1 text-[11px] text-zinc-400">{t('compose.sendShortcutHint')}</span>
               <button
                 type="button"
                 onClick={handleMinimize}
                 className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition"
-                title="Simge durumuna küçült"
+                title={t('compose.minimize')}
               >
                 <MinusIcon size={16} />
               </button>
@@ -472,7 +487,7 @@ export function ComposeModal({
                 type="button"
                 onClick={handleClosePrompt}
                 className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition"
-                title="Kapat"
+                title={t('common.close')}
               >
                 <CloseIcon size={16} />
               </button>
@@ -482,7 +497,7 @@ export function ComposeModal({
         <div className="space-y-2.5 overflow-y-auto pr-1">
           {/* Kimden */}
           <div className="flex items-center gap-2">
-            <span className="w-14 shrink-0 text-xs font-medium text-zinc-500">Kimden</span>
+            <span className="w-14 shrink-0 text-xs font-medium text-zinc-500">{t('compose.from')}</span>
             <select
               value={cFrom}
               onChange={(e) => setCFrom(e.target.value)}
@@ -498,7 +513,7 @@ export function ComposeModal({
 
           {/* Kime */}
           <div className="relative flex items-center gap-2">
-            <span className="w-14 shrink-0 text-xs font-medium text-zinc-500">Kime</span>
+            <span className="w-14 shrink-0 text-xs font-medium text-zinc-500">{t('compose.to')}</span>
             <input
               value={cTo}
               onChange={(e) => {
@@ -524,12 +539,12 @@ export function ComposeModal({
                   }
                 }
               }}
-              placeholder="ornek@eposta.com (virgülle birden fazla)"
+              placeholder={t('compose.toPlaceholder')}
               className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-2.5 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
             />
             {suggestions.length > 0 && activeField === 'to' && (
               <div className="absolute top-full left-16 z-50 mt-1 max-h-48 w-80 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-                <div className="px-2 py-1 text-[10px] font-semibold text-zinc-400 uppercase">Önerilen Kişiler</div>
+                <div className="px-2 py-1 text-[10px] font-semibold text-zinc-400 uppercase">{t('compose.suggestedContacts')}</div>
                 {suggestions.map((s, idx) => (
                   <button
                     key={`${s.email}-${idx}`}
@@ -554,7 +569,7 @@ export function ComposeModal({
 
           {/* Cc */}
           <div className="relative flex items-center gap-2">
-            <span className="w-14 shrink-0 text-xs font-medium text-zinc-500">Cc</span>
+            <span className="w-14 shrink-0 text-xs font-medium text-zinc-500">{t('compose.cc')}</span>
             <input
               value={cCc}
               onChange={(e) => {
@@ -580,12 +595,12 @@ export function ComposeModal({
                   }
                 }
               }}
-              placeholder="(isteğe bağlı)"
+              placeholder={t('compose.ccPlaceholder')}
               className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-2.5 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
             />
             {suggestions.length > 0 && activeField === 'cc' && (
               <div className="absolute top-full left-16 z-50 mt-1 max-h-48 w-80 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-                <div className="px-2 py-1 text-[10px] font-semibold text-zinc-400 uppercase">Önerilen Kişiler</div>
+                <div className="px-2 py-1 text-[10px] font-semibold text-zinc-400 uppercase">{t('compose.suggestedContacts')}</div>
                 {suggestions.map((s, idx) => (
                   <button
                     key={`${s.email}-${idx}`}
@@ -612,7 +627,7 @@ export function ComposeModal({
           <input
             value={cSubject}
             onChange={(e) => setCSubject(e.target.value)}
-            placeholder="Konu"
+            placeholder={t('compose.subject')}
             className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2.5 py-1.5 text-xs font-medium outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
           />
 
@@ -623,7 +638,7 @@ export function ComposeModal({
                 type="button"
                 onClick={() => exec('bold')}
                 className="h-7 w-7 rounded font-bold hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                title="Kalın (Ctrl+B)"
+                title={t('compose.bold')}
               >
                 B
               </button>
@@ -631,7 +646,7 @@ export function ComposeModal({
                 type="button"
                 onClick={() => exec('italic')}
                 className="h-7 w-7 rounded italic font-serif hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                title="İtalik (Ctrl+I)"
+                title={t('compose.italic')}
               >
                 I
               </button>
@@ -639,7 +654,7 @@ export function ComposeModal({
                 type="button"
                 onClick={() => exec('underline')}
                 className="h-7 w-7 rounded underline hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                title="Altı Çizili (Ctrl+U)"
+                title={t('compose.underline')}
               >
                 U
               </button>
@@ -647,7 +662,7 @@ export function ComposeModal({
                 type="button"
                 onClick={() => exec('strikeThrough')}
                 className="h-7 w-7 rounded line-through hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                title="Üstü Çizili"
+                title={t('compose.strike')}
               >
                 S
               </button>
@@ -658,23 +673,23 @@ export function ComposeModal({
                 type="button"
                 onClick={() => exec('insertUnorderedList')}
                 className="h-7 px-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs"
-                title="Madde İşaretli Liste"
+                title={t('compose.bulletList')}
               >
-                • Liste
+                {t('compose.bulletList')}
               </button>
               <button
                 type="button"
                 onClick={() => exec('insertOrderedList')}
                 className="h-7 px-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs"
-                title="Numaralı Liste"
+                title={t('compose.orderedList')}
               >
-                1. Liste
+                {t('compose.orderedList')}
               </button>
               <button
                 type="button"
                 onClick={() => exec('formatBlock', '<blockquote>')}
                 className="h-7 w-7 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs"
-                title="Alıntı Blok"
+                title={t('compose.quote')}
               >
                 ❝
               </button>
@@ -685,19 +700,19 @@ export function ComposeModal({
                 type="button"
                 onClick={handleAddLink}
                 className="h-7 px-2 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs inline-flex items-center gap-1"
-                title="Bağlantı Ekle (Ctrl+K)"
+                title={t('compose.link')}
               >
                 <ExternalLinkIcon size={12} />
-                <span>Link</span>
+                <span>{t('compose.link')}</span>
               </button>
               <button
                 type="button"
                 onClick={handleInsertSignature}
                 className="h-7 px-2 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs inline-flex items-center gap-1"
-                title="Hesap İmzasını Ekle"
+                title={t('compose.signature')}
               >
                 <ComposeIcon size={12} />
-                <span>İmza</span>
+                <span>{t('compose.signature')}</span>
               </button>
               {/* Şablonlar Açılır Menüsü */}
               <div className="relative inline-block">
@@ -705,10 +720,10 @@ export function ComposeModal({
                   type="button"
                   onClick={() => setShowSnippetMenu((prev) => !prev)}
                   className="h-7 px-2 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs inline-flex items-center gap-1 font-medium text-blue-600 dark:text-blue-400 cursor-pointer"
-                  title="Hızlı Yanıt Şablonu Ekle"
+                  title={t('compose.templates')}
                 >
                   <SnippetIcon size={13} />
-                  <span>Şablonlar</span>
+                  <span>{t('compose.templates')}</span>
                   <ChevronDownIcon size={10} />
                 </button>
 
@@ -717,7 +732,7 @@ export function ComposeModal({
                     <div className="fixed inset-0 z-40" onClick={() => setShowSnippetMenu(false)} />
                     <div className="absolute left-0 top-full mt-1 w-64 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-850 p-1.5 shadow-xl z-50 animate-fadeIn text-left">
                       <div className="px-2 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                        Hızlı Yanıt Şablonları
+                        {t('compose.quickSnippets')}
                       </div>
                       <div className="max-h-56 overflow-y-auto space-y-0.5 custom-scrollbar">
                         {snippets.map((snip) => (
@@ -741,7 +756,7 @@ export function ComposeModal({
                 type="button"
                 onClick={() => exec('removeFormat')}
                 className="h-7 px-2 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs font-semibold text-zinc-500"
-                title="Biçimlendirmeyi Temizle"
+                title={t('compose.clearFormat')}
               >
                 Tx
               </button>
@@ -752,7 +767,7 @@ export function ComposeModal({
               onClick={() => setEditorMode(editorMode === 'rich' ? 'plain' : 'rich')}
               className="text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
             >
-              {editorMode === 'rich' ? 'Düz Metin' : 'Zengin Metin'}
+              {editorMode === 'rich' ? t('compose.plainText') : t('compose.richText')}
             </button>
           </div>
 
@@ -762,7 +777,7 @@ export function ComposeModal({
               ref={editorRef}
               contentEditable
               onInput={handleEditorInput}
-              data-placeholder="İletinizi buraya yazın..."
+              data-placeholder={t('compose.bodyPlaceholder')}
               className="min-h-[180px] max-h-[280px] overflow-y-auto rounded-b-md border border-zinc-300 bg-zinc-50 p-3 text-sm outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-400"
             />
           ) : (
@@ -772,7 +787,7 @@ export function ComposeModal({
                 setCText(e.target.value);
                 setCHtml(e.target.value.replace(/\n/g, '<br>'));
               }}
-              placeholder="İletinizi düz metin olarak yazın..."
+              placeholder={t('compose.bodyPlaceholderPlain')}
               rows={8}
               className="w-full rounded-b-md border border-zinc-300 bg-zinc-50 p-3 text-sm font-mono outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
             />
@@ -782,7 +797,7 @@ export function ComposeModal({
           <div>
             <label className="inline-flex items-center gap-1.5 cursor-pointer rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800 transition">
               <AttachmentIcon size={13} />
-              <span>Dosya Ekle</span>
+              <span>{t('compose.attachFile')}</span>
               <input
                 type="file"
                 multiple
@@ -806,7 +821,7 @@ export function ComposeModal({
                       type="button"
                       onClick={() => setCFiles(cFiles.filter((_, j) => j !== i))}
                       className="text-zinc-400 hover:text-red-600 dark:hover:text-red-400 ml-1 p-0.5"
-                      title="Kaldır"
+                      title={t('compose.removeAttachment')}
                     >
                       <CloseIcon size={11} />
                     </button>
@@ -838,17 +853,17 @@ export function ComposeModal({
               onClick={handleClosePrompt}
               className="rounded-lg px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
             >
-              Vazgeç
+              {t('compose.discard')}
             </button>
             <button
               type="button"
               onClick={handleSaveDraft}
               disabled={savingDraft || (!cSubject.trim() && !cText.trim() && !cHtml.trim())}
               className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-40 transition flex items-center gap-1.5"
-              title="Taslak olarak kaydet"
+              title={t('compose.saveDraft')}
             >
               <SaveIcon size={14} />
-              <span>{savingDraft ? 'Kaydediliyor...' : 'Taslak Kaydet'}</span>
+              <span>{savingDraft ? t('compose.savingDraft') : t('compose.saveDraft')}</span>
             </button>
           </div>
 
@@ -859,7 +874,7 @@ export function ComposeModal({
             className={`rounded-lg ${A.btn} px-5 py-2 text-sm font-medium text-white disabled:opacity-50 transition shadow-xs flex items-center justify-center gap-1.5`}
           >
             <SendIcon size={14} />
-            <span>{sending ? 'Gönderiliyor...' : 'Gönder'}</span>
+            <span>{sending ? t('compose.sending') : t('compose.send')}</span>
           </button>
         </div>
 
@@ -873,15 +888,15 @@ export function ComposeModal({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                    Taslak Saklansın mı?
+                    {t('compose.discardDialogTitle')}
                   </h3>
                   <p className="text-[11px] text-zinc-400">
-                    Yazdıklarınız kaybolmasın
+                    {t('compose.discardDialogSubtitle')}
                   </p>
                 </div>
               </div>
               <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed mb-4">
-                Yazdığınız e-postada kaydedilmemiş içerik bulunuyor. Taslağı koruyarak daha sonra kaldığınız yerden devam edebilirsiniz.
+                {t('compose.discardDialogDesc')}
               </p>
               <div className="flex flex-col gap-2">
                 <button
@@ -890,7 +905,7 @@ export function ComposeModal({
                   className={`w-full rounded-lg ${A.btn} py-2 text-xs font-semibold text-white shadow-xs transition flex items-center justify-center gap-1.5`}
                 >
                   <SaveIcon size={13} />
-                  <span>Taslağı Koru ve Kapat</span>
+                  <span>{t('compose.keepDraftAndClose')}</span>
                 </button>
                 <div className="flex gap-2">
                   <button
@@ -898,14 +913,14 @@ export function ComposeModal({
                     onClick={handleDiscardAndClose}
                     className="flex-1 rounded-lg border border-red-200 bg-red-50/50 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-900/40 transition"
                   >
-                    Sil ve Kapat
+                    {t('compose.discardAndClose')}
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowDiscardConfirm(false)}
                     className="flex-1 rounded-lg border border-zinc-200 bg-zinc-100 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:border-zinc-750 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600 transition"
                   >
-                    Yazmaya Devam Et
+                    {t('compose.continueWriting')}
                   </button>
                 </div>
               </div>

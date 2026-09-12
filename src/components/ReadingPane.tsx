@@ -5,6 +5,7 @@ import { organizeAndDeduplicateFolders } from '../utils/folders';
 import { EmptyState } from './EmptyState';
 import { ReadingToolbar } from './ReadingToolbar';
 import { SenderCard } from './SenderCard';
+import { useTranslation } from '../i18n';
 import {
   ShieldIcon,
   AttachmentIcon,
@@ -28,23 +29,23 @@ import {
 
 interface ReadingPaneProps {
   selected: Msg | null;
-  body: BodyResult;
+  body: BodyResult | null;
   bodyLoading: boolean;
   bodyError: string | null;
-  safeHtml: string;
+  safeHtml: string | null;
   hasRemoteImages: boolean;
   allowRemoteImages: boolean;
   onAllowRemoteImages: () => void;
-  onAllowSenderAlways?: (senderAddr: string) => void;
+  onAllowSenderAlways?: (senderEmail: string) => void;
   atts: Attachment[];
   savingAtt: number | null;
   loadingPreview: number | null;
-  thread: any[];
+  thread: any[] | null;
   onReply: () => void;
   onForward: () => void;
   onToggleRead: () => void;
-  onSaveAttachment: (index: number) => void;
-  onPreviewAttachment: (index: number) => void;
+  onSaveAttachment: (idx: number) => void;
+  onPreviewAttachment: (idx: number) => void;
   onExportEml?: () => void;
   onEditDraft?: () => void;
   onDeleteCurrent?: () => void;
@@ -140,6 +141,7 @@ export function ReadingPane({
   onExpandToFullCompose,
   quickSending = false,
 }: ReadingPaneProps) {
+  const { t, language } = useTranslation();
   const [quickText, setQuickText] = useState('');
   const [quickFiles, setQuickFiles] = useState<ComposeFile[]>([]);
   const [replyAll, setReplyAll] = useState(false);
@@ -147,9 +149,9 @@ export function ReadingPane({
 
   const moveCandidateFolders = useMemo(() => {
     const isGoogle = selected?.account_email?.includes('gmail') || selected?.account_provider === 'google';
-    const { allDisplayFolders } = organizeAndDeduplicateFolders(folders, selected?.folder_path, isGoogle);
+    const { allDisplayFolders } = organizeAndDeduplicateFolders(folders, selected?.folder_path, isGoogle, language);
     return allDisplayFolders;
-  }, [folders, selected?.folder_path, selected?.account_email, selected?.account_provider]);
+  }, [folders, selected?.folder_path, selected?.account_email, selected?.account_provider, language]);
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
@@ -214,7 +216,7 @@ export function ReadingPane({
         {/* 2. Konu Başlığı */}
         <div className="pt-1.5 pb-0.5">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50 leading-snug">
-            {selected.subject || '(konusuz)'}
+            {selected.subject || (language === 'en' ? '(No Subject)' : '(konusuz)')}
           </h1>
         </div>
 
@@ -230,7 +232,7 @@ export function ReadingPane({
           <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-amber-200/90 bg-amber-50/80 px-4 py-3 text-xs text-amber-900 shadow-2xs dark:border-amber-800/80 dark:bg-amber-950/50 dark:text-amber-200 print:hidden animate-fadeIn">
             <div className="flex items-center gap-2.5">
               <ShieldIcon size={16} className="text-amber-600 dark:text-amber-400 shrink-0" />
-              <span>Gizliliğinizi korumak için bu iletideki harici görseller engellendi.</span>
+              <span>{t('read.remoteImagesBlocked')}</span>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -238,16 +240,16 @@ export function ReadingPane({
                 onClick={onAllowRemoteImages}
                 className="rounded-xl bg-amber-800 px-3 py-1.5 font-semibold text-white shadow-2xs transition hover:bg-amber-900 dark:bg-amber-700 dark:hover:bg-amber-600 shrink-0 cursor-pointer"
               >
-                Görselleri Göster
+                {t('read.showImagesOnce')}
               </button>
               {onAllowSenderAlways && selected?.from_addr && (
                 <button
                   type="button"
                   onClick={() => selected.from_addr && onAllowSenderAlways(selected.from_addr)}
                   className="rounded-xl border border-amber-300 dark:border-amber-700 bg-white/70 dark:bg-zinc-850/70 px-2.5 py-1.5 font-medium text-amber-900 dark:text-amber-200 transition hover:bg-white dark:hover:bg-zinc-800 shrink-0 cursor-pointer"
-                  title="Bu gönderenden gelen e-postalarda görseller her zaman otomatik yüklensin"
+                  title={language === 'en' ? 'Always load images automatically for this sender' : 'Bu gönderenden gelen e-postalarda görseller her zaman otomatik yüklensin'}
                 >
-                  Bu Gönderene Güven
+                  {t('read.alwaysTrustSender')}
                 </button>
               )}
             </div>
@@ -259,7 +261,7 @@ export function ReadingPane({
           <div className="rounded-2xl border border-zinc-200/80 bg-zinc-50/60 p-4 dark:border-zinc-800/80 dark:bg-zinc-850/40 print:hidden">
             <div className="mb-2.5 flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Ek Dosyalar ({atts.length})
+                {t('read.attachments', { count: atts.length })}
               </span>
             </div>
 
@@ -287,7 +289,7 @@ export function ReadingPane({
                         onClick={() => onPreviewAttachment(a.idx)}
                         disabled={loadingPreview === a.idx}
                         className="rounded-lg p-1.5 text-zinc-600 hover:bg-white dark:text-zinc-300 dark:hover:bg-zinc-800 shadow-2xs transition disabled:opacity-50"
-                        title="Önizle"
+                        title={t('read.preview')}
                       >
                         {loadingPreview === a.idx ? <SyncIcon size={13} className="animate-spin" /> : <EyeIcon size={13} />}
                       </button>
@@ -296,7 +298,7 @@ export function ReadingPane({
                         onClick={() => onSaveAttachment(a.idx)}
                         disabled={savingAtt === a.idx}
                         className="rounded-lg p-1.5 text-zinc-600 hover:bg-white dark:text-zinc-300 dark:hover:bg-zinc-800 shadow-2xs transition disabled:opacity-50"
-                        title="İndir / Kaydet"
+                        title={language === 'en' ? 'Download / Save' : 'İndir / Kaydet'}
                       >
                         {savingAtt === a.idx ? <SyncIcon size={13} className="animate-spin" /> : <DownloadIcon size={13} />}
                       </button>
@@ -313,7 +315,7 @@ export function ReadingPane({
           {bodyLoading ? (
             <div className="flex items-center gap-2.5 text-xs text-zinc-400 py-8">
               <SyncIcon size={16} className="animate-spin text-blue-500" />
-              <span>İleti içeriği yükleniyor...</span>
+              <span>{t('read.loadingBody')}</span>
             </div>
           ) : safeHtml ? (
             <div
@@ -326,7 +328,9 @@ export function ReadingPane({
             </pre>
           ) : (
             <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 text-xs text-red-600 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-400">
-              {bodyError ? `Gövde alınamadı: ${bodyError}` : 'İleti içeriği henüz çekilmedi. Eşitlemeyi deneyin.'}
+              {bodyError
+                ? (language === 'en' ? `Failed to load body: ${bodyError}` : `Gövde alınamadı: ${bodyError}`)
+                : (language === 'en' ? 'Message content not fetched yet. Try syncing.' : 'İleti içeriği henüz çekilmedi. Eşitlemeyi deneyin.')}
             </div>
           )}
         </div>
@@ -335,7 +339,7 @@ export function ReadingPane({
         {thread && thread.length > 1 && (
           <div className="mt-8 pt-6 border-t border-zinc-200 dark:border-zinc-800 print:hidden">
             <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-zinc-500">
-              İleti Dizisi ({thread.length} ileti)
+              {language === 'en' ? `Message Thread (${thread.length} messages)` : `İleti Dizisi (${thread.length} ileti)`}
             </h3>
             <div className="space-y-2">
               {thread.map((tm: any) => (
@@ -351,7 +355,7 @@ export function ReadingPane({
                     <span className="font-semibold text-zinc-800 dark:text-zinc-200">
                       {tm.from_addr}
                     </span>
-                    <span>{tm.date ? new Date(tm.date).toLocaleString('tr-TR') : ''}</span>
+                    <span>{tm.date ? new Date(tm.date).toLocaleString(language === 'en' ? 'en-US' : 'tr-TR') : ''}</span>
                   </div>
                   <div className="mt-1 text-zinc-600 dark:text-zinc-400 truncate">
                     {tm.snippet || tm.subject}
@@ -369,7 +373,7 @@ export function ReadingPane({
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5 font-semibold text-zinc-800 dark:text-zinc-200">
                   <SparklesIcon size={14} className="text-amber-500" />
-                  <span>Hızlı Yanıt</span>
+                  <span>{language === 'en' ? 'Quick Reply' : 'Hızlı Yanıt'}</span>
                 </div>
                 <button
                   type="button"
@@ -381,7 +385,7 @@ export function ReadingPane({
                   }`}
                 >
                   {replyAll ? <ReplyAllIcon size={12} /> : <ReplyIcon size={12} />}
-                  <span>{replyAll ? 'Herkese Yanıtla' : 'Yanıtla'}</span>
+                  <span>{replyAll ? t('read.replyAll') : t('read.reply')}</span>
                 </button>
               </div>
 
@@ -390,10 +394,10 @@ export function ReadingPane({
                   type="button"
                   onClick={() => onExpandToFullCompose(quickText, quickFiles, replyAll)}
                   className="text-xs text-blue-600 hover:underline dark:text-blue-400 font-medium flex items-center gap-1.5"
-                  title="Gelişmiş zengin editörde aç"
+                  title={language === 'en' ? 'Open in advanced rich editor' : 'Gelişmiş zengin editörde aç'}
                 >
                   <ExternalLinkIcon size={12} />
-                  <span>Tam Editörde Aç</span>
+                  <span>{language === 'en' ? 'Open in Full Editor' : 'Tam Editörde Aç'}</span>
                 </button>
               )}
             </div>
@@ -407,7 +411,7 @@ export function ReadingPane({
                   handleSend();
                 }
               }}
-              placeholder="Hızlı yanıtınızı buraya yazın... (Göndermek için Ctrl+Enter)"
+              placeholder={language === 'en' ? 'Type your quick reply here... (Ctrl+Enter to send)' : 'Hızlı yanıtınızı buraya yazın... (Göndermek için Ctrl+Enter)'}
               rows={3}
               className="w-full resize-y rounded-xl border border-zinc-200/90 bg-white p-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
             />
@@ -449,7 +453,7 @@ export function ReadingPane({
                   className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-2xs transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-750"
                 >
                   <AttachmentIcon size={13} />
-                  <span>Dosya Ekle</span>
+                  <span>{t('compose.attachFile')}</span>
                 </button>
               </div>
 
@@ -460,7 +464,7 @@ export function ReadingPane({
                 className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-blue-700 disabled:opacity-50"
               >
                 {quickSending ? <SyncIcon size={13} className="animate-spin" /> : <SendIcon size={13} />}
-                <span>{quickSending ? 'Gönderiliyor...' : 'Gönder (Ctrl+Enter)'}</span>
+                <span>{quickSending ? t('compose.sending') : `${t('compose.send')} (Ctrl+Enter)`}</span>
               </button>
             </div>
           </div>

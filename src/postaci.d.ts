@@ -191,6 +191,7 @@ declare global {
           hideTaskbarOnMinimize: boolean;
           closeToQuit: boolean;
           useGmailShortcuts: boolean;
+          language?: 'tr' | 'en';
         }>;
         save: (settings: Partial<{
           launchOnStartup: boolean;
@@ -198,12 +199,14 @@ declare global {
           hideTaskbarOnMinimize: boolean;
           closeToQuit: boolean;
           useGmailShortcuts: boolean;
+          language?: 'tr' | 'en';
         }>) => Promise<{
           launchOnStartup: boolean;
           startMinimized: boolean;
           hideTaskbarOnMinimize: boolean;
           closeToQuit: boolean;
           useGmailShortcuts: boolean;
+          language?: 'tr' | 'en';
         }>;
       };
       openExternal: (url: string) => Promise<boolean>;

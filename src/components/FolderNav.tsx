@@ -1,8 +1,8 @@
-// src/components/FolderNav.tsx — Mailbird 3.0 tarzı klasör listesi ve "Klasörleri ara" filtreleme alanı (Açık ve Koyu Tema Uyumlu)
 import { memo, useMemo, useState } from 'react';
 import type { AccentKey, Account, Folder } from '../types';
 import { ACCENTS } from '../constants';
-import { organizeAndDeduplicateFolders } from '../utils/folders';
+import { organizeAndDeduplicateFolders, ROLE_NAMES, type SystemRole } from '../utils/folders';
+import { useTranslation } from '../i18n';
 import { PostaciLogo } from './PostaciLogo';
 import {
   FolderRoleIcon,
@@ -40,6 +40,7 @@ export const FolderNav = memo(function FolderNav({
   className = '',
   width,
 }: FolderNavProps) {
+  const { t, language } = useTranslation();
   const A = ACCENTS[accent];
   const [folderQuery, setFolderQuery] = useState('');
 
@@ -47,8 +48,8 @@ export const FolderNav = memo(function FolderNav({
 
   // Klasörleri tekilleştir ve sistem / özel klasörler olarak grupla
   const { systemFolders, customFolders, allDisplayFolders } = useMemo(() => {
-    return organizeAndDeduplicateFolders(folders, activeFolder, isGoogle);
-  }, [folders, activeFolder, isGoogle]);
+    return organizeAndDeduplicateFolders(folders, activeFolder, isGoogle, language);
+  }, [folders, activeFolder, isGoogle, language]);
 
   // "Klasörleri ara" filtresi: Özel klasörler içinde hızlı arama
   const filteredCustomFolders = useMemo(() => {
@@ -72,14 +73,14 @@ export const FolderNav = memo(function FolderNav({
           <div className="flex items-center gap-2 min-w-0">
             <PostaciLogo size="xs" variant="squircle" showBadge={false} />
             <span className="text-xs font-semibold tracking-tight text-zinc-800 dark:text-zinc-200 truncate">
-              {isUnified ? 'Birleşik Posta' : activeAccount ? activeAccount.split('@')[0] : 'Postacı'}
+              {isUnified ? t('app.unifiedInbox') : activeAccount ? activeAccount.split('@')[0] : t('app.name')}
             </span>
           </div>
           {onCloseMobile && (
             <button
               onClick={onCloseMobile}
               className="md:hidden p-1 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/60 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition"
-              title="Kapat"
+              title={t('common.close')}
             >
               <CloseIcon size={14} />
             </button>
@@ -93,7 +94,7 @@ export const FolderNav = memo(function FolderNav({
           className={`w-full rounded-xl ${A.btn} px-3 py-2 text-xs font-semibold text-white shadow-xs hover:shadow transition-all disabled:opacity-50 flex items-center justify-center gap-2 active:scale-[0.98]`}
         >
           <ComposeIcon size={15} className="shrink-0" />
-          <span>Yeni E-posta</span>
+          <span>{t('folder.compose')}</span>
           <kbd className="rounded bg-black/20 px-1.5 py-0.2 text-[9px] font-mono">C</kbd>
         </button>
 
@@ -141,12 +142,12 @@ export const FolderNav = memo(function FolderNav({
           {allDisplayFolders.length === 0 && (
             <div className="space-y-0.5">
               {[
-                { name: 'Gelen Kutusu', path: 'INBOX', role: 'inbox' },
-                { name: 'Yıldızlı', path: 'STARRED', role: 'starred' },
-                { name: 'Gönderilenler', path: 'SENT', role: 'sent' },
-                { name: 'Taslaklar', path: 'Taslaklar', role: 'drafts' },
-                { name: 'Çöp Kutusu', path: 'TRASH', role: 'trash' },
-                { name: 'Spam', path: 'JUNK', role: 'junk' },
+                { name: ROLE_NAMES[language]?.inbox || 'Gelen Kutusu', path: 'INBOX', role: 'inbox' as SystemRole },
+                { name: ROLE_NAMES[language]?.starred || 'Yıldızlı', path: 'STARRED', role: 'starred' as SystemRole },
+                { name: ROLE_NAMES[language]?.sent || 'Gönderilenler', path: 'SENT', role: 'sent' as SystemRole },
+                { name: ROLE_NAMES[language]?.drafts || 'Taslaklar', path: 'Taslaklar', role: 'drafts' as SystemRole },
+                { name: ROLE_NAMES[language]?.trash || 'Çöp Kutusu', path: 'TRASH', role: 'trash' as SystemRole },
+                { name: ROLE_NAMES[language]?.junk || 'Spam', path: 'JUNK', role: 'junk' as SystemRole },
               ].map((f) => (
                 <button
                   key={f.path}
@@ -172,7 +173,7 @@ export const FolderNav = memo(function FolderNav({
               <SearchIcon size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-zinc-500 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Klasörleri ara..."
+                placeholder={t('folder.searchPlaceholder')}
                 value={folderQuery}
                 onChange={(e) => setFolderQuery(e.target.value)}
                 className="w-full rounded-lg bg-white border border-zinc-200/90 py-1 pl-7 pr-6 text-[11px] text-zinc-900 placeholder:text-zinc-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 dark:bg-zinc-800/80 dark:border-zinc-700/60 dark:text-zinc-200 dark:placeholder:text-zinc-500 dark:focus:border-blue-500 outline-none transition"
@@ -229,7 +230,7 @@ export const FolderNav = memo(function FolderNav({
 
               {filteredCustomFolders.length === 0 && folderQuery && (
                 <p className="px-2 py-1 text-[11px] text-zinc-400 dark:text-zinc-500 italic">
-                  Eşleşen klasör yok
+                  {t('folder.notFound')}
                 </p>
               )}
             </div>
@@ -241,8 +242,10 @@ export const FolderNav = memo(function FolderNav({
       <div className="shrink-0 pt-2 border-t border-zinc-200/80 dark:border-zinc-800/80">
         <p className="px-1 text-[10px] text-zinc-400 dark:text-zinc-500 truncate">
           {stats
-            ? `${stats.folders} klasör • ${stats.messages} ileti`
-            : 'Yükleniyor...'}
+            ? language === 'en'
+              ? `${stats.folders} folders • ${stats.messages} messages`
+              : `${stats.folders} klasör • ${stats.messages} ileti`
+            : t('common.loading')}
         </p>
       </div>
     </div>

@@ -2160,6 +2160,7 @@ app.whenReady().then(() => {
       hideTaskbarOnMinimize: true,
       closeToQuit: false,
       useGmailShortcuts: true,
+      language: 'tr',
     });
   });
   ipcMain.handle('app:save-settings', (_evt, newSettings) => {
@@ -2169,6 +2170,7 @@ app.whenReady().then(() => {
       hideTaskbarOnMinimize: true,
       closeToQuit: false,
       useGmailShortcuts: true,
+      language: 'tr',
     });
     const updated = { ...current, ...newSettings };
     setSetting('app_behavior_settings', updated);

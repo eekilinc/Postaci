@@ -1,6 +1,7 @@
 // src/components/ShortcutsHelpModal.tsx — Kapsamlı Klavye Kısayolları Rehberi
 import { PostaciLogo } from './PostaciLogo';
 import { CloseIcon } from './icons';
+import { useTranslation } from '../i18n';
 
 interface ShortcutsHelpModalProps {
   isOpen: boolean;
@@ -8,47 +9,50 @@ interface ShortcutsHelpModalProps {
 }
 
 export function ShortcutsHelpModal({ isOpen, onClose }: ShortcutsHelpModalProps) {
+  const { t, language } = useTranslation();
   if (!isOpen) return null;
+
+  const orText = t('shortcuts.or');
 
   const shortcutSections = [
     {
-      title: 'Navigasyon & Genel',
+      title: t('shortcuts.secNav'),
       shortcuts: [
-        { keys: ['Ctrl', 'K'], desc: 'Komut Paleti (Spotlight arama & eylemler)' },
-        { keys: ['Ctrl', 'B'], desc: 'Klasör panelini daralt / genişlet' },
-        { keys: ['/'], desc: 'Arama çubuğuna hızlıca odaklan' },
-        { keys: ['?', 'veya', 'Ctrl', '/'], desc: 'Bu kısayol rehberini göster' },
-        { keys: ['ESC'], desc: 'Açık modal, arama veya paneli kapat' },
+        { keys: ['Ctrl', 'K'], desc: t('shortcuts.cmdPalette') },
+        { keys: ['Ctrl', 'B'], desc: t('shortcuts.toggleSidebar') },
+        { keys: ['/'], desc: t('shortcuts.focusSearch') },
+        { keys: ['?', orText, 'Ctrl', '/'], desc: t('shortcuts.showHelp') },
+        { keys: ['ESC'], desc: t('shortcuts.escape') },
       ],
     },
     {
-      title: 'İleti Listesi',
+      title: t('shortcuts.secList'),
       shortcuts: [
-        { keys: ['↓', 'veya', 'J'], desc: 'Bir sonraki e-postayı seç' },
-        { keys: ['↑', 'veya', 'K'], desc: 'Bir önceki e-postayı seç' },
+        { keys: ['↓', orText, 'J'], desc: t('shortcuts.nextMail') },
+        { keys: ['↑', orText, 'K'], desc: t('shortcuts.prevMail') },
       ],
     },
     {
-      title: 'E-posta Eylemleri (Seçili İleti)',
+      title: t('shortcuts.secActions'),
       shortcuts: [
-        { keys: ['C'], desc: 'Yeni e-posta oluştur (Compose)' },
-        { keys: ['R'], desc: 'Seçili e-postayı yanıtla (Reply)' },
-        { keys: ['A'], desc: 'Tümünü yanıtla (Reply All)' },
-        { keys: ['F'], desc: 'Başka birine ilet (Forward)' },
-        { keys: ['S'], desc: 'Yıldız ekle / kaldır' },
-        { keys: ['U'], desc: 'Okundu / Okunmadı olarak işaretle' },
-        { keys: ['E'], desc: 'Arşivle (Archive)' },
-        { keys: ['Del', 'veya', 'Backspace'], desc: 'Çöp kutusuna taşı / sil' },
+        { keys: ['C'], desc: t('shortcuts.compose') },
+        { keys: ['R'], desc: t('shortcuts.reply') },
+        { keys: ['A'], desc: t('shortcuts.replyAll') },
+        { keys: ['F'], desc: t('shortcuts.forward') },
+        { keys: ['S'], desc: t('shortcuts.star') },
+        { keys: ['U'], desc: t('shortcuts.unread') },
+        { keys: ['E'], desc: t('shortcuts.archive') },
+        { keys: ['Del', orText, 'Backspace'], desc: t('shortcuts.delete') },
       ],
     },
     {
-      title: 'E-posta Editörü İçi',
+      title: t('shortcuts.secEditor'),
       shortcuts: [
-        { keys: ['Ctrl', 'B'], desc: 'Kalın metin' },
-        { keys: ['Ctrl', 'I'], desc: 'İtalik metin' },
-        { keys: ['Ctrl', 'U'], desc: 'Altı çizili metin' },
-        { keys: ['Ctrl', 'K'], desc: 'Köprü / web bağlantısı ekle' },
-        { keys: ['Ctrl', 'Enter'], desc: 'E-postayı hemen gönder' },
+        { keys: ['Ctrl', 'B'], desc: t('shortcuts.bold') },
+        { keys: ['Ctrl', 'I'], desc: t('shortcuts.italic') },
+        { keys: ['Ctrl', 'U'], desc: t('shortcuts.underline') },
+        { keys: ['Ctrl', 'K'], desc: t('shortcuts.link') },
+        { keys: ['Ctrl', 'Enter'], desc: t('shortcuts.send') },
       ],
     },
   ];
@@ -68,16 +72,17 @@ export function ShortcutsHelpModal({ isOpen, onClose }: ShortcutsHelpModalProps)
             <PostaciLogo size="sm" />
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                Klavye Kısayolları Kılavuzu
+                {t('shortcuts.title')}
               </h2>
               <p className="text-xs text-zinc-400">
-                Postacı'yı klavyeden elinizi kaldırmadan profesyonelce kullanın
+                {t('shortcuts.subtitle')}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
             className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition"
+            title={t('common.close')}
           >
             <CloseIcon size={16} />
           </button>
@@ -101,9 +106,9 @@ export function ShortcutsHelpModal({ isOpen, onClose }: ShortcutsHelpModalProps)
                     </span>
                     <div className="flex items-center gap-1 shrink-0 ml-3">
                       {sc.keys.map((k, kIdx) =>
-                        k === 'veya' ? (
+                        k === orText ? (
                           <span key={kIdx} className="text-[10px] text-zinc-400 px-0.5">
-                            veya
+                            {orText}
                           </span>
                         ) : (
                           <kbd
@@ -128,7 +133,7 @@ export function ShortcutsHelpModal({ isOpen, onClose }: ShortcutsHelpModalProps)
             onClick={onClose}
             className="rounded-lg bg-zinc-200 px-4 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 transition"
           >
-            Anladım (ESC)
+            {language === 'en' ? 'Got it (ESC)' : 'Anladım (ESC)'}
           </button>
         </div>
       </div>

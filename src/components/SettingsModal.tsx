@@ -1,10 +1,10 @@
-// src/components/SettingsModal.tsx — Mailbird 3.0 Tarzı İki Bölmeli (Two-Pane) Ayarlar Penceresi
 import { useState, useEffect, useMemo } from 'react';
 import type { AccentKey, Account, DateFormatPreference, ListDensity, MarkReadTiming, QuickSnippet, SnippetLines, ThemeKey } from '../types';
 import type { LayoutMode } from './LayoutSwitcher';
 import { ACCENTS } from '../constants';
 import { getAccountSignature, saveAccountSignature } from '../utils/signatures';
 import { playNotificationSound } from '../utils/sound';
+import { useTranslation } from '../i18n';
 import { CloseIcon, SnippetIcon, TrashIcon } from './icons';
 import { PostaciLogo } from './PostaciLogo';
 import appIcon from '../assets/icon.png';
@@ -69,6 +69,7 @@ export function SettingsModal({
   onOpenShortcutsHelp,
   onRefreshAccounts,
 }: SettingsModalProps) {
+  const { language, setLanguage } = useTranslation();
   const handleLayoutMode = onLayoutModeChange || setLayoutMode;
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [updateCheckStatus, setUpdateCheckStatus] = useState<string | null>(null);
@@ -113,7 +114,6 @@ export function SettingsModal({
   const [showTrackingAlert, setShowTrackingAlert] = useState(true);
   const [soundChoice, setSoundChoice] = useState(() => localStorage.getItem('postaci_sound_choice') || 'chirp');
   const [syncInterval, setSyncInterval] = useState(0.5);
-  const [language, setLanguage] = useState('tr');
   const [testNotice, setTestNotice] = useState<string | null>(null);
 
   // 2. Görünüm: Okuma bölmesi & Klasörler
@@ -546,13 +546,13 @@ export function SettingsModal({
 
   // Sadece gerçek, dolu ve çalışan sekmeler (İçeriği olmayan boş sekmeler kaldırıldı!)
   const navTabs: { id: SettingsTab; label: string }[] = [
-    { id: 'general', label: 'Genel' },
-    { id: 'appearance', label: 'Görünüm' },
-    { id: 'scaling', label: 'Ölçeklendirme' },
-    { id: 'accounts', label: 'Hesaplar' },
-    { id: 'composing', label: 'Oluşturma' },
-    { id: 'advanced', label: 'Gelişmiş' },
-    { id: 'about', label: 'Postacı Hakkında' },
+    { id: 'general', label: language === 'en' ? 'General' : 'Genel' },
+    { id: 'appearance', label: language === 'en' ? 'Appearance' : 'Görünüm' },
+    { id: 'scaling', label: language === 'en' ? 'Scaling & Zoom' : 'Ölçeklendirme' },
+    { id: 'accounts', label: language === 'en' ? 'Accounts' : 'Hesaplar' },
+    { id: 'composing', label: language === 'en' ? 'Composing' : 'Oluşturma' },
+    { id: 'advanced', label: language === 'en' ? 'Advanced' : 'Gelişmiş' },
+    { id: 'about', label: language === 'en' ? 'About Postacı' : 'Postacı Hakkında' },
   ];
 
   return (
@@ -660,7 +660,7 @@ export function SettingsModal({
                 {/* Uygulama Davranışı */}
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
-                    Uygulama davranışı
+                    {language === 'en' ? 'Application behavior' : 'Uygulama davranışı'}
                   </h3>
                   <div className="space-y-3 text-xs sm:text-[13px]">
                     <label className="flex items-center gap-2.5 cursor-pointer">
@@ -675,7 +675,7 @@ export function SettingsModal({
                         }}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Windows başlangıcında açılsın</span>
+                      <span>{language === 'en' ? 'Launch at Windows startup' : 'Windows başlangıcında açılsın'}</span>
                     </label>
 
                     <label className="flex items-start gap-2.5 ml-6 cursor-pointer opacity-90">
@@ -693,10 +693,10 @@ export function SettingsModal({
                       />
                       <div className="flex flex-col">
                         <span className={!launchOnStartup ? 'text-zinc-400' : ''}>
-                          Başlangıçta simge durumunda açılsın (arka planda sessizce başlar)
+                          {language === 'en' ? 'Start minimized in background silently' : 'Başlangıçta simge durumunda açılsın (arka planda sessizce başlar)'}
                         </span>
                         <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                          Açık olduğunda Windows açılırken ana pencere ekrana gelmez, sistem tepsisinde (saat yanında) hazır bekler.
+                          {language === 'en' ? 'When enabled, main window will not pop up on Windows startup, waits in system tray.' : 'Açık olduğunda Windows açılırken ana pencere ekrana gelmez, sistem tepsisinde (saat yanında) hazır bekler.'}
                         </span>
                       </div>
                     </label>
@@ -713,7 +713,7 @@ export function SettingsModal({
                         }}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Simge durumunda iken görev çubuğu simgesi gizlensin (yalnızca sistem tepsisinde kalsın)</span>
+                      <span>{language === 'en' ? 'Hide from taskbar when minimized (system tray only)' : 'Simge durumunda iken görev çubuğu simgesi gizlensin (yalnızca sistem tepsisinde kalsın)'}</span>
                     </label>
 
                     <div>
@@ -729,10 +729,10 @@ export function SettingsModal({
                           }}
                           className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                         />
-                        <span>Çıkma tuşuna (✕) basıldığında uygulamadan tamamen çıkılsın</span>
+                        <span>{language === 'en' ? 'Exit application completely when clicking close (✕)' : 'Çıkma tuşuna (✕) basıldığında uygulamadan tamamen çıkılsın'}</span>
                       </label>
                       <p className="text-[11px] text-zinc-500 dark:text-zinc-400 pl-6.5 mt-0.5 leading-relaxed">
-                        İşaretli değilse (önerilen), çıkma tuşuna basıldığında Postacı arka planda ve sistem tepsisinde çalışmaya devam eder.
+                        {language === 'en' ? 'If unchecked (recommended), clicking close keeps Postacı running in background/tray.' : 'İşaretli değilse (önerilen), çıkma tuşuna basıldığında Postacı arka planda ve sistem tepsisinde çalışmaya devam eder.'}
                       </p>
                     </div>
 
@@ -748,7 +748,7 @@ export function SettingsModal({
                         }}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Gmail klavye kısayollarını kullan (C, R, A, E, # vb.)</span>
+                      <span>{language === 'en' ? 'Enable Gmail keyboard shortcuts (C, R, A, E, # etc.)' : 'Gmail klavye kısayollarını kullan (C, R, A, E, # vb.)'}</span>
                     </label>
                   </div>
                 </div>
@@ -756,7 +756,7 @@ export function SettingsModal({
                 {/* Bildirimler */}
                 <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
-                    Bildirimler
+                    {language === 'en' ? 'Notifications' : 'Bildirimler'}
                   </h3>
                   <div className="space-y-2.5 text-xs sm:text-[13px]">
                     <label className="flex items-center gap-2.5 cursor-pointer">
@@ -766,7 +766,7 @@ export function SettingsModal({
                         onChange={(e) => setShowUnreadBadge(e.target.checked)}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>Okunmamış ileti sayısı görev çubuğu & bildirim alanında gösterilsin</span>
+                      <span>{language === 'en' ? 'Show unread count badge in taskbar and tray' : 'Okunmamış ileti sayısı görev çubuğu & bildirim alanında gösterilsin'}</span>
                     </label>
 
                     <label className="flex items-center gap-2.5 cursor-pointer">
@@ -776,7 +776,7 @@ export function SettingsModal({
                         onChange={(e) => setShowTaskbarAlert(e.target.checked)}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>İleti geldiğinde görev çubuğunda uyarı gösterilsin</span>
+                      <span>{language === 'en' ? 'Flash taskbar when new email arrives' : 'İleti geldiğinde görev çubuğunda uyarı gösterilsin'}</span>
                     </label>
 
                     <label className="flex items-center gap-2.5 cursor-pointer">
@@ -786,36 +786,36 @@ export function SettingsModal({
                         onChange={(e) => setShowTrackingAlert(e.target.checked)}
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
-                      <span>E-posta İzlemesi olan bir ileti açıldığında bildirim alanında göster</span>
+                      <span>{language === 'en' ? 'Show notification when tracked email is opened' : 'E-posta İzlemesi olan bir ileti açıldığında bildirim alanında göster'}</span>
                     </label>
 
                     <div className="pt-2 flex items-center justify-between">
-                      <span className="text-xs text-zinc-600 dark:text-zinc-400">Yeni ileti sesi:</span>
+                      <span className="text-xs text-zinc-600 dark:text-zinc-400">{language === 'en' ? 'New email sound:' : 'Yeni ileti sesi:'}</span>
                       <select
                         value={soundChoice}
                         onChange={(e) => handleSoundChange(e.target.value)}
                         className="rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                       >
-                        <option value="chirp">Varsayılan (Chirp)</option>
-                        <option value="ding">Ding (Klasik)</option>
-                        <option value="bell">Çan</option>
-                        <option value="none">Sessiz</option>
+                        <option value="chirp">{language === 'en' ? 'Default (Chirp)' : 'Varsayılan (Chirp)'}</option>
+                        <option value="ding">{language === 'en' ? 'Ding (Classic)' : 'Ding (Klasik)'}</option>
+                        <option value="bell">{language === 'en' ? 'Bell' : 'Çan'}</option>
+                        <option value="none">{language === 'en' ? 'Mute' : 'Sessiz'}</option>
                       </select>
                     </div>
 
                     <div className="pt-1 flex items-center justify-between">
-                      <span className="text-xs text-zinc-600 dark:text-zinc-400">E-posta denetleme sıklığı:</span>
+                      <span className="text-xs text-zinc-600 dark:text-zinc-400">{language === 'en' ? 'Sync check frequency:' : 'E-posta denetleme sıklığı:'}</span>
                       <select
                         value={syncInterval}
                         onChange={(e) => handleSyncIntervalChange(Number(e.target.value))}
                         className="rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                       >
-                        <option value={0.5}>Her 30 saniyede bir (Yıldırım Hızı - Önerilen)</option>
-                        <option value={1}>Her 1 dakikada bir (Hızlı)</option>
-                        <option value={2}>Her 2 dakikada bir</option>
-                        <option value={3}>Her 3 dakikada bir</option>
-                        <option value={5}>Her 5 dakikada bir</option>
-                        <option value={10}>Her 10 dakikada bir</option>
+                        <option value={0.5}>{language === 'en' ? 'Every 30 seconds (Ultra fast - Recommended)' : 'Her 30 saniyede bir (Yıldırım Hızı - Önerilen)'}</option>
+                        <option value={1}>{language === 'en' ? 'Every 1 minute (Fast)' : 'Her 1 dakikada bir (Hızlı)'}</option>
+                        <option value={2}>{language === 'en' ? 'Every 2 minutes' : 'Her 2 dakikada bir'}</option>
+                        <option value={3}>{language === 'en' ? 'Every 3 minutes' : 'Her 3 dakikada bir'}</option>
+                        <option value={5}>{language === 'en' ? 'Every 5 minutes' : 'Her 5 dakikada bir'}</option>
+                        <option value={10}>{language === 'en' ? 'Every 10 minutes' : 'Her 10 dakikada bir'}</option>
                       </select>
                     </div>
 
@@ -826,7 +826,7 @@ export function SettingsModal({
                           onClick={handleTestNotification}
                           className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium cursor-pointer"
                         >
-                          Test Bildirimi Gönder
+                          {language === 'en' ? 'Send Test Notification' : 'Test Bildirimi Gönder'}
                         </button>
                         {testNotice && (
                           <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
@@ -898,15 +898,18 @@ export function SettingsModal({
 
                 {/* Dil */}
                 <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-2.5 tracking-tight">
-                    Dil
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-1 tracking-tight">
+                    {language === 'en' ? 'Language' : 'Dil'}
                   </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-2.5">
+                    {language === 'en' ? 'Choose application interface language' : 'Uygulama arayüz dilini seçin'}
+                  </p>
                   <select
                     value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                    className="w-48 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                    onChange={(e) => setLanguage(e.target.value as 'tr' | 'en')}
+                    className="w-52 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                   >
-                    <option value="tr">Türkçe</option>
+                    <option value="tr">Türkçe (Turkish)</option>
                     <option value="en">English (US)</option>
                   </select>
                 </div>

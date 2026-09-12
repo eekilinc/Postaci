@@ -24,10 +24,11 @@ import {
   HorizontalLayoutIcon,
   CompactLayoutIcon,
 } from './icons';
+import { useTranslation } from '../i18n';
 
 interface CommandItem {
   id: string;
-  category: 'Eylemler' | 'Düzen' | 'Klasörler' | 'Hesaplar' | 'Filtreler';
+  category: string;
   title: string;
   subtitle?: string;
   renderIcon: () => React.ReactNode;
@@ -72,6 +73,7 @@ export function CommandPaletteModal({
   layoutMode,
   onSelectLayoutMode,
 }: CommandPaletteModalProps) {
+  const { t, language } = useTranslation();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -81,12 +83,18 @@ export function CommandPaletteModal({
   const allCommands = useMemo<CommandItem[]>(() => {
     const list: CommandItem[] = [];
 
+    const catActions = t('cmd.catActions');
+    const catLayout = t('cmd.catLayout');
+    const catFolders = t('cmd.catFolders');
+    const catAccounts = t('cmd.catAccounts');
+    const catFilters = t('cmd.catFilters');
+
     // 1. Eylemler
     list.push({
       id: 'act-compose',
-      category: 'Eylemler',
-      title: 'Yeni E-posta Oluştur',
-      subtitle: 'Zengin metin editörüyle yeni ileti yaz',
+      category: catActions,
+      title: t('cmd.compose'),
+      subtitle: t('cmd.composeDesc'),
       renderIcon: () => <ComposeIcon size={16} />,
       shortcut: 'C',
       action: () => {
@@ -97,9 +105,9 @@ export function CommandPaletteModal({
 
     list.push({
       id: 'act-sync',
-      category: 'Eylemler',
-      title: 'Gelen Kutusunu Yenile',
-      subtitle: 'Sunucudan en yeni e-postaları senkronize et',
+      category: catActions,
+      title: t('cmd.refresh'),
+      subtitle: t('cmd.refreshDesc'),
       renderIcon: () => <SyncIcon size={16} />,
       shortcut: 'Y',
       action: () => {
@@ -110,9 +118,9 @@ export function CommandPaletteModal({
 
     list.push({
       id: 'act-settings',
-      category: 'Eylemler',
-      title: 'Görünüm, İmzalar & Bildirimler Ayarları',
-      subtitle: 'Tema modu, vurgu rengi, e-posta imzası ve masaüstü bildirimleri',
+      category: catActions,
+      title: t('cmd.settings'),
+      subtitle: t('cmd.settingsDesc'),
       renderIcon: () => <SettingsIcon size={16} />,
       action: () => {
         onOpenSettings();
@@ -122,9 +130,9 @@ export function CommandPaletteModal({
 
     list.push({
       id: 'act-shortcuts',
-      category: 'Eylemler',
-      title: 'Klavye Kısayolları Kılavuzu',
-      subtitle: 'Tüm hızlı tuş kombinasyonlarını görüntüle',
+      category: catActions,
+      title: t('cmd.shortcuts'),
+      subtitle: t('cmd.shortcutsDesc'),
       renderIcon: () => <KeyboardIcon size={16} />,
       shortcut: '?',
       action: () => {
@@ -135,9 +143,9 @@ export function CommandPaletteModal({
 
     list.push({
       id: 'act-test-notify',
-      category: 'Eylemler',
-      title: 'Test Masaüstü Bildirimi Gönder',
-      subtitle: 'Windows İşlem Merkezi bildirimini test et',
+      category: catActions,
+      title: language === 'en' ? 'Send Test Desktop Notification' : 'Test Masaüstü Bildirimi Gönder',
+      subtitle: language === 'en' ? 'Test Windows Action Center notifications' : 'Windows İşlem Merkezi bildirimini test et',
       renderIcon: () => <BellIcon size={16} />,
       action: () => {
         window.postaci?.notifications?.test().catch(() => {});
@@ -149,9 +157,9 @@ export function CommandPaletteModal({
     if (onSelectLayoutMode) {
       list.push({
         id: 'layout-three-column',
-        category: 'Düzen',
-        title: '3 Sütun Düzeni (Standart)',
-        subtitle: layoutMode === 'three-column' ? 'Şu anki aktif düzen' : 'Yan yana üç sütun düzenine geç',
+        category: catLayout,
+        title: t('cmd.layoutThreeCol'),
+        subtitle: layoutMode === 'three-column' ? (language === 'en' ? 'Current active layout' : 'Şu anki aktif düzen') : t('cmd.layoutThreeColDesc'),
         renderIcon: () => <ThreeColumnIcon size={16} />,
         action: () => {
           onSelectLayoutMode('three-column');
@@ -161,9 +169,9 @@ export function CommandPaletteModal({
 
       list.push({
         id: 'layout-horizontal',
-        category: 'Düzen',
-        title: 'Alt Alta (Yatay) Düzen',
-        subtitle: layoutMode === 'horizontal' ? 'Şu anki aktif düzen' : 'Üstte liste, altta okuma paneline geç',
+        category: catLayout,
+        title: t('cmd.layoutTwoCol'),
+        subtitle: layoutMode === 'horizontal' ? (language === 'en' ? 'Current active layout' : 'Şu anki aktif düzen') : t('cmd.layoutTwoColDesc'),
         renderIcon: () => <HorizontalLayoutIcon size={16} />,
         action: () => {
           onSelectLayoutMode('horizontal');
@@ -173,9 +181,9 @@ export function CommandPaletteModal({
 
       list.push({
         id: 'layout-compact',
-        category: 'Düzen',
-        title: 'Kompakt / Odak Düzeni',
-        subtitle: layoutMode === 'compact' ? 'Şu anki aktif düzen' : 'Tam ekran odaklı liste ve okuma moduna geç',
+        category: catLayout,
+        title: t('cmd.layoutNoPane'),
+        subtitle: layoutMode === 'compact' ? (language === 'en' ? 'Current active layout' : 'Şu anki aktif düzen') : t('cmd.layoutNoPaneDesc'),
         renderIcon: () => <CompactLayoutIcon size={16} />,
         action: () => {
           onSelectLayoutMode('compact');
@@ -186,14 +194,14 @@ export function CommandPaletteModal({
 
     // 3. Klasörler
     const isGoogle = activeAccount?.includes('gmail');
-    const { allDisplayFolders } = organizeAndDeduplicateFolders(folders, activeFolder, isGoogle);
+    const { allDisplayFolders } = organizeAndDeduplicateFolders(folders, activeFolder, isGoogle, language);
     allDisplayFolders.forEach((f) => {
       const isCurrent = f.path === activeFolder;
       list.push({
         id: `folder-${f.path}`,
-        category: 'Klasörler',
+        category: catFolders,
         title: f.displayName || f.name || f.path,
-        subtitle: isCurrent ? 'Şu anki aktif klasör' : `Klasöre zıpla (${f.path})`,
+        subtitle: isCurrent ? (language === 'en' ? 'Current active folder' : 'Şu anki aktif klasör') : (language === 'en' ? `Jump to folder (${f.path})` : `Klasöre zıpla (${f.path})`),
         renderIcon: () => <FolderRoleIcon role={f.role} size={16} />,
         action: () => {
           onSelectFolder(f.path);
@@ -207,9 +215,9 @@ export function CommandPaletteModal({
       const isCurrent = acc.email === activeAccount;
       list.push({
         id: `account-${acc.id}`,
-        category: 'Hesaplar',
+        category: catAccounts,
         title: acc.display_name ? `${acc.display_name} (${acc.email})` : acc.email,
-        subtitle: isCurrent ? 'Şu anki aktif hesap' : `${acc.provider.toUpperCase()} hesabına geçiş yap`,
+        subtitle: isCurrent ? (language === 'en' ? 'Current active account' : 'Şu anki aktif hesap') : (language === 'en' ? `Switch to ${acc.provider.toUpperCase()} account` : `${acc.provider.toUpperCase()} hesabına geçiş yap`),
         renderIcon: () =>
           acc.provider === 'google' ? (
             <GoogleBrandIcon size={16} />
@@ -232,19 +240,19 @@ export function CommandPaletteModal({
       renderIcon: () => React.ReactNode;
       desc: string;
     }[] = [
-      { key: 'all', label: 'Tüm İletiler', renderIcon: () => <InboxIcon size={16} />, desc: 'Klasördeki tüm e-postaları göster' },
-      { key: 'unread', label: 'Yalnızca Okunmamışlar', renderIcon: () => <MailIcon size={16} />, desc: 'Sadece henüz okunmamış e-postaları filtrele' },
-      { key: 'starred', label: 'Yıldızlı İletiler', renderIcon: () => <StarIcon size={16} filled />, desc: 'Önemli olarak işaretlenmiş iletiler' },
-      { key: 'attachment', label: 'Ekli İletiler', renderIcon: () => <AttachmentIcon size={16} />, desc: 'Dosya veya görsel eki olan iletiler' },
+      { key: 'all', label: t('cmd.filterAll'), renderIcon: () => <InboxIcon size={16} />, desc: t('cmd.filterAllDesc') },
+      { key: 'unread', label: t('cmd.filterUnread'), renderIcon: () => <MailIcon size={16} />, desc: t('cmd.filterUnreadDesc') },
+      { key: 'starred', label: t('cmd.filterStarred'), renderIcon: () => <StarIcon size={16} filled />, desc: t('cmd.filterStarredDesc') },
+      { key: 'attachment', label: t('cmd.filterAttachments'), renderIcon: () => <AttachmentIcon size={16} />, desc: t('cmd.filterAttachmentsDesc') },
     ];
 
     filterOptions.forEach((f) => {
       const isCurrent = f.key === activeFilter;
       list.push({
         id: `filter-${f.key}`,
-        category: 'Filtreler',
+        category: catFilters,
         title: f.label,
-        subtitle: isCurrent ? 'Şu anki aktif filtre' : f.desc,
+        subtitle: isCurrent ? (language === 'en' ? 'Current active filter' : 'Şu anki aktif filtre') : f.desc,
         renderIcon: f.renderIcon,
         action: () => {
           onSelectFilter(f.key);
@@ -270,6 +278,8 @@ export function CommandPaletteModal({
     layoutMode,
     onSelectLayoutMode,
     onClose,
+    language,
+    t,
   ]);
 
   // Arama sorgusuna göre filtrele
@@ -351,7 +361,7 @@ export function CommandPaletteModal({
               setSelectedIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Bir komut arayın veya klasöre zıplayın... (örn: Yeni, Çöp, Hotmail)"
+            placeholder={t('cmd.placeholder')}
             className="flex-1 bg-transparent text-sm font-medium text-zinc-800 outline-none placeholder:text-zinc-400 dark:text-zinc-100 dark:placeholder:text-zinc-500"
           />
           {query && (
@@ -378,8 +388,8 @@ export function CommandPaletteModal({
           {filteredCommands.length === 0 ? (
             <div className="py-12 text-center text-sm text-zinc-400 dark:text-zinc-500">
               <SearchIcon size={28} className="mx-auto text-zinc-400 mb-2" />
-              <p className="font-medium">Eşleşen bir eylem veya klasör bulunamadı</p>
-              <p className="text-xs mt-1 text-zinc-400">Farklı bir arama terimi deneyin</p>
+              <p className="font-medium">{t('cmd.noResults')}</p>
+              <p className="text-xs mt-1 text-zinc-400">{language === 'en' ? 'Try a different search term' : 'Farklı bir arama terimi deneyin'}</p>
             </div>
           ) : (
             filteredCommands.map((item, index) => {
@@ -455,24 +465,26 @@ export function CommandPaletteModal({
               <kbd className="rounded bg-white px-1.5 py-0.5 font-mono shadow-xs border border-zinc-200 dark:border-zinc-700 dark:bg-zinc-800">
                 ↓
               </kbd>
-              <span>Gezin</span>
+              <span>{language === 'en' ? 'Navigate' : 'Gezin'}</span>
             </span>
             <span className="flex items-center gap-1">
               <kbd className="rounded bg-white px-1.5 py-0.5 font-mono shadow-xs border border-zinc-200 dark:border-zinc-700 dark:bg-zinc-800">
                 ↵
               </kbd>
-              <span>Seç</span>
+              <span>{language === 'en' ? 'Select' : 'Seç'}</span>
             </span>
             <span className="flex items-center gap-1">
               <kbd className="rounded bg-white px-1.5 py-0.5 font-mono shadow-xs border border-zinc-200 dark:border-zinc-700 dark:bg-zinc-800">
                 ESC
               </kbd>
-              <span>Kapat</span>
+              <span>{t('common.close')}</span>
             </span>
           </div>
 
           <span className="text-[11px] text-zinc-400">
-            {filteredCommands.length} eylem listelendi
+            {language === 'en'
+              ? `${filteredCommands.length} actions listed`
+              : `${filteredCommands.length} eylem listelendi`}
           </span>
         </div>
       </div>
