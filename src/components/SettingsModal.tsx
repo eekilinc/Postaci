@@ -120,6 +120,11 @@ export function SettingsModal({
   const [showReadingPane, setShowReadingPane] = useState(true);
   const [showFoldersSeparately, setShowFoldersSeparately] = useState(true);
   const [selectedWallpaper, setSelectedWallpaper] = useState<string | null>(() => localStorage.getItem('postaci_wallpaper') || null);
+  const [customWallpaperDataUrl, setCustomWallpaperDataUrl] = useState<string | null>(() => localStorage.getItem('postaci_custom_wallpaper') || null);
+  // Hesap silme onay modal'ı state'i
+  const [confirmDeleteAcc, setConfirmDeleteAcc] = useState<Account | null>(null);
+  const [deletingAcc, setDeletingAcc] = useState(false);
+  const [deleteAccError, setDeleteAccError] = useState<string | null>(null);
 
   // 3. Ölçeklendirme (Zoom / Scaling)
   const [appScale, setAppScale] = useState<number>(() => {
@@ -405,7 +410,7 @@ export function SettingsModal({
     }
   };
 
-  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.16';
+  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.22';
   const [logoLoadError, setLogoLoadError] = useState(false);
   const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
     version?: string;
@@ -504,21 +509,25 @@ export function SettingsModal({
     }
   };
 
-  // Hesap Kaldır
-  const handleDeleteAccount = async (acc: Account) => {
-    const confirmDel = window.confirm(
-      `"${acc.email}" hesabını Postacı'dan kaldırmak istediğinize emin misiniz?\n\nBu işlem hesabın yerel iletilerini temizler. Sunucudaki e-postalarınız asla silinmez.`
-    );
-    if (!confirmDel) return;
-    if (!window.postaci?.accounts?.delete) return;
+  // Hesap Kaldır — inline onay modal
+  const handleDeleteAccount = (acc: Account) => {
+    setConfirmDeleteAcc(acc);
+    setDeleteAccError(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDeleteAcc || !window.postaci?.accounts?.delete) return;
+    setDeletingAcc(true);
+    setDeleteAccError(null);
     try {
-      await window.postaci.accounts.delete(acc.id);
+      await window.postaci.accounts.delete(confirmDeleteAcc.id);
       onRefreshAccounts?.();
-      if (editingAccountId === acc.id) {
-        setEditingAccountId(null);
-      }
+      if (editingAccountId === confirmDeleteAcc.id) setEditingAccountId(null);
+      setConfirmDeleteAcc(null);
     } catch (err) {
-      alert(`Hesap kaldırılamadı: ${err instanceof Error ? err.message : String(err)}`);
+      setDeleteAccError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingAcc(false);
     }
   };
 
@@ -551,6 +560,51 @@ export function SettingsModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs animate-fadeIn select-none p-4"
       onClick={onClose}
     >
+      {/* Hesap Silme Onay Modal'ı */}
+      {confirmDeleteAcc && (
+        <div
+          className="absolute z-60 inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-950/50 flex items-center justify-center shrink-0">
+                <span className="text-red-600 dark:text-red-400 text-lg">⚠</span>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Hesabı Kaldır</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">{confirmDeleteAcc.email}</span> hesabı Postacı'dan kaldırılacak. Yerel iletiler silinir, sunucudaki e-postalarınız etkilenmez.
+                </p>
+                {deleteAccError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">{deleteAccError}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => { setConfirmDeleteAcc(null); setDeleteAccError(null); }}
+                disabled={deletingAcc}
+                className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-4 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition disabled:opacity-50"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deletingAcc}
+                className="rounded-xl bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 text-xs font-semibold transition active:scale-95 disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                {deletingAcc ? (
+                  <><span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" /><span>Kaldırılıyor...</span></>
+                ) : 'Hesabı Kaldır'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mailbird 3.0 İki Bölmeli Geniş Ayarlar Penceresi */}
       <div
         className="flex h-[620px] min-h-[480px] max-h-[92vh] w-[780px] max-w-[95vw] rounded-2xl bg-white shadow-2xl dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 overflow-hidden"
@@ -1025,11 +1079,29 @@ export function SettingsModal({
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                     <button
                       type="button"
-                      onClick={() => alert('Özel arkaplan fotoğrafı seçme özelliği yakında!')}
-                      className="h-16 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-blue-500 flex items-center justify-center text-zinc-400 hover:text-blue-500 transition"
+                      onClick={async () => {
+                        if (!window.postaci?.openFileDialog) return;
+                        const dataUrl = await window.postaci.openFileDialog({
+                          title: 'Özel Arkaplan Resmi Seç',
+                          filters: [{ name: 'Resim', extensions: ['jpg','jpeg','png','webp','gif','bmp'] }],
+                        });
+                        if (dataUrl) {
+                          setCustomWallpaperDataUrl(dataUrl);
+                          localStorage.setItem('postaci_custom_wallpaper', dataUrl);
+                          setSelectedWallpaper('custom');
+                          localStorage.setItem('postaci_wallpaper', 'custom');
+                          window.dispatchEvent(new CustomEvent('postaci:wallpaper', { detail: { id: 'custom', dataUrl } }));
+                        }
+                      }}
+                      className="h-16 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-blue-500 flex items-center justify-center text-zinc-400 hover:text-blue-500 transition relative group"
                       title="Özel arkaplan ekle"
                     >
                       <span className="text-2xl leading-none">+</span>
+                      {customWallpaperDataUrl && (
+                        <span className="absolute inset-0 rounded-xl overflow-hidden opacity-60">
+                          <img src={customWallpaperDataUrl} className="w-full h-full object-cover" alt="" />
+                        </span>
+                      )}
                     </button>
 
                     {wallpapers.map((w) => (

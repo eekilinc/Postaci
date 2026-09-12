@@ -148,6 +148,13 @@ export default function App() {
     }
   };
 
+  // Windows görev çubuğu rozeti — okunmamış sayısı değişince güncelle
+  useEffect(() => {
+    if (window.postaci?.setBadge) {
+      window.postaci.setBadge(unifiedUnreadCount).catch(() => {});
+    }
+  }, [unifiedUnreadCount]);
+
   // ── Okunmamış İleti Sayaçları (Tüm Hesaplar ve Klasörler) ──────────────────
   const [unreadCounts, setUnreadCounts] = useState<{
     byAccount: Record<string, number>;

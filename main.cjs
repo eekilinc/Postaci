@@ -2188,6 +2188,58 @@ app.whenReady().then(() => {
     return false;
   });
 
+  // Windows Görev Çubuğu Rozeti — okunmamış sayısı
+  ipcMain.handle('app:set-badge', (_evt, count) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    try {
+      if (!count || count <= 0) {
+        mainWindow.setOverlayIcon(null, '');
+        if (tray && !tray.isDestroyed()) tray.setToolTip('Postacı - E-posta İstemcisi');
+        return true;
+      }
+      const label = count > 99 ? '99+' : String(count);
+      const size = 24;
+      // SVG rozet ikonu oluştur
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+        <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#e53e3e"/>
+        <text x="${size / 2}" y="${count > 9 ? 16 : 17}" text-anchor="middle" fill="white"
+          font-size="${count > 9 ? 10 : 13}" font-family="Arial,sans-serif" font-weight="bold">${label}</text>
+      </svg>`;
+      const dataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+      const img = nativeImage.createFromDataURL(dataUrl);
+      mainWindow.setOverlayIcon(img, `${count} okunmamış ileti`);
+      if (tray && !tray.isDestroyed()) tray.setToolTip(`Postacı — ${count} okunmamış`);
+      return true;
+    } catch (e) {
+      console.warn('[badge] setOverlayIcon hatası:', e?.message);
+      return false;
+    }
+  });
+
+  // Dosya Seç Dialog (özel arkaplan resmi için)
+  ipcMain.handle('dialog:open-file', async (_evt, { filters, title } = {}) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: title || 'Dosya Seç',
+      properties: ['openFile'],
+      filters: filters || [
+        { name: 'Resim Dosyaları', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'] },
+        { name: 'Tüm Dosyalar', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const filePath = result.filePaths[0];
+    try {
+      const data = fs.readFileSync(filePath);
+      const ext = filePath.split('.').pop()?.toLowerCase() || 'png';
+      const mimeMap = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml' };
+      const mime = mimeMap[ext] || 'image/png';
+      return `data:${mime};base64,${data.toString('base64')}`;
+    } catch {
+      return null;
+    }
+  });
+
   ensureWindowsShortcut();
   try {
     app.setAppUserModelId('com.postaci.app');

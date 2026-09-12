@@ -94,4 +94,6 @@ contextBridge.exposeInMainWorld('postaci', {
     save: (settings) => ipcRenderer.invoke('app:save-settings', settings),
   },
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+  setBadge: (count) => ipcRenderer.invoke('app:set-badge', count),
+  openFileDialog: (opts) => ipcRenderer.invoke('dialog:open-file', opts || {}),
 });

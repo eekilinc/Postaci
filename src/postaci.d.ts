@@ -206,7 +206,12 @@ declare global {
           useGmailShortcuts: boolean;
         }>;
       };
-      openExternal?: (url: string) => Promise<boolean>;
+      openExternal: (url: string) => Promise<boolean>;
+      setBadge: (count: number) => Promise<boolean>;
+      openFileDialog: (opts?: {
+        title?: string;
+        filters?: { name: string; extensions: string[] }[];
+      }) => Promise<string | null>;
     };
   }
 }
