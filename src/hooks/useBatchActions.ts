@@ -73,10 +73,6 @@ export function useBatchActions({
     if (selectedUids.size === 0 || !window.postaci) return;
     const count = selectedUids.size;
     const isTrash = !isUnified && /trash|çöp|deleted|bin/i.test(activeFolder || '');
-    const promptText = isTrash
-      ? `Seçili ${count} e-posta kalıcı olarak silinecektir. Emin misiniz?`
-      : `Seçili ${count} e-posta çöp kutusuna taşınacaktır. Emin misiniz?`;
-    if (!window.confirm(promptText)) return;
 
     const uidsToDelete = new Set(selectedUids);
     setMessages((prev) => prev.filter((m) => !uidsToDelete.has(m.uid)));
