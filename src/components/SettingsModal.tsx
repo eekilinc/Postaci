@@ -312,6 +312,12 @@ export function SettingsModal({
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
   const [accountSaveNotice, setAccountSaveNotice] = useState<string | null>(null);
+  // Bağlantı Testi State'i
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<{
+    imap: { ok: boolean; error?: string } | null;
+    smtp: { ok: boolean; error?: string; note?: string } | null;
+  } | null>(null);
 
   // 5. İmzalar (Oluşturma)
   const [selectedEmail, setSelectedEmail] = useState(activeAccount || accounts[0]?.email || '');
@@ -321,12 +327,40 @@ export function SettingsModal({
 
   // 6. İstatistikler (Gelişmiş)
   const [dbStats, setDbStats] = useState<{ accounts: number; folders: number; messages: number } | null>(null);
+  const [systemInfo, setSystemInfo] = useState<{
+    ram: { heapUsedMB: number; heapTotalMB: number; rssMB: number; externalMB: number };
+    db: { sizeBytes: number; sizeMB: number; path: string | null };
+    versions: { electron: string; node: string; chrome: string; v8: string };
+  } | null>(null);
+  const [vacuumStatus, setVacuumStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
 
-  useEffect(() => {
+  const loadSystemInfo = () => {
     if (window.postaci?.db?.stats) {
       window.postaci.db.stats().then(setDbStats).catch(() => {});
     }
+    if (window.postaci?.db?.systemInfo) {
+      window.postaci.db.systemInfo().then(setSystemInfo).catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    loadSystemInfo();
   }, []);
+
+  const handleVacuum = async () => {
+    if (!window.postaci?.db?.vacuum) return;
+    setVacuumStatus('running');
+    try {
+      await window.postaci.db.vacuum();
+      setVacuumStatus('done');
+      // Boyutu yenile
+      loadSystemInfo();
+      setTimeout(() => setVacuumStatus('idle'), 3000);
+    } catch {
+      setVacuumStatus('error');
+      setTimeout(() => setVacuumStatus('idle'), 3000);
+    }
+  };
 
   // UI Zoom seviyesini canlı uygula
   const handleAppScaleChange = (val: number) => {
@@ -421,6 +455,7 @@ export function SettingsModal({
     setEditPassword('');
     setShowEditPassword(false);
     setAccountSaveNotice(null);
+    setConnectionTestResult(null);
   };
 
   // Hesap Düzenlemeyi Kaydet
@@ -448,6 +483,24 @@ export function SettingsModal({
       setAccountSaveNotice(`✕ Hata: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSavingAccount(false);
+    }
+  };
+
+  // Bağlantı Testi
+  const handleTestConnection = async () => {
+    if (!editingAccountId || !window.postaci?.accounts?.testConnection) return;
+    setTestingConnection(true);
+    setConnectionTestResult(null);
+    try {
+      const result = await window.postaci.accounts.testConnection(editingAccountId);
+      setConnectionTestResult(result);
+    } catch (err) {
+      setConnectionTestResult({
+        imap: { ok: false, error: err instanceof Error ? err.message : String(err) },
+        smtp: null,
+      });
+    } finally {
+      setTestingConnection(false);
     }
   };
 
@@ -1316,6 +1369,70 @@ export function SettingsModal({
                       </div>
                     </div>
 
+                    {/* Bağlantı Testi */}
+                    <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={handleTestConnection}
+                          disabled={testingConnection || savingAccount}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition active:scale-95 disabled:opacity-50"
+                        >
+                          {testingConnection ? (
+                            <>
+                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent" />
+                              <span>Test ediliyor...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>🔌</span>
+                              <span>Bağlantıyı Test Et</span>
+                            </>
+                          )}
+                        </button>
+
+                        {connectionTestResult && (
+                          <div className="flex items-center gap-2 text-[11px] flex-wrap">
+                            <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 font-semibold border ${
+                              connectionTestResult.imap?.ok
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60'
+                                : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800/60'
+                            }`}>
+                              {connectionTestResult.imap?.ok ? '✓ IMAP' : '✕ IMAP'}
+                            </span>
+                            <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 font-semibold border ${
+                              connectionTestResult.smtp?.ok
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60'
+                                : connectionTestResult.smtp === null
+                                ? 'bg-zinc-50 text-zinc-500 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700'
+                                : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800/60'
+                            }`}>
+                              {connectionTestResult.smtp?.ok ? '✓ SMTP' : connectionTestResult.smtp === null ? '– SMTP' : '✕ SMTP'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Hata Detayları */}
+                      {connectionTestResult && (
+                        <div className="mt-2 space-y-1">
+                          {connectionTestResult.imap && !connectionTestResult.imap.ok && connectionTestResult.imap.error && (
+                            <p className="text-[11px] text-red-600 dark:text-red-400 leading-relaxed">
+                              <span className="font-semibold">IMAP:</span> {connectionTestResult.imap.error}
+                            </p>
+                          )}
+                          {connectionTestResult.smtp && !connectionTestResult.smtp.ok && connectionTestResult.smtp.error && (
+                            <p className="text-[11px] text-red-600 dark:text-red-400 leading-relaxed">
+                              <span className="font-semibold">SMTP:</span> {connectionTestResult.smtp.error}
+                            </p>
+                          )}
+                          {connectionTestResult.smtp?.ok && connectionTestResult.smtp.note && (
+                            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{connectionTestResult.smtp.note}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
                     {/* Kaydet ve İptal Butonları */}
                     <div className="pt-2 flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1671,10 +1788,19 @@ export function SettingsModal({
                   </p>
                 </div>
 
-                {/* SQLite Durumu */}
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
-                  <p className="font-semibold text-zinc-700 dark:text-zinc-300">Yerel SQLite Durumu:</p>
-                  <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                {/* SQLite Durumu + RAM + Boyut */}
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">Yerel SQLite Durumu:</p>
+                    <button
+                      type="button"
+                      onClick={loadSystemInfo}
+                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Yenile
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="bg-white dark:bg-zinc-800 p-2 rounded-lg border border-zinc-200/80 dark:border-zinc-700">
                       <p className="text-lg font-bold text-blue-600">{dbStats?.accounts ?? accounts.length}</p>
                       <p className="text-[10px] text-zinc-400">Hesap</p>
@@ -1688,15 +1814,61 @@ export function SettingsModal({
                       <p className="text-[10px] text-zinc-400">Kayıtlı İleti</p>
                     </div>
                   </div>
+
+                  {/* DB Boyutu */}
+                  {systemInfo && (
+                    <div className="flex items-center justify-between rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700 px-3 py-2">
+                      <span className="text-zinc-500">DB Dosya Boyutu</span>
+                      <span className="font-bold text-zinc-800 dark:text-zinc-200">
+                        {systemInfo.db.sizeMB < 1
+                          ? `${Math.round(systemInfo.db.sizeBytes / 1024)} KB`
+                          : `${systemInfo.db.sizeMB} MB`}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="pt-1 flex items-center gap-3">
+                {/* RAM Kullanımı */}
+                {systemInfo && (
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
+                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">Bellek Kullanımı (Ana Süreç):</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
+                        <span className="text-zinc-500">RSS (Toplam)</span>
+                        <span className="font-bold text-orange-600 dark:text-orange-400">{systemInfo.ram.rssMB} MB</span>
+                      </div>
+                      <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
+                        <span className="text-zinc-500">Heap Kullanılan</span>
+                        <span className="font-bold text-blue-600 dark:text-blue-400">{systemInfo.ram.heapUsedMB} MB</span>
+                      </div>
+                      <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
+                        <span className="text-zinc-500">Heap Toplam</span>
+                        <span className="font-bold text-zinc-700 dark:text-zinc-300">{systemInfo.ram.heapTotalMB} MB</span>
+                      </div>
+                      <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
+                        <span className="text-zinc-500">Harici</span>
+                        <span className="font-bold text-zinc-600 dark:text-zinc-400">{systemInfo.ram.externalMB} MB</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-1 flex items-center gap-3 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => alert('Yerel SQLite önbelleği optimize edildi.')}
-                    className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                    onClick={handleVacuum}
+                    disabled={vacuumStatus === 'running'}
+                    className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
                   >
-                    Önbelleği Temizle & Optimize Et
+                    {vacuumStatus === 'running' ? (
+                      <><span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent" /><span>Optimize ediliyor...</span></>
+                    ) : vacuumStatus === 'done' ? (
+                      <span className="text-emerald-600 dark:text-emerald-400">✓ Optimize edildi!</span>
+                    ) : vacuumStatus === 'error' ? (
+                      <span className="text-red-600">✕ Hata oluştu</span>
+                    ) : (
+                      <span>Veritabanını Optimize Et (VACUUM)</span>
+                    )}
                   </button>
                   {onOpenShortcutsHelp && (
                     <button
@@ -1870,6 +2042,26 @@ export function SettingsModal({
                   </div>
                 </div>
 
+                {/* Sistem Versiyonları */}
+                {systemInfo && (
+                  <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
+                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">Çalışma Ortamı Versiyonları:</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {[
+                        { label: 'Electron', value: systemInfo.versions.electron },
+                        { label: 'Node.js', value: systemInfo.versions.node },
+                        { label: 'Chromium', value: systemInfo.versions.chrome },
+                        { label: 'V8', value: systemInfo.versions.v8 },
+                      ].map(({ label, value }) => (
+                        <div key={label} className="flex items-center justify-between bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 px-2.5 py-1.5">
+                          <span className="text-zinc-500">{label}</span>
+                          <span className="font-mono font-semibold text-[11px] text-zinc-700 dark:text-zinc-300">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Geliştirici & Lisans */}
                 <div className="rounded-xl bg-zinc-50/60 dark:bg-zinc-850/30 p-3 text-xs border border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between">
                   <div>
@@ -1885,6 +2077,7 @@ export function SettingsModal({
                     İletişim
                   </a>
                 </div>
+
               </div>
             )}
           </div>

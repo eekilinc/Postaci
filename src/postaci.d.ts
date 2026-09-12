@@ -17,6 +17,12 @@ declare global {
       platform: string;
       db: {
         stats: () => Promise<{ accounts: number; folders: number; messages: number }>;
+        systemInfo: () => Promise<{
+          ram: { heapUsedMB: number; heapTotalMB: number; rssMB: number; externalMB: number };
+          db: { sizeBytes: number; sizeMB: number; path: string | null };
+          versions: { electron: string; node: string; chrome: string; v8: string };
+        }>;
+        vacuum: () => Promise<boolean>;
       };
       accounts: {
         list: () => Promise<
@@ -71,6 +77,10 @@ declare global {
           smtp_host?: string;
           smtp_port?: number;
           smtp_secure?: number;
+        }>;
+        testConnection: (accountId: number) => Promise<{
+          imap: { ok: boolean; error?: string } | null;
+          smtp: { ok: boolean; error?: string; note?: string } | null;
         }>;
       };
       auth: {

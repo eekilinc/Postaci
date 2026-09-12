@@ -29,7 +29,7 @@ try {
 
 const path = require('path');
 const fs = require('fs');
-const { initDb, getDb, getStats, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts } = require('./electron/db.cjs');
+const { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts } = require('./electron/db.cjs');
 const { startOAuthFlow } = require('./electron/auth.cjs');
 const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient } = require('./electron/mail.cjs');
 const { detectSettings } = require('./electron/providers.cjs');
@@ -899,6 +899,41 @@ function createWindow() {
 app.whenReady().then(() => {
   initDb(app.getPath('userData'));
   ipcMain.handle('db:stats', () => getStats());
+
+  // Sistem Bilgisi: RAM, DB boyutu, Electron/Node/Chrome versiyonları
+  ipcMain.handle('db:system-info', async () => {
+    const memUsage = process.memoryUsage();
+    const dbFilePath = getDbPath();
+    let dbSizeBytes = 0;
+    if (dbFilePath) {
+      try { dbSizeBytes = fs.statSync(dbFilePath).size; } catch {}
+    }
+    return {
+      ram: {
+        heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024 * 10) / 10,
+        heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024 * 10) / 10,
+        rssMB: Math.round(memUsage.rss / 1024 / 1024 * 10) / 10,
+        externalMB: Math.round(memUsage.external / 1024 / 1024 * 10) / 10,
+      },
+      db: {
+        sizeBytes: dbSizeBytes,
+        sizeMB: Math.round(dbSizeBytes / 1024 / 1024 * 100) / 100,
+        path: dbFilePath,
+      },
+      versions: {
+        electron: process.versions.electron || '?',
+        node: process.versions.node || '?',
+        chrome: process.versions.chrome || '?',
+        v8: process.versions.v8 || '?',
+      },
+    };
+  });
+
+  // DB Vakum (VACUUM + optimize) — Gelişmiş sekmesi "Önbelleği Temizle" butonu
+  ipcMain.handle('db:vacuum', () => {
+    vacuumDb();
+    return true;
+  });
   ipcMain.handle('accounts:list', () => listAccounts());
   ipcMain.handle('auth:start', async (_evt, provider) => {
     const tokens = await startOAuthFlow(provider);
@@ -2011,6 +2046,51 @@ app.whenReady().then(() => {
       return false;
     }
   });
+  // Bağlantı Testi — mevcut kaydedilmiş hesap kimlik bilgilerini doğrular
+  ipcMain.handle('accounts:test-connection', async (_evt, { accountId }) => {
+    const acc = getAccountById(accountId);
+    if (!acc) throw new Error('Hesap bulunamadı.');
+
+    const result = { imap: null, smtp: null };
+
+    // IMAP testi
+    try {
+      const creds = await freshCredentials(acc);
+      if (creds.password) {
+        // Şifre tabanlı (IMAP/SMTP manuel hesap)
+        await verifyImap({ host: acc.imap_host, port: acc.imap_port, email: acc.email, password: creds.password });
+        result.imap = { ok: true };
+
+        // SMTP testi
+        try {
+          const transporter = createTransporter({
+            provider: acc.provider,
+            email: acc.email,
+            password: creds.password,
+            smtpHost: acc.smtp_host,
+            smtpPort: acc.smtp_port,
+            smtpSecure: acc.smtp_secure !== 0,
+          });
+          await transporter.verify();
+          result.smtp = { ok: true };
+        } catch (smtpErr) {
+          result.smtp = { ok: false, error: smtpErr.message || String(smtpErr) };
+        }
+      } else if (creds.accessToken) {
+        // OAuth hesap — IMAP bağlantısını withClient ile test et
+        await withClient({ provider: acc.provider, email: acc.email, accessToken: creds.accessToken }, async (client) => {
+          await client.mailboxOpen('INBOX', { readOnly: true });
+        });
+        result.imap = { ok: true };
+        result.smtp = { ok: true, note: 'OAuth bağlantısı IMAP ile doğrulandı.' };
+      }
+    } catch (err) {
+      result.imap = result.imap || { ok: false, error: err.message || String(err) };
+    }
+
+    return result;
+  });
+
   ipcMain.handle('accounts:add-manual', async (_evt, { email, password, imap, smtp }) => {
     if (!email || !password) throw new Error('E-posta ve şifre gerekli.');
     // Kaydetmeden önce bağlantıyı doğrula (anında hata bildirimi)

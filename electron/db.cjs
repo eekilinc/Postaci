@@ -147,6 +147,17 @@ function getStats() {
   return { accounts, folders, messages };
 }
 
+function getDbPath() {
+  return db ? db.name : null;
+}
+
+function vacuumDb() {
+  const d = getDb();
+  d.exec('VACUUM');
+  d.exec('PRAGMA optimize');
+  return true;
+}
+
 function listAccounts() {
   return getDb().prepare('SELECT id, provider, email, display_name, auth_type, imap_host, imap_port, smtp_host, smtp_port, smtp_secure, created_at FROM accounts ORDER BY id').all();
 }
@@ -648,4 +659,4 @@ function getAllUnreadCounts() {
   }
 }
 
-module.exports = { initDb, getDb, getStats, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts };
+module.exports = { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts };

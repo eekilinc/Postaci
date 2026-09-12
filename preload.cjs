@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('postaci', {
   platform: process.platform,
   db: {
     stats: () => ipcRenderer.invoke('db:stats'),
+    systemInfo: () => ipcRenderer.invoke('db:system-info'),
+    vacuum: () => ipcRenderer.invoke('db:vacuum'),
   },
   accounts: {
     list: () => ipcRenderer.invoke('accounts:list'),
@@ -22,6 +24,7 @@ contextBridge.exposeInMainWorld('postaci', {
     update: (id, updates) => ipcRenderer.invoke('accounts:update', id, updates),
     delete: (id) => ipcRenderer.invoke('accounts:delete', id),
     get: (id) => ipcRenderer.invoke('accounts:get', id),
+    testConnection: (accountId) => ipcRenderer.invoke('accounts:test-connection', { accountId }),
   },
   auth: {
     start: (provider) => ipcRenderer.invoke('auth:start', provider),
