@@ -256,53 +256,17 @@ export function MessageList({
           <SyncIcon size={13} className={syncing ? 'animate-spin' : ''} />
         </button>
 
-        {/* Çöp Kutusunu Boşalt Butonu + Inline Onay */}
+        {/* Çöp Kutusunu Boşalt Butonu */}
         {isTrash && onEmptyTrash && (
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setShowEmptyTrashConfirm(true)}
-              disabled={syncing || messages.length === 0}
-              className="h-7.5 px-2 rounded-xl border border-red-200 bg-red-50/80 text-xs font-semibold text-red-600 shadow-2xs transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/50 flex items-center gap-1"
-              title="Çöp kutusunu kalıcı olarak boşalt"
-            >
-              <TrashIcon size={13} />
-              <span className="hidden sm:inline text-[11px]">Boşalt</span>
-            </button>
-
-            {/* Inline Onay Popup */}
-            {showEmptyTrashConfirm && (
-              <div className="absolute right-0 top-9 z-50 w-72 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xl p-4 space-y-3 animate-fadeIn">
-                <div className="flex items-start gap-2.5">
-                  <div className="h-8 w-8 rounded-full bg-red-100 dark:bg-red-950/50 flex items-center justify-center shrink-0">
-                    <TrashIcon size={14} className="text-red-600 dark:text-red-400" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100">Çöp Kutusunu Boşalt</p>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
-                      Tüm iletiler sunucudan ve yerel bellekten kalıcı olarak silinecek. Bu işlem geri alınamaz.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowEmptyTrashConfirm(false)}
-                    className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1 text-[11px] font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
-                  >
-                    İptal
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setShowEmptyTrashConfirm(false); onEmptyTrash(); }}
-                    className="rounded-xl bg-red-600 hover:bg-red-700 text-white px-3 py-1 text-[11px] font-semibold transition active:scale-95 flex items-center gap-1"
-                  >
-                    <TrashIcon size={11} />
-                    Kalıcı Sil
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          <button
+            onClick={() => setShowEmptyTrashConfirm(true)}
+            disabled={syncing || messages.length === 0}
+            className="shrink-0 h-7.5 px-2 rounded-xl border border-red-200 bg-red-50/80 text-xs font-semibold text-red-600 shadow-2xs transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/50 flex items-center gap-1"
+            title="Çöp kutusunu kalıcı olarak boşalt"
+          >
+            <TrashIcon size={13} />
+            <span className="hidden sm:inline text-[11px]">Boşalt</span>
+          </button>
         )}
       </div>
 
@@ -459,37 +423,6 @@ export function MessageList({
               >
                 <TrashIcon size={14} />
               </button>
-
-              {showBatchDeleteConfirm && (
-                <div className="absolute right-0 top-9 z-50 w-64 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xl p-3.5 space-y-3 animate-fadeIn">
-                  <div className="flex items-start gap-2">
-                    <div className="h-7 w-7 rounded-full bg-red-100 dark:bg-red-950/50 flex items-center justify-center shrink-0">
-                      <TrashIcon size={13} className="text-red-600 dark:text-red-400" />
-                    </div>
-                    <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                      {isTrash
-                        ? `Seçili ${selectedUids?.size ?? ''} ileti kalıcı olarak silinecek.`
-                        : `Seçili ${selectedUids?.size ?? ''} ileti çöp kutusuna taşınacak.`}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setShowBatchDeleteConfirm(false)}
-                      className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-[11px] font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
-                    >
-                      İptal
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setShowBatchDeleteConfirm(false); onBatchDelete?.(); }}
-                      className="rounded-xl bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 text-[11px] font-semibold transition active:scale-95"
-                    >
-                      {isTrash ? 'Kalıcı Sil' : 'Çöpe Taşı'}
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
             <button
               type="button"
@@ -569,6 +502,94 @@ export function MessageList({
           </div>
         )}
       </div>
+
+      {/* Çöp Kutusunu Boşalt — Fixed Overlay Modal */}
+      {showEmptyTrashConfirm && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn"
+          onClick={() => setShowEmptyTrashConfirm(false)}
+        >
+          <div
+            className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl p-6 max-w-sm w-full mx-4 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-950/50 flex items-center justify-center shrink-0">
+                <TrashIcon size={18} className="text-red-600 dark:text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Çöp Kutusunu Boşalt</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                  Tüm iletiler sunucudan ve yerel bellekten <strong>kalıcı olarak</strong> silinecek. Bu işlem geri alınamaz.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowEmptyTrashConfirm(false)}
+                className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-4 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowEmptyTrashConfirm(false); onEmptyTrash?.(); }}
+                className="rounded-xl bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 text-xs font-semibold transition active:scale-95 flex items-center gap-1.5"
+              >
+                <TrashIcon size={12} />
+                Kalıcı Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toplu Silme — Fixed Overlay Modal */}
+      {showBatchDeleteConfirm && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn"
+          onClick={() => setShowBatchDeleteConfirm(false)}
+        >
+          <div
+            className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl p-6 max-w-sm w-full mx-4 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-950/50 flex items-center justify-center shrink-0">
+                <TrashIcon size={18} className="text-red-600 dark:text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                  {isTrash ? 'Kalıcı Olarak Sil' : 'Çöp Kutusuna Taşı'}
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                  {isTrash
+                    ? `Seçili ${selectedUids?.size ?? ''} ileti sunucudan ve yerel bellekten kalıcı olarak silinecek.`
+                    : `Seçili ${selectedUids?.size ?? ''} ileti çöp kutusuna taşınacak.`}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowBatchDeleteConfirm(false)}
+                className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-4 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowBatchDeleteConfirm(false); onBatchDelete?.(); }}
+                className="rounded-xl bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 text-xs font-semibold transition active:scale-95 flex items-center gap-1.5"
+              >
+                <TrashIcon size={12} />
+                {isTrash ? 'Kalıcı Sil' : 'Çöpe Taşı'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
