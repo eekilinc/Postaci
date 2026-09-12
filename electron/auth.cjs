@@ -13,7 +13,7 @@ const PROVIDERS = {
   google: {
     authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUrl: 'https://oauth2.googleapis.com/token',
-    scopes: ['https://mail.google.com/', 'email', 'profile'],
+    scopes: ['openid', 'https://mail.google.com/', 'email', 'profile'],
   },
   microsoft: {
     authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
@@ -84,7 +84,6 @@ async function startOAuthFlow(provider) {
   const state = base64url(crypto.randomBytes(16));
 
   let redirectUri = '';
-  const wantsRootPath = provider === 'microsoft'; // Entra: loopback'te kayıtlı URI aynen eşleşmeli
   const { code } = await new Promise((resolve, reject) => {
     const onRequest = (req, res) => {
       const url = new URL(req.url || '/', 'http://x');
@@ -120,8 +119,10 @@ async function startOAuthFlow(provider) {
     });
     server.listen(def.fixedPort || 0, '127.0.0.1', () => {
       const port = server.address().port;
-      redirectUri = def.fixedRedirect || (wantsRootPath
+      redirectUri = def.fixedRedirect || (provider === 'microsoft'
         ? `http://localhost:${port}`
+        : provider === 'google'
+        ? `http://127.0.0.1:${port}`
         : `http://127.0.0.1:${port}/callback`);
       const params = new URLSearchParams({
         client_id: config.clientId,
@@ -132,6 +133,10 @@ async function startOAuthFlow(provider) {
         code_challenge: challenge,
         code_challenge_method: 'S256',
       });
+      if (provider === 'google') {
+        params.set('access_type', 'offline');
+        params.set('prompt', 'consent');
+      }
       shell.openExternal(`${def.authUrl}?${params.toString()}`);
     });
     // Timeout: 5 dk

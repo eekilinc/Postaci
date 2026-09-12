@@ -487,12 +487,18 @@ function addAccount({ provider, email, displayName, refreshTokenEnc, accessToken
          auth_type, imap_host, imap_port, smtp_host, smtp_port, smtp_secure, password_enc)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(email) DO UPDATE SET
-         provider=excluded.provider, display_name=excluded.display_name,
-         refresh_token_enc=excluded.refresh_token_enc, access_token_enc=excluded.access_token_enc,
-         token_expiry=excluded.token_expiry, auth_type=excluded.auth_type,
-         imap_host=excluded.imap_host, imap_port=excluded.imap_port,
-         smtp_host=excluded.smtp_host, smtp_port=excluded.smtp_port,
-         smtp_secure=excluded.smtp_secure, password_enc=excluded.password_enc`,
+         provider=coalesce(excluded.provider, accounts.provider),
+         display_name=coalesce(excluded.display_name, accounts.display_name),
+         refresh_token_enc=coalesce(excluded.refresh_token_enc, accounts.refresh_token_enc),
+         access_token_enc=coalesce(excluded.access_token_enc, accounts.access_token_enc),
+         token_expiry=coalesce(excluded.token_expiry, accounts.token_expiry),
+         auth_type=coalesce(excluded.auth_type, accounts.auth_type),
+         imap_host=coalesce(excluded.imap_host, accounts.imap_host),
+         imap_port=coalesce(excluded.imap_port, accounts.imap_port),
+         smtp_host=coalesce(excluded.smtp_host, accounts.smtp_host),
+         smtp_port=coalesce(excluded.smtp_port, accounts.smtp_port),
+         smtp_secure=coalesce(excluded.smtp_secure, accounts.smtp_secure),
+         password_enc=coalesce(excluded.password_enc, accounts.password_enc)`,
     )
     .run(provider, email, displayName || null, refreshTokenEnc || null, accessTokenEnc || null, tokenExpiry || null,
       authType || 'oauth', imapHost || null, imapPort || null, smtpHost || null, smtpPort || null,

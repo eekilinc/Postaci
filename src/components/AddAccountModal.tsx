@@ -38,6 +38,7 @@ export function AddAccountModal({
 
   const [addMode, setAddMode] = useState<'oauth' | 'manual'>('oauth');
   const [busy, setBusy] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   // Manuel form alanları
   const [mEmail, setMEmail] = useState('');
@@ -52,13 +53,16 @@ export function AddAccountModal({
     setBusy(provider);
     setError(null);
     setNotice(null);
+    setModalError(null);
     try {
       if (!window.postaci?.auth) {
         throw new Error('Electron API köprüsü yüklenemedi. Lütfen uygulamayı yeniden başlatın.');
       }
       const res = await window.postaci.auth.start(provider);
       if (!res.email) {
-        setError('Giriş tamamlandı ama e-posta adresi alınamadı. Hesabı yeniden bağlayın.');
+        const msg = 'Giriş tamamlandı ama e-posta adresi alınamadı. Hesabı yeniden bağlayın.';
+        setModalError(msg);
+        setError(msg);
         return;
       }
       setNotice(`${res.email} bağlandı. Eşitleye basın.`);
@@ -66,6 +70,7 @@ export function AddAccountModal({
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
       const clean = raw.replace(/^Error invoking remote method '[^']+': (Error:\s*)?/, '');
+      setModalError(clean);
       setError(clean);
     } finally {
       setBusy(null);
@@ -103,6 +108,7 @@ export function AddAccountModal({
     setBusy('manual');
     setError(null);
     setNotice(null);
+    setModalError(null);
     try {
       await window.postaci.accounts.addManual({
         email: mEmail.trim(),
@@ -118,7 +124,9 @@ export function AddAccountModal({
       setMPass('');
       onConnected(mEmail.trim());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setModalError(msg);
+      setError(msg);
     } finally {
       setBusy(null);
     }
@@ -170,6 +178,23 @@ export function AddAccountModal({
             Diğer (IMAP)
           </button>
         </div>
+
+        {/* Hata Bildirimi */}
+        {modalError && (
+          <div className="mb-3 rounded-xl border border-red-300/80 bg-red-50 p-2.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 flex items-start gap-2">
+            <span className="shrink-0 text-sm">⚠️</span>
+            <div className="flex-1 min-w-0">
+              <span className="font-semibold leading-relaxed break-words">{modalError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setModalError(null)}
+              className="text-red-400 hover:text-red-700 dark:hover:text-red-200 text-xs shrink-0 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {addMode === 'oauth' ? (
           <>

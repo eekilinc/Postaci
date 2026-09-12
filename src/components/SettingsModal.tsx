@@ -535,6 +535,18 @@ export function SettingsModal({
     }
   };
 
+  // Seçili düzenlenen hesap
+  const editingAccount = useMemo(
+    () => accounts.find((a) => a.id === editingAccountId),
+    [accounts, editingAccountId]
+  );
+  const isEditingOAuth = editingAccount
+    ? editingAccount.auth_type === 'oauth' ||
+      editingAccount.provider === 'google' ||
+      editingAccount.provider === 'microsoft' ||
+      editingAccount.provider === 'yahoo'
+    : false;
+
   // Hesap Düzenleme Başlatıcı
   const handleStartEdit = (acc: Account) => {
     setEditingAccountId(acc.id);
@@ -556,15 +568,18 @@ export function SettingsModal({
     setSavingAccount(true);
     setAccountSaveNotice(null);
     try {
-      await window.postaci.accounts.update(editingAccountId, {
-        displayName: editDisplayName.trim() || undefined,
-        imapHost: editImapHost.trim() || undefined,
-        imapPort: editImapPort || undefined,
-        smtpHost: editSmtpHost.trim() || undefined,
-        smtpPort: editSmtpPort || undefined,
-        smtpSecure: editSmtpSecure,
-        password: editPassword.trim() || undefined,
-      });
+      const payload = isEditingOAuth
+        ? { displayName: editDisplayName.trim() || undefined }
+        : {
+            displayName: editDisplayName.trim() || undefined,
+            imapHost: editImapHost.trim() || undefined,
+            imapPort: editImapPort || undefined,
+            smtpHost: editSmtpHost.trim() || undefined,
+            smtpPort: editSmtpPort || undefined,
+            smtpSecure: editSmtpSecure,
+            password: editPassword.trim() || undefined,
+          };
+      await window.postaci.accounts.update(editingAccountId, payload);
       setAccountSaveNotice('✓ Hesap ayarları başarıyla güncellendi!');
       onRefreshAccounts?.();
       setTimeout(() => {
@@ -1524,101 +1539,119 @@ export function SettingsModal({
                       </p>
                     </div>
 
-                    {/* IMAP / SMTP Sunucu Ayarları */}
-                    <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70 space-y-3">
-                      <p className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
-                        {language === 'en' ? 'Server & Connection Settings' : 'Sunucu & Bağlantı Ayarları'}
-                      </p>
-
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="col-span-2">
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">
-                            {language === 'en' ? 'Incoming Server (IMAP)' : 'Gelen Sunucu (IMAP)'}
-                          </label>
-                          <input
-                            type="text"
-                            value={editImapHost}
-                            onChange={(e) => setEditImapHost(e.target.value)}
-                            placeholder="imap.example.com"
-                            className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                          />
+                    {/* IMAP / SMTP Sunucu Ayarları veya OAuth Bilgisi */}
+                    {isEditingOAuth ? (
+                      <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70">
+                        <div className="rounded-xl border border-blue-200/80 bg-blue-50/50 p-3.5 dark:border-blue-900/50 dark:bg-blue-950/30 flex items-start gap-2.5">
+                          <span className="text-base shrink-0">🔒</span>
+                          <div className="space-y-1 text-xs">
+                            <p className="font-semibold text-blue-900 dark:text-blue-200">
+                              {language === 'en' ? 'OAuth 2.0 Secure Authentication' : 'OAuth 2.0 Güvenli Kimlik Doğrulama'}
+                            </p>
+                            <p className="text-[11px] text-blue-700/90 dark:text-blue-300/90 leading-relaxed">
+                              {language === 'en'
+                                ? 'This account is authenticated securely via Google/Microsoft OAuth 2.0. Server connections and tokens are automatically refreshed in the background.'
+                                : 'Bu hesap Google / Microsoft OAuth 2.0 ile güvenli olarak bağlanmıştır. Sunucu bağlantıları ve güvenlik anahtarları arka planda otomatik yenilenir.'}
+                            </p>
+                          </div>
                         </div>
+                      </div>
+                    ) : (
+                      <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70 space-y-3">
+                        <p className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
+                          {language === 'en' ? 'Server & Connection Settings' : 'Sunucu & Bağlantı Ayarları'}
+                        </p>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="col-span-2">
+                            <label className="block text-[10px] text-zinc-500 mb-0.5">
+                              {language === 'en' ? 'Incoming Server (IMAP)' : 'Gelen Sunucu (IMAP)'}
+                            </label>
+                            <input
+                              type="text"
+                              value={editImapHost}
+                              onChange={(e) => setEditImapHost(e.target.value)}
+                              placeholder="imap.example.com"
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-zinc-500 mb-0.5">
+                              {language === 'en' ? 'Port' : 'Port'}
+                            </label>
+                            <input
+                              type="number"
+                              value={editImapPort}
+                              onChange={(e) => setEditImapPort(Number(e.target.value))}
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="col-span-2">
+                            <label className="block text-[10px] text-zinc-500 mb-0.5">
+                              {language === 'en' ? 'Outgoing Server (SMTP)' : 'Giden Sunucu (SMTP)'}
+                            </label>
+                            <input
+                              type="text"
+                              value={editSmtpHost}
+                              onChange={(e) => setEditSmtpHost(e.target.value)}
+                              placeholder="smtp.example.com"
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-zinc-500 mb-0.5">
+                              {language === 'en' ? 'Port' : 'Port'}
+                            </label>
+                            <input
+                              type="number"
+                              value={editSmtpPort}
+                              onChange={(e) => setEditSmtpPort(Number(e.target.value))}
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+                            />
+                          </div>
+                        </div>
+
+                        <label className="flex items-center gap-2 cursor-pointer pt-0.5">
+                          <input
+                            type="checkbox"
+                            checked={editSmtpSecure}
+                            onChange={(e) => setEditSmtpSecure(e.target.checked)}
+                            className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-0"
+                          />
+                          <span className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                            {language === 'en' ? 'Use SMTP Secure Connection (SSL/TLS)' : 'SMTP Güvenli Bağlantı (SSL/TLS) kullan'}
+                          </span>
+                        </label>
+
+                        {/* Şifre Güncelleme (Opsiyonel) */}
                         <div>
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">
-                            {language === 'en' ? 'Port' : 'Port'}
-                          </label>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <label className="block text-[10px] text-zinc-500">
+                              {language === 'en'
+                                ? 'Password / App Password (leave blank to keep current)'
+                                : 'Şifre / Uygulama Şifresi (Yalnızca değiştirmek istiyorsanız doldurun)'}
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setShowEditPassword(!showEditPassword)}
+                              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                              {showEditPassword ? (language === 'en' ? 'Hide' : 'Gizle') : (language === 'en' ? 'Show' : 'Göster')}
+                            </button>
+                          </div>
                           <input
-                            type="number"
-                            value={editImapPort}
-                            onChange={(e) => setEditImapPort(Number(e.target.value))}
+                            type={showEditPassword ? 'text' : 'password'}
+                            value={editPassword}
+                            onChange={(e) => setEditPassword(e.target.value)}
+                            placeholder={language === 'en' ? 'Leave empty to preserve existing password' : 'Mevcut şifreyi korumak için boş bırakın'}
                             className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                           />
                         </div>
                       </div>
-
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="col-span-2">
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">
-                            {language === 'en' ? 'Outgoing Server (SMTP)' : 'Giden Sunucu (SMTP)'}
-                          </label>
-                          <input
-                            type="text"
-                            value={editSmtpHost}
-                            onChange={(e) => setEditSmtpHost(e.target.value)}
-                            placeholder="smtp.example.com"
-                            className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">
-                            {language === 'en' ? 'Port' : 'Port'}
-                          </label>
-                          <input
-                            type="number"
-                            value={editSmtpPort}
-                            onChange={(e) => setEditSmtpPort(Number(e.target.value))}
-                            className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                          />
-                        </div>
-                      </div>
-
-                      <label className="flex items-center gap-2 cursor-pointer pt-0.5">
-                        <input
-                          type="checkbox"
-                          checked={editSmtpSecure}
-                          onChange={(e) => setEditSmtpSecure(e.target.checked)}
-                          className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-0"
-                        />
-                        <span className="text-[11px] text-zinc-600 dark:text-zinc-400">
-                          {language === 'en' ? 'Use SMTP Secure Connection (SSL/TLS)' : 'SMTP Güvenli Bağlantı (SSL/TLS) kullan'}
-                        </span>
-                      </label>
-
-                      {/* Şifre Güncelleme (Opsiyonel) */}
-                      <div>
-                        <div className="flex items-center justify-between mb-0.5">
-                          <label className="block text-[10px] text-zinc-500">
-                            {language === 'en'
-                              ? 'Password / App Password (leave blank to keep current)'
-                              : 'Şifre / Uygulama Şifresi (Yalnızca değiştirmek istiyorsanız doldurun)'}
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => setShowEditPassword(!showEditPassword)}
-                            className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
-                          >
-                            {showEditPassword ? (language === 'en' ? 'Hide' : 'Gizle') : (language === 'en' ? 'Show' : 'Göster')}
-                          </button>
-                        </div>
-                        <input
-                          type={showEditPassword ? 'text' : 'password'}
-                          value={editPassword}
-                          onChange={(e) => setEditPassword(e.target.value)}
-                          placeholder={language === 'en' ? 'Leave empty to preserve existing password' : 'Mevcut şifreyi korumak için boş bırakın'}
-                          className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                        />
-                      </div>
-                    </div>
+                    )}
 
                     {/* Bağlantı Testi */}
                     <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70">

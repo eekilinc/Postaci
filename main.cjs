@@ -989,6 +989,9 @@ app.whenReady().then(() => {
     if (!profile.email) {
       profile = await fetchProfileEmail(provider, tokens.access_token).catch(() => ({ email: null, name: null }));
     }
+    if (!profile.email) {
+      throw new Error('E-posta adresi profilden alınamadı. Lütfen sağlayıcı izinlerini onaylayarak tekrar deneyin.');
+    }
     const expiry = tokens.expires_in
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null;
@@ -1000,7 +1003,7 @@ app.whenReady().then(() => {
       accessTokenEnc: enc(tokens.access_token),
       tokenExpiry: expiry,
     };
-    if (profile.email) addAccount(saved);
+    addAccount(saved);
     return saved;
   });
   ipcMain.on('app:get-version-sync', (event) => {
