@@ -760,10 +760,10 @@ export function SettingsModal({
           </button>
 
           {/* Dinamik Tab İçerikleri */}
-          <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-5 sm:p-6 pb-4 custom-scrollbar">
             {/* ==================== 1. GENEL TAB ==================== */}
             {activeTab === 'general' && (
-              <div className="space-y-6 max-w-xl">
+              <div className="space-y-6">
                 {/* Uygulama Davranışı */}
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
@@ -1059,7 +1059,7 @@ export function SettingsModal({
 
             {/* ==================== 2. GÖRÜNÜM TAB ==================== */}
             {activeTab === 'appearance' && (
-              <div className="space-y-6 max-w-xl">
+              <div className="space-y-6">
                 {/* Arayüz ve Tema Rengi */}
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
@@ -1395,11 +1395,17 @@ export function SettingsModal({
 
             {/* ==================== 3. ÖLÇEKLENDİRME TAB ==================== */}
             {activeTab === 'scaling' && (
-              <div className="space-y-6 max-w-xl">
-                <div>
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-2 tracking-tight">
-                    {language === 'en' ? 'Application scaling level' : 'Uygulama ölçekleme seviyesi'}
-                  </h3>
+              <div className="space-y-6">
+                {/* Uygulama Ölçeği */}
+                <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/40 p-4 space-y-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+                      {language === 'en' ? 'Application UI Scale' : 'Uygulama Arayüz Ölçeği'}
+                    </h3>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                      {language === 'en' ? 'Scales the entire app interface — sidebar, toolbars and all panels.' : 'Kenar çubuğu, araç çubuğu ve tüm paneller dahil tüm arayüzü ölçekler.'}
+                    </p>
+                  </div>
                   <div className="flex items-center gap-4">
                     <input
                       type="range"
@@ -1408,77 +1414,144 @@ export function SettingsModal({
                       step={5}
                       value={appScale}
                       onChange={(e) => handleAppScaleChange(Number(e.target.value))}
-                      className="w-64 h-1.5 bg-zinc-200 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:bg-zinc-700"
+                      className="flex-1 h-2 bg-zinc-200 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:bg-zinc-700"
                     />
-                    <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 w-12">
+                    <span className="text-sm font-black text-blue-600 dark:text-blue-400 w-12 text-right">
                       %{appScale}
                     </span>
                     {appScale !== 100 && (
                       <button
                         onClick={() => handleAppScaleChange(100)}
-                        className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                        className="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
                       >
-                        {language === 'en' ? 'Reset (100%)' : 'Sıfırla (%100)'}
+                        {language === 'en' ? 'Reset' : 'Sıfırla'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-1.5">
+                    {[80, 90, 100, 110, 120, 130, 140].map(v => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => handleAppScaleChange(v)}
+                        className={`flex-1 rounded-lg py-1 text-[10px] font-semibold border transition ${
+                          appScale === v
+                            ? 'border-blue-500 bg-blue-600 text-white'
+                            : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-blue-400'
+                        }`}
+                      >
+                        {v}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* E-posta İçerik Ölçeği */}
+                <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/40 p-4 space-y-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+                      {language === 'en' ? 'Email Content Scale' : 'E-posta İçeriği Ölçeği'}
+                    </h3>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                      {language === 'en' ? 'Only affects message body text and HTML content size.' : 'Yalnızca ileti gövdesi metni ve HTML içerik boyutunu etkiler.'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="range"
+                      min={80}
+                      max={150}
+                      step={5}
+                      value={mailScale}
+                      onChange={(e) => handleMailScaleChange(Number(e.target.value))}
+                      className="flex-1 h-2 bg-zinc-200 rounded-lg appearance-none cursor-pointer accent-purple-600 dark:bg-zinc-700"
+                    />
+                    <span className="text-sm font-black text-purple-600 dark:text-purple-400 w-12 text-right">
+                      %{mailScale}
+                    </span>
+                    {mailScale !== 100 && (
+                      <button
+                        onClick={() => handleMailScaleChange(100)}
+                        className="shrink-0 text-[11px] text-purple-600 dark:text-purple-400 hover:underline"
+                      >
+                        {language === 'en' ? 'Reset' : 'Sıfırla'}
                       </button>
                     )}
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-1 tracking-tight">
-                    {language === 'en' ? 'Other scaling levels' : 'Diğer ölçeklendirme seviyeleri'}
-                  </h3>
-                  <p className="text-xs text-zinc-500 italic mb-4">
-                    {language === 'en'
-                      ? 'The following scaling levels are applied on top of the app scale to fine-tune the size of emails and supporting panes.'
-                      : 'Aşağıdaki ölçeklendirme seviyeleri uygulama ölçekleme seviyesine uygulanır ve e-postaları ve onu destekleyen bileşenlerin düzeyini hassas ayarlamak için kullanılabilir.'}
-                  </p>
+                {/* Metin Biçimlendirme Modu */}
+                <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/40 p-4 space-y-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+                      {language === 'en' ? 'Text Rendering Mode' : 'Metin Biçimlendirme Modu'}
+                    </h3>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                      {language === 'en' ? 'Change this if text appears blurry during scaling.' : 'Ölçekleme sırasında metin bulanık görünüyorsa bunu değiştirin.'}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    {(['ideal', 'standard'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setTextRenderingMode(mode)}
+                        className={`flex-1 rounded-xl border py-2.5 text-xs font-semibold transition ${
+                          textRenderingMode === mode
+                            ? 'border-blue-500 bg-blue-600 text-white'
+                            : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-blue-400'
+                        }`}
+                      >
+                        {mode === 'ideal'
+                          ? (language === 'en' ? '✨ Ideal (Subpixel Smooth)' : '✨ İdeal (Subpixel Smooth)')
+                          : (language === 'en' ? '⚙ Standard' : '⚙ Standart')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-zinc-700 dark:text-zinc-300 w-24">
-                        {language === 'en' ? 'Email' : 'E-posta'}
-                      </span>
-                      <input
-                        type="range"
-                        min={80}
-                        max={150}
-                        step={5}
-                        value={mailScale}
-                        onChange={(e) => handleMailScaleChange(Number(e.target.value))}
-                        className="flex-1 mx-4 h-1.5 bg-zinc-200 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:bg-zinc-700"
-                      />
-                      <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 w-12 text-right">
-                        %{mailScale}
-                      </span>
+                {/* Canlı Ölçek Özet Kartı */}
+                <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
+                  <h3 className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-3 uppercase tracking-wider">
+                    {language === 'en' ? 'Current Scale Summary' : 'Mevcut Ölçek Özeti'}
+                  </h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60 p-3 text-center">
+                      <div className="text-2xl font-black text-blue-600 dark:text-blue-400">%{appScale}</div>
+                      <div className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 mt-0.5">
+                        {language === 'en' ? 'App UI' : 'Uygulama'}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60 p-3 text-center">
+                      <div className="text-2xl font-black text-purple-600 dark:text-purple-400">%{mailScale}</div>
+                      <div className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 mt-0.5">
+                        {language === 'en' ? 'Email Body' : 'E-posta'}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60 p-3 text-center">
+                      <div className="text-xl font-black text-zinc-600 dark:text-zinc-300">{textRenderingMode === 'ideal' ? '✨' : '⚙'}</div>
+                      <div className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 mt-0.5">
+                        {textRenderingMode === 'ideal' ? (language === 'en' ? 'Ideal' : 'İdeal') : (language === 'en' ? 'Standard' : 'Standart')}
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-1 tracking-tight">
-                    {language === 'en' ? 'Text rendering mode' : 'Metin biçimlendirme modu'}
-                  </h3>
-                  <p className="text-xs text-zinc-500 italic mb-3">
-                    {language === 'en'
-                      ? 'Change this value if blurriness occurs during scaling.'
-                      : 'Ölçekleme sırasında bulanıklık oluşması durumunda bu değeri değiştirin.'}
-                  </p>
-                  <select
-                    value={textRenderingMode}
-                    onChange={(e) => setTextRenderingMode(e.target.value as 'ideal' | 'standard')}
-                    className="w-48 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                  >
-                    <option value="ideal">{language === 'en' ? 'Ideal (Subpixel Smooth)' : 'İdeal (Subpixel Smooth)'}</option>
-                    <option value="standard">{language === 'en' ? 'Standard' : 'Standart'}</option>
-                  </select>
+                {/* İpuçları */}
+                <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3.5 text-[11px] leading-relaxed text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200">
+                  <p className="font-semibold mb-1.5">💡 {language === 'en' ? 'Scaling Tips' : 'Ölçeklendirme İpuçları'}</p>
+                  <ul className="space-y-1 list-disc list-inside text-[11px] text-blue-800/80 dark:text-blue-300/80">
+                    <li>{language === 'en' ? 'App UI scale affects the entire interface — sidebar, toolbars, panels.' : 'Uygulama ölçeği kenar çubuğu, araç çubuğu ve tüm panelleri etkiler.'}</li>
+                    <li>{language === 'en' ? 'Email scale only affects message body content.' : 'E-posta ölçeği yalnızca ileti gövdesi içeriğini etkiler.'}</li>
+                    <li>{language === 'en' ? 'If text appears blurry, switch text rendering to Standard.' : 'Metin bulanık görünüyorsa metin modunu Standart\'a alın.'}</li>
+                  </ul>
                 </div>
               </div>
             )}
 
             {/* ==================== 4. HESAPLAR TAB (DÜZENLEME & SİLME DESTEKLİ) ==================== */}
             {activeTab === 'accounts' && (
-              <div className="space-y-5 max-w-xl">
+              <div className="space-y-5">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
@@ -1752,7 +1825,7 @@ export function SettingsModal({
                   </div>
                 ) : (
                   /* Hesaplar Listesi */
-                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                  <div className="space-y-2.5 pr-1">
                     {accounts.map((acc) => {
                       const isGoogle = acc.provider?.includes('google') || acc.email.includes('gmail');
                       const isMs =
@@ -1837,7 +1910,7 @@ export function SettingsModal({
 
             {/* ==================== 5. OLUŞTURMA / İMZALAR TAB ==================== */}
             {activeTab === 'composing' && (
-              <div className="space-y-4 max-w-xl">
+              <div className="space-y-4">
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
                   {language === 'en' ? 'Email Signatures & Composing' : 'E-posta İmzaları ve Oluşturma'}
                 </h3>
@@ -2200,7 +2273,7 @@ export function SettingsModal({
 
             {/* ==================== 6. GELİŞMİŞ TAB ==================== */}
             {activeTab === 'advanced' && (
-              <div className="space-y-5 max-w-xl">
+              <div className="space-y-5">
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
                     {language === 'en' ? 'Advanced Settings & Privacy' : 'Gelişmiş Ayarlar ve Gizlilik'}
@@ -2388,7 +2461,7 @@ export function SettingsModal({
 
             {/* ==================== 7. POSTACI HAKKINDA TAB ==================== */}
             {activeTab === 'about' && (
-              <div className="space-y-3.5 max-w-xl text-left">
+              <div className="space-y-3.5 text-left">
                 {/* Premium Başlık ve Logo Kartı */}
                 <div className="relative overflow-hidden flex items-center gap-4 p-3.5 rounded-2xl bg-gradient-to-br from-blue-600/10 via-indigo-500/5 to-purple-600/10 border border-blue-500/20 shadow-xs dark:from-blue-950/40 dark:via-indigo-950/20 dark:to-purple-950/30 dark:border-blue-800/40">
                   <div className="relative shrink-0 flex items-center justify-center">
