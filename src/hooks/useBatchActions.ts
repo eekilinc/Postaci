@@ -1,6 +1,7 @@
 // src/hooks/useBatchActions.ts — Toplu eylem ve çoklu seçim mantığı
 import { useState } from 'react';
 import type { Msg } from '../types';
+import { useTranslation } from '../i18n';
 
 interface UseBatchActionsProps {
   messages: Msg[];
@@ -27,6 +28,7 @@ export function useBatchActions({
   setNotice,
   setError,
 }: UseBatchActionsProps) {
+  const { t } = useTranslation();
   const [selectedUids, setSelectedUids] = useState<Set<string>>(new Set());
   const [lastSelectedUid, setLastSelectedUid] = useState<string | null>(null);
 
@@ -98,7 +100,11 @@ export function useBatchActions({
         const [acc, f] = k.split('|');
         await window.postaci.mail.batchDelete(acc, f, uids);
       }
-      setNotice(`${count} ileti ${isTrash ? 'kalıcı olarak silindi' : 'çöp kutusuna taşındı'}.`);
+      setNotice(
+        isTrash
+          ? t('notice.batchDeletedPermanent', { count })
+          : t('notice.batchDeletedTrash', { count })
+      );
       setTimeout(() => setNotice(null), 2500);
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();
@@ -200,7 +206,7 @@ export function useBatchActions({
         const [acc, f] = k.split('|');
         await window.postaci.mail.batchArchive(acc, f, uids);
       }
-      setNotice(`${count} ileti arşivlendi.`);
+      setNotice(t('notice.batchArchived', { count }));
       setTimeout(() => setNotice(null), 2500);
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();
@@ -236,7 +242,7 @@ export function useBatchActions({
         const [acc, f] = k.split('|');
         await window.postaci.mail.batchMoveToFolder(acc, f, toFolder, uids);
       }
-      setNotice(`${count} ileti "${toFolder}" klasörüne taşındı.`);
+      setNotice(t('notice.batchMoved', { count, folder: toFolder }));
       setTimeout(() => setNotice(null), 2500);
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();

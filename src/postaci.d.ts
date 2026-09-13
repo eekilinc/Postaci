@@ -134,8 +134,9 @@ declare global {
         markUnread: (email: string, folderPath: string, uid: string) => Promise<boolean>;
         star: (email: string, folderPath: string, uid: string) => Promise<number>;
         delete: (email: string, folderPath: string, uid: string) => Promise<boolean>;
-        send: (msg: { fromEmail: string; to: string; cc?: string; subject?: string; text: string; html?: string; inReplyTo?: string; references?: string; attachments?: { filename: string; contentType: string; dataBase64: string }[] }) => Promise<{ messageId: string | null }>;
+        send: (msg: { fromEmail: string; to: string; cc?: string; bcc?: string; subject?: string; text: string; html?: string; inReplyTo?: string; references?: string; attachments?: { filename: string; contentType: string; dataBase64: string }[] }) => Promise<{ messageId: string | null }>;
         replyTemplate: (email: string, folderPath: string, uid: string) => Promise<ComposeTemplate>;
+        replyAllTemplate: (email: string, folderPath: string, uid: string) => Promise<ComposeTemplate>;
         forwardTemplate: (email: string, folderPath: string, uid: string) => Promise<ComposeTemplate>;
         attachments: (email: string, folderPath: string, uid: string) => Promise<{ idx: number; filename: string; content_type: string | null; size: number }[]>;
         attachmentSave: (email: string, folderPath: string, uid: string, index: number) => Promise<{ saved: boolean; path?: string }>;

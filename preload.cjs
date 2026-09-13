@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('postaci', {
     markUnread: (email, folderPath, uid) => ipcRenderer.invoke('mail:mark-unread', email, folderPath, uid),
     send: (msg) => ipcRenderer.invoke('mail:send', msg),
     replyTemplate: (email, folderPath, uid) => ipcRenderer.invoke('mail:reply-template', email, folderPath, uid),
+    replyAllTemplate: (email, folderPath, uid) => ipcRenderer.invoke('mail:reply-all-template', email, folderPath, uid),
     forwardTemplate: (email, folderPath, uid) => ipcRenderer.invoke('mail:forward-template', email, folderPath, uid),
     attachments: (email, folderPath, uid) => ipcRenderer.invoke('mail:attachments', email, folderPath, uid),
     attachmentSave: (email, folderPath, uid, index) => ipcRenderer.invoke('mail:attachment-save', email, folderPath, uid, index),

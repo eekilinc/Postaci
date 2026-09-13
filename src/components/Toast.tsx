@@ -6,15 +6,17 @@ interface ToastProps {
   type: 'notice' | 'error';
   onClose: () => void;
   accent?: string;
+  loading?: boolean;
 }
 
-export function Toast({ message, type, onClose, accent = '#6366f1' }: ToastProps) {
+export function Toast({ message, type, onClose, accent = '#6366f1', loading = false }: ToastProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (loading) return;
     timerRef.current = setTimeout(onClose, type === 'error' ? 6000 : 4000);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [message, type, onClose]);
+  }, [message, type, onClose, loading]);
 
   const isError = type === 'error';
 
@@ -46,7 +48,23 @@ export function Toast({ message, type, onClose, accent = '#6366f1' }: ToastProps
       }}
     >
       <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-        {isError ? <ShieldIcon size={16} /> : <CheckIcon size={16} strokeWidth={2.5} />}
+        {loading ? (
+          <span
+            style={{
+              width: '16px',
+              height: '16px',
+              border: '2px solid rgba(255,255,255,0.35)',
+              borderTopColor: '#ffffff',
+              borderRadius: '50%',
+              display: 'inline-block',
+              animation: 'spin 0.75s linear infinite',
+            }}
+          />
+        ) : isError ? (
+          <ShieldIcon size={16} />
+        ) : (
+          <CheckIcon size={16} strokeWidth={2.5} />
+        )}
       </span>
       <span style={{ flex: 1, lineHeight: 1.4 }}>{message}</span>
       <button
@@ -63,6 +81,10 @@ export function Toast({ message, type, onClose, accent = '#6366f1' }: ToastProps
         @keyframes toast-in {
           from { opacity: 0; transform: translate(-50%, 1rem); }
           to   { opacity: 1; transform: translate(-50%, 0); }
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
         }
       `}</style>
     </div>

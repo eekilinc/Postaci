@@ -8,6 +8,7 @@ interface UseKeyboardShortcutsProps {
   filteredMessages: Msg[];
   onNewEmail: () => void;
   onReply: () => void;
+  onReplyAll?: () => void;
   onForward: () => void;
   onToggleStar: (m: Msg) => void;
   onToggleRead: (m: Msg) => void;
@@ -24,6 +25,7 @@ export function useKeyboardShortcuts({
   filteredMessages,
   onNewEmail,
   onReply,
+  onReplyAll,
   onForward,
   onToggleStar,
   onToggleRead,
@@ -65,10 +67,19 @@ export function useKeyboardShortcuts({
           onNewEmail();
           break;
         case 'r':
-        case 'a':
           if (selected) {
             e.preventDefault();
             onReply();
+          }
+          break;
+        case 'a':
+          if (selected) {
+            e.preventDefault();
+            if (onReplyAll) {
+              onReplyAll();
+            } else {
+              onReply();
+            }
           }
           break;
         case 'f':

@@ -33,7 +33,7 @@ const { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountBy
 const { startOAuthFlow } = require('./electron/auth.cjs');
 const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient } = require('./electron/mail.cjs');
 const { detectSettings } = require('./electron/providers.cjs');
-const { splitAddresses, buildReply, buildForward } = require('./electron/compose.cjs');
+const { splitAddresses, buildReply, buildReplyAll, buildForward } = require('./electron/compose.cjs');
 
 function enc(text) {
   if (!text) return null;
@@ -1985,7 +1985,7 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('mail:send', async (_evt, { fromEmail, to, cc, subject, text, html, inReplyTo, references, attachments }) => {
+  ipcMain.handle('mail:send', async (_evt, { fromEmail, to, cc, bcc, subject, text, html, inReplyTo, references, attachments }) => {
     const acc = getAccountByEmail(fromEmail);
     if (!acc) throw new Error('Gönderen hesap bulunamadı.');
     const toList = splitAddresses(to);
@@ -1999,10 +1999,12 @@ app.whenReady().then(() => {
       ? { smtpHost: acc.smtp_host, smtpPort: acc.smtp_port, smtpSecure: !!acc.smtp_secure }
       : {};
     const transporter = createTransporter({ provider: acc.provider, email: acc.email, ...creds, ...smtpOpts });
-    const raw = await buildRaw({ from: acc.email, to: toList, cc: splitAddresses(cc), subject: subject || '(konusuz)', text, html, inReplyTo, references, attachments: atts });
+    const ccList = splitAddresses(cc);
+    const bccList = splitAddresses(bcc);
+    const raw = await buildRaw({ from: acc.email, to: toList, cc: ccList, subject: subject || '(konusuz)', text, html, inReplyTo, references, attachments: atts });
     let info;
     try {
-      info = await sendRaw(transporter, raw, { from: acc.email, to: [...toList, ...splitAddresses(cc)] });
+      info = await sendRaw(transporter, raw, { from: acc.email, to: [...toList, ...ccList, ...bccList] });
     } catch (e) {
       console.error(`[send] ${fromEmail} hata:`, e?.message || e);
       throw new Error(`Gönderilemedi (${e?.message || e})`);
@@ -2056,6 +2058,8 @@ app.whenReady().then(() => {
     }
     const original = {
       from: meta.from_addr,
+      to: meta.to_addr,
+      cc: meta.cc_addr,
       subject: meta.subject,
       date: meta.date,
       html: b.body_html,
@@ -2063,9 +2067,12 @@ app.whenReady().then(() => {
       messageId: b.message_id,
       references: b.references || [],
     };
-    return mode === 'reply' ? buildReply(original) : buildForward(original);
+    if (mode === 'reply') return buildReply(original);
+    if (mode === 'replyAll') return buildReplyAll(original, email);
+    return buildForward(original);
   }
   ipcMain.handle('mail:reply-template', (_evt, email, folderPath, uid) => composeTemplate(email, folderPath, uid, 'reply'));
+  ipcMain.handle('mail:reply-all-template', (_evt, email, folderPath, uid) => composeTemplate(email, folderPath, uid, 'replyAll'));
   ipcMain.handle('mail:forward-template', (_evt, email, folderPath, uid) => composeTemplate(email, folderPath, uid, 'forward'));
   ipcMain.handle('mail:export-eml', async (_evt, email, folderPath, uid) => {
     const folder = folderPath || 'INBOX';

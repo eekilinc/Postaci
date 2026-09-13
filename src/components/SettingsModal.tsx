@@ -877,6 +877,61 @@ export function SettingsModal({
                   </div>
                 </div>
 
+                {/* E-posta Okuma & Okundu İşaretleme Davranışı */}
+                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-2 tracking-tight">
+                    {language === 'en' ? 'Reading & Mark as Read' : 'Okuma ve Okundu İşaretleme'}
+                  </h3>
+                  <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3.5 dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
+                    <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                      {language === 'en' ? 'Mark as Read Timing' : 'Okundu Olarak İşaretleme Zamanlaması'}
+                    </h4>
+                    <p className="text-[11px] text-zinc-500">
+                      {language === 'en'
+                        ? 'Determine when an email is automatically marked as read upon selection.'
+                        : 'Bir ileti seçildiğinde ne zaman okundu olarak işaretleneceğini belirleyin.'}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      {[
+                        {
+                          id: 'instant',
+                          label: language === 'en' ? 'Instant' : 'Anında',
+                          desc: language === 'en' ? 'As soon as email is clicked' : 'İleti tıklandığı anda',
+                        },
+                        {
+                          id: 'delay_3s',
+                          label: language === 'en' ? 'After 3 Seconds' : '3 Saniye Sonra',
+                          desc: language === 'en' ? 'When viewing for 3 seconds' : 'İletide 3 sn kalındığında',
+                        },
+                        {
+                          id: 'delay_5s',
+                          label: language === 'en' ? 'After 5 Seconds' : '5 Saniye Sonra',
+                          desc: language === 'en' ? 'When viewing for 5 seconds' : 'İletide 5 sn kalındığında',
+                        },
+                        {
+                          id: 'manual',
+                          label: language === 'en' ? 'Manual' : 'Manuel',
+                          desc: language === 'en' ? 'Only when button is pressed' : 'Sadece düğmeye basıldığında',
+                        },
+                      ].map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => handleMarkReadTimingChange(m.id as MarkReadTiming)}
+                          className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                            localMarkReadTiming === m.id
+                              ? 'border-blue-600 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-950/40 ring-1 ring-blue-500'
+                              : 'border-zinc-200 dark:border-zinc-750 hover:bg-white dark:hover:bg-zinc-800'
+                          }`}
+                        >
+                          <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{m.label}</div>
+                          <div className="text-[10px] text-zinc-400 mt-0.5">{m.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 {/* Bildirimler */}
                 <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
@@ -2041,6 +2096,20 @@ export function SettingsModal({
                           >
                             U
                           </button>
+
+                          <label
+                            className="w-7 h-7 rounded-lg border border-zinc-300 dark:border-zinc-750 bg-white dark:bg-zinc-800 text-xs flex items-center justify-center hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer disabled:opacity-40 relative"
+                            title={language === 'en' ? 'Text Color' : 'Yazı Rengi'}
+                          >
+                            <span className="font-bold text-xs" style={{ borderBottom: '3px solid #2563eb' }}>A</span>
+                            <input
+                              type="color"
+                              defaultValue="#2563eb"
+                              disabled={!sigEnabled}
+                              onChange={(e) => execSigCommand('foreColor', e.target.value)}
+                              className="w-0 h-0 opacity-0 absolute"
+                            />
+                          </label>
 
                           <div className="w-px h-5 bg-zinc-300 dark:bg-zinc-700 mx-0.5" />
 

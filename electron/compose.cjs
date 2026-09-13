@@ -52,6 +52,26 @@ function buildReply(original) {
   };
 }
 
+// Tümünü Yanıtla formu: alıcı=orijinal gönderen, cc=diğer tüm alıcılar (kendimiz ve gönderen hariç)
+function buildReplyAll(original, myEmail) {
+  const allRecipients = splitAddresses([original.to, original.cc].filter(Boolean).join(','));
+  const myClean = (myEmail || '').toLowerCase().trim();
+  const origFrom = (original.from || '').toLowerCase().trim();
+  const ccList = allRecipients.filter((addr) => {
+    const clean = addr.toLowerCase().trim();
+    return clean !== myClean && !clean.includes(origFrom) && !origFrom.includes(clean);
+  });
+  return {
+    to: original.from || '',
+    cc: ccList.join(', '),
+    subject: prefixSubject(original.subject, 'Re'),
+    text: quoteText(original),
+    html: quoteHtml(original),
+    inReplyTo: original.messageId || undefined,
+    references: [...(original.references || []), original.messageId].filter(Boolean).join(' ') || undefined,
+  };
+}
+
 // İlet formu: alıcı boş, konu Fwd:, gövde alıntılı (threading yok)
 function buildForward(original) {
   return {
@@ -65,4 +85,4 @@ function buildForward(original) {
   };
 }
 
-module.exports = { splitAddresses, prefixSubject, quoteText, quoteHtml, buildReply, buildForward };
+module.exports = { splitAddresses, prefixSubject, quoteText, quoteHtml, buildReply, buildReplyAll, buildForward };

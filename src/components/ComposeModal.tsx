@@ -28,6 +28,8 @@ interface ComposeModalProps {
   setCTo: (v: string) => void;
   cCc: string;
   setCCc: (v: string) => void;
+  cBcc: string;
+  setCBcc: (v: string) => void;
   cSubject: string;
   setCSubject: (v: string) => void;
   cText: string;
@@ -61,6 +63,8 @@ export function ComposeModal({
   setCTo,
   cCc,
   setCCc,
+  cBcc,
+  setCBcc,
   cSubject,
   setCSubject,
   cText,
@@ -96,8 +100,13 @@ export function ComposeModal({
 
   // Otomatik tamamlama (Recipient Autocomplete) state'leri
   const [suggestions, setSuggestions] = useState<{ name: string; email: string }[]>([]);
-  const [activeField, setActiveField] = useState<'to' | 'cc' | null>(null);
+  const [activeField, setActiveField] = useState<'to' | 'cc' | 'bcc' | null>(null);
   const [suggestionIdx, setSuggestionIdx] = useState(0);
+  const recipientDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Bcc Göster/Gizle & Boş Konu Onayı
+  const [showBcc, setShowBcc] = useState(() => !!cBcc.trim());
+  const [showEmptySubjectConfirm, setShowEmptySubjectConfirm] = useState(false);
 
   // Taslak state'leri & Küçültme (Minimize) & Onay Modal State'leri
   const [draftNotice, setDraftNotice] = useState<string | null>(null);
@@ -173,7 +182,7 @@ export function ComposeModal({
   useEffect(() => {
     if (title !== 'Yeni E-posta') return;
     const timer = setTimeout(() => {
-      if (cTo.trim() || cCc.trim() || cSubject.trim() || cText.trim() || cHtml.trim()) {
+      if (cTo.trim() || cCc.trim() || cBcc.trim() || cSubject.trim() || cText.trim() || cHtml.trim()) {
         try {
           localStorage.setItem(
             'postaci_active_draft',
@@ -181,6 +190,7 @@ export function ComposeModal({
               from: cFrom,
               to: cTo,
               cc: cCc,
+              bcc: cBcc,
               subject: cSubject,
               text: cText,
               html: cHtml,
@@ -191,16 +201,19 @@ export function ComposeModal({
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [cFrom, cTo, cCc, cSubject, cText, cHtml, title]);
+  }, [cFrom, cTo, cCc, cBcc, cSubject, cText, cHtml, title]);
 
-  const searchRecipient = (val: string, field: 'to' | 'cc') => {
+  const searchRecipient = (val: string, field: 'to' | 'cc' | 'bcc') => {
     setActiveField(field);
+    if (recipientDebounceRef.current) clearTimeout(recipientDebounceRef.current);
     const lastToken = val.split(',').pop()?.trim() || '';
     if (lastToken.length >= 2 && window.postaci?.contacts) {
-      window.postaci.contacts.search(lastToken).then((res) => {
-        setSuggestions(res || []);
-        setSuggestionIdx(0);
-      }).catch(() => setSuggestions([]));
+      recipientDebounceRef.current = setTimeout(() => {
+        window.postaci?.contacts?.search(lastToken).then((res) => {
+          setSuggestions(res || []);
+          setSuggestionIdx(0);
+        }).catch(() => setSuggestions([]));
+      }, 200);
     } else {
       setSuggestions([]);
     }
@@ -218,6 +231,11 @@ export function ComposeModal({
       parts.pop();
       parts.push(parts.length > 0 ? ` ${formatted}` : formatted);
       setCCc(parts.join(',') + ', ');
+    } else if (activeField === 'bcc') {
+      const parts = cBcc.split(',');
+      parts.pop();
+      parts.push(parts.length > 0 ? ` ${formatted}` : formatted);
+      setCBcc(parts.join(',') + ', ');
     }
     setSuggestions([]);
     setActiveField(null);
@@ -372,12 +390,20 @@ export function ComposeModal({
     exec('insertHTML', sigHtml);
   };
 
+  const handleAttemptSend = () => {
+    if (!cSubject.trim()) {
+      setShowEmptySubjectConfirm(true);
+      return;
+    }
+    onSend();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Ctrl+Enter veya Cmd+Enter ile doğrudan gönder
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
       if (!sending && cTo.trim() && (cText.trim() || cHtml.trim())) {
-        onSend();
+        handleAttemptSend();
       }
       return;
     }
@@ -606,6 +632,16 @@ export function ComposeModal({
               placeholder={t('compose.ccPlaceholder')}
               className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-2.5 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
             />
+            {!showBcc && !cBcc && (
+              <button
+                type="button"
+                onClick={() => setShowBcc(true)}
+                className="text-[11px] font-medium text-zinc-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400 px-1.5 py-1 rounded transition shrink-0"
+                title="Bcc (Gizli Alıcı) ekle"
+              >
+                + {t('compose.bcc')}
+              </button>
+            )}
             {suggestions.length > 0 && activeField === 'cc' && (
               <div className="absolute top-full left-16 z-50 mt-1 max-h-48 w-80 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
                 <div className="px-2 py-1 text-[10px] font-semibold text-zinc-400 uppercase">{t('compose.suggestedContacts')}</div>
@@ -630,6 +666,64 @@ export function ComposeModal({
               </div>
             )}
           </div>
+
+          {/* Bcc */}
+          {(showBcc || !!cBcc) && (
+            <div className="relative flex items-center gap-2">
+              <span className="w-14 shrink-0 text-xs font-medium text-zinc-500">{t('compose.bcc')}</span>
+              <input
+                value={cBcc}
+                onChange={(e) => {
+                  setCBcc(e.target.value);
+                  searchRecipient(e.target.value, 'bcc');
+                }}
+                onFocus={() => searchRecipient(cBcc, 'bcc')}
+                onBlur={() => setTimeout(() => setActiveField(null), 200)}
+                onKeyDown={(e) => {
+                  if (suggestions.length > 0 && activeField === 'bcc') {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setSuggestionIdx((i) => Math.min(suggestions.length - 1, i + 1));
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setSuggestionIdx((i) => Math.max(0, i - 1));
+                    } else if (e.key === 'Enter' || e.key === 'Tab') {
+                      e.preventDefault();
+                      selectContact(suggestions[suggestionIdx]);
+                    } else if (e.key === 'Escape') {
+                      setSuggestions([]);
+                      setActiveField(null);
+                    }
+                  }
+                }}
+                placeholder={t('compose.bccPlaceholder')}
+                className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-2.5 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
+              />
+              {suggestions.length > 0 && activeField === 'bcc' && (
+                <div className="absolute top-full left-16 z-50 mt-1 max-h-48 w-80 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                  <div className="px-2 py-1 text-[10px] font-semibold text-zinc-400 uppercase">{t('compose.suggestedContacts')}</div>
+                  {suggestions.map((s, idx) => (
+                    <button
+                      key={`${s.email}-${idx}`}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        selectContact(s);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded text-xs flex flex-col transition ${
+                        idx === suggestionIdx
+                          ? 'bg-blue-50 text-blue-900 dark:bg-blue-950/80 dark:text-blue-200'
+                          : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200'
+                      }`}
+                    >
+                      <span className="font-semibold truncate">{s.name}</span>
+                      <span className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">{s.email}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Konu */}
           <input
@@ -674,6 +768,19 @@ export function ComposeModal({
               >
                 S
               </button>
+
+              <label
+                className="h-7 w-7 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center justify-center cursor-pointer transition relative"
+                title={t('compose.textColor')}
+              >
+                <span className="font-bold text-xs" style={{ borderBottom: '3px solid #2563eb' }}>A</span>
+                <input
+                  type="color"
+                  defaultValue="#2563eb"
+                  onChange={(e) => exec('foreColor', e.target.value)}
+                  className="w-0 h-0 opacity-0 absolute"
+                />
+              </label>
 
               <span className="mx-1 h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
 
@@ -877,7 +984,7 @@ export function ComposeModal({
 
           <button
             type="button"
-            onClick={onSend}
+            onClick={handleAttemptSend}
             disabled={sending || !cTo.trim() || (!cText.trim() && !cHtml.trim())}
             className={`rounded-lg ${A.btn} px-5 py-2 text-sm font-medium text-white disabled:opacity-50 transition shadow-xs flex items-center justify-center gap-1.5`}
           >
@@ -885,6 +992,46 @@ export function ComposeModal({
             <span>{sending ? t('compose.sending') : t('compose.send')}</span>
           </button>
         </div>
+
+        {/* Boş Konu Onay Modalı */}
+        {showEmptySubjectConfirm && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center rounded-xl bg-black/40 backdrop-blur-xs p-6 animate-in fade-in duration-150">
+            <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-800">
+              <div className="flex items-center gap-2.5 mb-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400">
+                  <DraftIcon size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                    {t('compose.emptySubjectDialogTitle')}
+                  </h3>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed mb-4">
+                {t('compose.emptySubjectDialogDesc')}
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEmptySubjectConfirm(false)}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700 transition"
+                >
+                  {t('compose.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEmptySubjectConfirm(false);
+                    onSend();
+                  }}
+                  className={`rounded-lg ${A.btn} px-3.5 py-1.5 text-xs font-medium text-white transition shadow-xs`}
+                >
+                  {t('compose.sendAnyway')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Onaysız Kapatmayı Önleme & Taslak Saklama Diyaloğu */}
         {showDiscardConfirm && (

@@ -1,11 +1,13 @@
 // src/hooks/useUndoSend.ts — Geri Al özellikli e-posta gönderim kuyruğu
 import { useRef, useState } from 'react';
 import type { ComposeFile, Msg } from '../types';
+import { useTranslation } from '../i18n';
 
 export interface SendPayload {
   fromEmail: string;
   to: string;
   cc: string;
+  bcc?: string;
   subject: string;
   text: string;
   html: string;
@@ -45,6 +47,7 @@ export function useUndoSend({
   setError,
   undoDelaySeconds,
 }: UseUndoSendProps) {
+  const { t } = useTranslation();
   const [undoTask, setUndoTask] = useState<UndoSendTask | null>(null);
   const [sending, setSending] = useState(false);
   const undoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -58,6 +61,7 @@ export function useUndoSend({
         fromEmail: payload.fromEmail,
         to: payload.to,
         cc: payload.cc,
+        bcc: payload.bcc,
         subject: payload.subject,
         text: payload.text,
         html: payload.html || undefined,
@@ -69,7 +73,7 @@ export function useUndoSend({
           dataBase64,
         })),
       });
-      setNotice?.('E-posta başarıyla gönderildi.');
+      setNotice?.(t('notice.emailSent'));
       window.postaci.db.stats().catch(() => {});
       if (selectedMsg && String(selectedMsg.uid).startsWith('draft-') && activeAccount && activeFolder) {
         window.postaci.mail.delete(activeAccount, activeFolder, selectedMsg.uid).catch(() => {});
@@ -124,7 +128,7 @@ export function useUndoSend({
     const p = undoTask.payload;
     setUndoTask(null);
     onRestoreCompose?.(p);
-    setNotice?.('Gönderim geri alındı. İletinizi düzenlemeye devam edebilirsiniz.');
+    setNotice?.(t('notice.undoSendRestored'));
   };
 
   const handleSendImmediately = () => {

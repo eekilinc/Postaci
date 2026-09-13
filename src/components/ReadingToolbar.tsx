@@ -4,6 +4,7 @@ import type { Folder } from '../types';
 import { useTranslation } from '../i18n';
 import {
   ReplyIcon,
+  ReplyAllIcon,
   ForwardIcon,
   ArchiveIcon,
   FolderIcon,
@@ -25,6 +26,7 @@ interface ReadingToolbarProps {
   currentFolder?: string;
   onBackToList?: () => void;
   onReply: () => void;
+  onReplyAll?: () => void;
   onForward: () => void;
   onToggleRead: () => void;
   onArchive?: () => void;
@@ -42,6 +44,7 @@ export const ReadingToolbar = memo(function ReadingToolbar({
   currentFolder,
   onBackToList,
   onReply,
+  onReplyAll,
   onForward,
   onToggleRead,
   onArchive,
@@ -104,6 +107,21 @@ export const ReadingToolbar = memo(function ReadingToolbar({
                 R
               </kbd>
             </button>
+
+            {onReplyAll && (
+              <button
+                type="button"
+                onClick={onReplyAll}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/90 px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-2xs transition-all hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-200 dark:hover:bg-zinc-750 shrink-0"
+                title={`${t('read.replyAll')} (a)`}
+              >
+                <ReplyAllIcon size={14} />
+                <span className="hidden sm:inline">{t('read.replyAll')}</span>
+                <kbd className="hidden md:inline-block rounded-md border border-zinc-200 px-1 py-0.2 text-[9px] text-zinc-400 dark:border-zinc-700">
+                  A
+                </kbd>
+              </button>
+            )}
 
             <button
               type="button"

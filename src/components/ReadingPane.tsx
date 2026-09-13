@@ -42,6 +42,7 @@ interface ReadingPaneProps {
   loadingPreview: number | null;
   thread: any[] | null;
   onReply: () => void;
+  onReplyAll?: () => void;
   onForward: () => void;
   onToggleRead: () => void;
   onSaveAttachment: (idx: number) => void;
@@ -125,6 +126,7 @@ export function ReadingPane({
   loadingPreview,
   thread,
   onReply,
+  onReplyAll,
   onForward,
   onToggleRead,
   onSaveAttachment,
@@ -204,6 +206,7 @@ export function ReadingPane({
           currentFolder={selected.folder_path}
           onBackToList={onBackToList}
           onReply={onReply}
+          onReplyAll={onReplyAll}
           onForward={onForward}
           onToggleRead={onToggleRead}
           onArchive={onArchiveCurrent}

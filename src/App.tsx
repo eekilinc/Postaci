@@ -16,6 +16,7 @@ import { useMessageBody } from './hooks/useMessageBody';
 import { useBatchActions } from './hooks/useBatchActions';
 import { useUndoSend } from './hooks/useUndoSend';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useTranslation } from './i18n';
 
 // Bileşenler
 import { Sidebar } from './components/Sidebar';
@@ -46,6 +47,7 @@ const ACCENT_COLORS: Record<string, string> = {
 };
 
 export default function App() {
+  const { t } = useTranslation();
   const inElectron = !!(window.postaci || (typeof navigator !== 'undefined' && /electron/i.test(navigator.userAgent)));
 
   // ── Tema & accent ────────────────────────────────────────────────────────
@@ -124,6 +126,7 @@ export default function App() {
   const targetSelectUidRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticeLoading, setNoticeLoading] = useState(false);
   const [inAppAlert, setInAppAlert] = useState<IncomingMailData | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -282,6 +285,7 @@ export default function App() {
   const [cFrom, setCFrom] = useState('');
   const [cTo, setCTo] = useState('');
   const [cCc, setCCc] = useState('');
+  const [cBcc, setCBcc] = useState('');
   const [cSubject, setCSubject] = useState('');
   const [cText, setCText] = useState('');
   const [cHtml, setCHtml] = useState('');
@@ -301,6 +305,7 @@ export default function App() {
       setCFrom(p.fromEmail);
       setCTo(p.to);
       setCCc(p.cc);
+      setCBcc(p.bcc || '');
       setCSubject(p.subject);
       setCText(p.text);
       setCHtml(p.html);
@@ -568,7 +573,7 @@ export default function App() {
       }
       refreshUnreadCounts();
       if (count > 0) {
-        setNotice(`${count} yeni e-posta alındı.`);
+        setNotice(t('notice.newEmails', { count }));
         setTimeout(() => setNotice(null), 4000);
       }
     });
@@ -620,9 +625,9 @@ export default function App() {
       await window.postaci.mail.delete(fromAccount, fromFolder, m.uid);
       // Kullanıcı başka klasöre veya hesaba geçtiyse eski klasörün bildirimini gösterme
       if (isUnified || (activeFolder === fromFolder && activeAccount === fromAccount)) {
-        setNotice('Mesaj silindi.');
+        setNotice(t('notice.deleted'));
         setTimeout(() => {
-          setNotice((prev) => (prev === 'Mesaj silindi.' ? null : prev));
+          setNotice((prev) => (prev === t('notice.deleted') ? null : prev));
         }, 2500);
       }
       loadFolders(fromAccount); // okunmadı sayısını güncelle
@@ -649,9 +654,9 @@ export default function App() {
     setMessages((prev) => prev.filter((x) => x.uid !== target.uid));
     setSelected((s) => (s?.uid === target.uid ? null : s));
     setError(null);
-    setNotice('Mesaj arşivlendi.');
+    setNotice(t('notice.archived'));
     setTimeout(() => {
-      setNotice((prev) => (prev === 'Mesaj arşivlendi.' ? null : prev));
+      setNotice((prev) => (prev === t('notice.archived') ? null : prev));
     }, 2500);
 
     try {
@@ -681,9 +686,9 @@ export default function App() {
     setMessages((prev) => prev.filter((x) => x.uid !== target.uid));
     setSelected((s) => (s?.uid === target.uid ? null : s));
     setError(null);
-    setNotice(`Mesaj "${toFolder}" klasörüne taşındı.`);
+    setNotice(t('notice.moved', { folder: toFolder }));
     setTimeout(() => {
-      setNotice((prev) => (prev?.includes('taşındı') ? null : prev));
+      setNotice((prev) => (prev === t('notice.moved', { folder: toFolder }) ? null : prev));
     }, 2500);
 
     try {
@@ -761,7 +766,7 @@ export default function App() {
             setCHtml(d.html || '');
             setCFiles([]);
             setShowCompose(true);
-            setNotice('Önceki taslağınız geri yüklendi.');
+            setNotice(t('notice.draftRestored'));
             setTimeout(() => setNotice(null), 3000);
             return;
           }
@@ -769,7 +774,7 @@ export default function App() {
       }
     }
 
-    setCTo(toStr); setCCc(''); setCSubject(subjStr); setCFiles([]);
+    setCTo(toStr); setCCc(''); setCBcc(''); setCSubject(subjStr); setCFiles([]);
     // Otomatik imza kontrolü
     const sig = getAccountSignature(sender);
     if (sig.enabled) {
@@ -791,22 +796,24 @@ export default function App() {
     setShowCompose(true);
   };
 
-  const openReplyForward = async (mode: 'reply' | 'forward') => {
+  const openReplyForward = async (mode: 'reply' | 'replyAll' | 'forward') => {
     const targetAccount = selected?.account_email || activeAccount;
     const targetFolder = selected?.folder_path || activeFolder;
     if (!window.postaci || !targetAccount || !selected || !targetFolder) return;
     setError(null); setNotice(null);
     try {
-      const t =
+      const tpl =
         mode === 'reply'
           ? await window.postaci.mail.replyTemplate(targetAccount, targetFolder, selected.uid)
+          : mode === 'replyAll'
+          ? await window.postaci.mail.replyAllTemplate(targetAccount, targetFolder, selected.uid)
           : await window.postaci.mail.forwardTemplate(targetAccount, targetFolder, selected.uid);
-      setComposeTitle(mode === 'reply' ? 'Yanıtla' : 'İlet');
+      setComposeTitle(mode === 'reply' ? 'Yanıtla' : mode === 'replyAll' ? 'Tümünü Yanıtla' : 'İlet');
       setCFrom(targetAccount);
-      setCTo(t.to); setCCc(t.cc); setCSubject(t.subject);
-      setCText(t.text);
-      setCHtml(t.html || t.text.replace(/\n/g, '<br>'));
-      setCInReplyTo(t.inReplyTo); setCReferences(t.references);
+      setCTo(tpl.to); setCCc(tpl.cc); setCBcc(''); setCSubject(tpl.subject);
+      setCText(tpl.text);
+      setCHtml(tpl.html || tpl.text.replace(/\n/g, '<br>'));
+      setCInReplyTo(tpl.inReplyTo); setCReferences(tpl.references);
       setShowCompose(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -861,6 +868,7 @@ export default function App() {
     setCFrom(targetAccount);
     setCTo(selected.from_addr || '');
     setCCc(replyAll && selected.to_addr ? selected.to_addr : '');
+    setCBcc('');
     setCSubject(selected.subject?.startsWith('Re:') ? selected.subject : `Re: ${selected.subject || ''}`);
     setCText(text);
     setCHtml(text.replace(/\n/g, '<br>'));
@@ -878,7 +886,7 @@ export default function App() {
     try {
       const res = await window.postaci.mail.exportEml(targetAccount, targetFolder, selected.uid);
       if (res.saved) {
-        setNotice('E-posta dosyası (.eml) kaydedildi.');
+        setNotice(t('notice.emlSaved'));
         setTimeout(() => setNotice(null), 3000);
       }
     } catch (e) {
@@ -889,14 +897,17 @@ export default function App() {
   const handleEmptyTrash = async () => {
     if (!activeAccount || !window.postaci) return;
     try {
-      setNotice('Çöp kutusu boşaltılıyor...');
+      setNoticeLoading(true);
+      setNotice(t('notice.trashEmptying'));
       await window.postaci.mail.emptyTrash(activeAccount);
-      setNotice('Çöp kutusu başarıyla boşaltıldı.');
+      setNoticeLoading(false);
+      setNotice(t('notice.trashEmptied'));
       setTimeout(() => setNotice(null), 3000);
       loadMessages(activeAccount, activeFolder || 'INBOX', isUnified);
       loadFolders(activeAccount);
       updateUnifiedCount();
     } catch (e) {
+      setNoticeLoading(false);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
@@ -909,6 +920,7 @@ export default function App() {
     setCFrom(targetAccount);
     setCTo(selected.to_addr || '');
     setCCc('');
+    setCBcc('');
     setCSubject(selected.subject === '(Taslak)' ? '' : (selected.subject || ''));
     setCText(body?.text || selected.snippet || '');
     setCHtml(body?.html || (body?.text ? body.text.replace(/\n/g, '<br>') : ''));
@@ -923,8 +935,8 @@ export default function App() {
       if (activeFolder === savedFolder || /draft|taslak/i.test(activeFolder || '') || isUnified) {
         loadMessages(targetAccount, activeFolder || savedFolder, isUnified);
       }
-      setNotice('Taslak kaydedildi ("Taslaklar" klasöründe görebilirsiniz).');
-      setTimeout(() => setNotice((prev) => (prev?.includes('Taslak') ? null : prev)), 3500);
+      setNotice(t('notice.draftSaved'));
+      setTimeout(() => setNotice((prev) => (prev === t('notice.draftSaved') ? null : prev)), 3500);
     }
   };
 
@@ -934,6 +946,7 @@ export default function App() {
       fromEmail: cFrom || activeAccount || '',
       to: cTo,
       cc: cCc,
+      bcc: cBcc,
       subject: cSubject,
       text: cText,
       html: cHtml,
@@ -945,7 +958,7 @@ export default function App() {
     // Formu kapat ve aktif taslağı temizle
     localStorage.removeItem('postaci_active_draft');
     setShowCompose(false);
-    setCTo(''); setCCc(''); setCSubject(''); setCText(''); setCHtml(''); setCFiles([]);
+    setCTo(''); setCCc(''); setCBcc(''); setCSubject(''); setCText(''); setCHtml(''); setCFiles([]);
     setCInReplyTo(undefined); setCReferences(undefined);
 
     queueSendWithUndo(payload);
@@ -963,6 +976,7 @@ export default function App() {
     filteredMessages,
     onNewEmail: openNew,
     onReply: () => openReplyForward('reply'),
+    onReplyAll: () => openReplyForward('replyAll'),
     onForward: () => openReplyForward('forward'),
     onToggleStar: toggleStar,
     onToggleRead: toggleRead,
@@ -1082,6 +1096,7 @@ export default function App() {
       folders={folders}
       onBackToList={onBack}
       onReply={() => openReplyForward('reply')}
+      onReplyAll={() => openReplyForward('replyAll')}
       onForward={() => openReplyForward('forward')}
       onToggleRead={() => selected && toggleRead(selected)}
       onToggleStarCurrent={() => selected && toggleStar(selected)}
@@ -1331,6 +1346,7 @@ export default function App() {
           cFrom={cFrom} setCFrom={setCFrom}
           cTo={cTo} setCTo={setCTo}
           cCc={cCc} setCCc={setCCc}
+          cBcc={cBcc} setCBcc={setCBcc}
           cSubject={cSubject} setCSubject={setCSubject}
           cText={cText} setCText={setCText}
           cHtml={cHtml} setCHtml={setCHtml}
@@ -1359,7 +1375,11 @@ export default function App() {
           message={notice}
           type="notice"
           accent={ACCENT_COLORS[accent] || '#2563eb'}
-          onClose={() => setNotice(null)}
+          loading={noticeLoading}
+          onClose={() => {
+            setNotice(null);
+            setNoticeLoading(false);
+          }}
         />
       )}
       {error && !showCompose && (
