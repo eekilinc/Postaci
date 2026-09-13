@@ -161,6 +161,7 @@ export function useKeyboardShortcuts({
     filteredMessages,
     onNewEmail,
     onReply,
+    onReplyAll,
     onForward,
     onToggleStar,
     onToggleRead,
