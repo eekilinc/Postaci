@@ -653,17 +653,22 @@ async function appendToSent({ provider, email, accessToken, password, imapHost, 
 async function verifyImap({ host, port, email, password }) {
   const client = new ImapFlow({
     host,
-    port,
-    secure: port === 993,
+    port: Number(port) || 993,
+    secure: Number(port) === 993,
     logger: false,
     auth: { user: email, pass: password },
   });
+  client.on('error', (e) => console.error('[imap-verify] bağlantı hatası:', e?.message || e));
   await client.connect();
   try {
     await client.mailboxOpen('INBOX', { readOnly: true });
     return true;
   } finally {
-    await client.logout();
+    try {
+      await client.logout();
+    } catch {
+      try { client.close(); } catch {}
+    }
   }
 }
 

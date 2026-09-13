@@ -599,7 +599,18 @@ export function SettingsModal({
     setTestingConnection(true);
     setConnectionTestResult(null);
     try {
-      const result = await window.postaci.accounts.testConnection(editingAccountId);
+      const overrides = isEditingOAuth
+        ? undefined
+        : {
+            displayName: editDisplayName.trim() || undefined,
+            imapHost: editImapHost.trim() || undefined,
+            imapPort: editImapPort || undefined,
+            smtpHost: editSmtpHost.trim() || undefined,
+            smtpPort: editSmtpPort || undefined,
+            smtpSecure: editSmtpSecure,
+            password: editPassword.trim() || undefined,
+          };
+      const result = await window.postaci.accounts.testConnection(editingAccountId, overrides);
       setConnectionTestResult(result);
     } catch (err) {
       setConnectionTestResult({

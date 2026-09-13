@@ -78,7 +78,18 @@ declare global {
           smtp_port?: number;
           smtp_secure?: number;
         }>;
-        testConnection: (accountId: number) => Promise<{
+        testConnection: (
+          accountId: number,
+          overrides?: {
+            displayName?: string;
+            imapHost?: string;
+            imapPort?: number;
+            smtpHost?: string;
+            smtpPort?: number;
+            smtpSecure?: boolean;
+            password?: string;
+          }
+        ) => Promise<{
           imap: { ok: boolean; error?: string } | null;
           smtp: { ok: boolean; error?: string; note?: string } | null;
         }>;

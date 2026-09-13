@@ -175,7 +175,7 @@ function listAccounts() {
 }
 
 function getAccountById(id) {
-  return getDb().prepare('SELECT id, provider, email, display_name, auth_type, imap_host, imap_port, smtp_host, smtp_port, smtp_secure, created_at FROM accounts WHERE id=?').get(id);
+  return getDb().prepare('SELECT * FROM accounts WHERE id=?').get(id);
 }
 
 function getAccountByEmail(email) {

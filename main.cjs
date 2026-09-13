@@ -101,7 +101,12 @@ async function freshAccessToken(account, forceRefresh = false) {
 // Hesap türüne göre bağlantı bilgileri: { accessToken } ya da { password, imapHost, imapPort }
 async function freshCredentials(account, forceRefresh = false) {
   if (account.auth_type === 'password') {
-    const password = dec(account.password_enc);
+    let passwordEnc = account.password_enc;
+    if (!passwordEnc) {
+      const fullAcc = (account.id ? getAccountById(account.id) : null) || getAccountByEmail(account.email);
+      if (fullAcc?.password_enc) passwordEnc = fullAcc.password_enc;
+    }
+    const password = dec(passwordEnc);
     if (!password) throw new Error('Kayıtlı şifre yok, hesabı yeniden ekleyin.');
     return { password, imapHost: account.imap_host, imapPort: account.imap_port };
   }
@@ -1015,7 +1020,10 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('accounts:add', (_evt, acc) => addAccount(acc));
   ipcMain.handle('accounts:get', async (_evt, id) => {
-    return getAccountById(id);
+    const acc = getAccountById(id);
+    if (!acc) return null;
+    const { password_enc: _p, access_token_enc: _a, refresh_token_enc: _r, ...safe } = acc;
+    return safe;
   });
   ipcMain.handle('accounts:update', async (_evt, id, updates) => {
     const acc = getAccountById(id);
@@ -2142,43 +2150,76 @@ app.whenReady().then(() => {
       return false;
     }
   });
-  // Bağlantı Testi — mevcut kaydedilmiş hesap kimlik bilgilerini doğrular
-  ipcMain.handle('accounts:test-connection', async (_evt, { accountId }) => {
+  // Bağlantı Testi — mevcut kaydedilmiş veya formda düzenlenen hesap kimlik bilgilerini doğrular
+  ipcMain.handle('accounts:test-connection', async (_evt, { accountId, ...overrides }) => {
     const acc = getAccountById(accountId);
     if (!acc) throw new Error('Hesap bulunamadı.');
 
     const result = { imap: null, smtp: null };
 
-    // IMAP testi
     try {
-      const creds = await freshCredentials(acc);
-      if (creds.password) {
-        // Şifre tabanlı (IMAP/SMTP manuel hesap)
-        await verifyImap({ host: acc.imap_host, port: acc.imap_port, email: acc.email, password: creds.password });
-        result.imap = { ok: true };
-
-        // SMTP testi
-        try {
-          const transporter = createTransporter({
-            provider: acc.provider,
-            email: acc.email,
-            password: creds.password,
-            smtpHost: acc.smtp_host,
-            smtpPort: acc.smtp_port,
-            smtpSecure: acc.smtp_secure !== 0,
-          });
-          await transporter.verify();
-          result.smtp = { ok: true };
-        } catch (smtpErr) {
-          result.smtp = { ok: false, error: smtpErr.message || String(smtpErr) };
+      if (acc.auth_type === 'password') {
+        let password = (overrides && overrides.password && overrides.password.trim()) ? overrides.password.trim() : null;
+        if (!password && acc.password_enc) {
+          password = dec(acc.password_enc);
         }
-      } else if (creds.accessToken) {
+        if (!password) {
+          const fullAcc = getAccountByEmail(acc.email);
+          if (fullAcc?.password_enc) {
+            password = dec(fullAcc.password_enc);
+          }
+        }
+        if (!password) {
+          throw new Error('Kayıtlı şifre bulunamadı. Lütfen şifre alanına şifrenizi girerek tekrar test edin.');
+        }
+
+        const imapHost = (overrides && overrides.imapHost) ? overrides.imapHost.trim() : acc.imap_host;
+        const imapPort = (overrides && overrides.imapPort) ? Number(overrides.imapPort) : Number(acc.imap_port || 993);
+        const smtpHost = (overrides && overrides.smtpHost) ? overrides.smtpHost.trim() : acc.smtp_host;
+        const smtpPort = (overrides && overrides.smtpPort) ? Number(overrides.smtpPort) : Number(acc.smtp_port || 465);
+        const smtpSecure = (overrides && overrides.smtpSecure !== undefined)
+          ? Boolean(overrides.smtpSecure)
+          : (acc.smtp_secure !== 0);
+
+        // IMAP Testi
+        try {
+          await verifyImap({ host: imapHost, port: imapPort, email: acc.email, password });
+          result.imap = { ok: true };
+        } catch (imapErr) {
+          result.imap = { ok: false, error: imapErr.message || String(imapErr) };
+        }
+
+        // SMTP Testi
+        if (smtpHost && smtpPort) {
+          try {
+            const transporter = createTransporter({
+              provider: acc.provider,
+              email: acc.email,
+              password,
+              smtpHost,
+              smtpPort,
+              smtpSecure,
+            });
+            await transporter.verify();
+            result.smtp = { ok: true };
+          } catch (smtpErr) {
+            result.smtp = { ok: false, error: smtpErr.message || String(smtpErr) };
+          }
+        } else {
+          result.smtp = { ok: false, error: 'SMTP sunucusu veya portu belirtilmemiş.' };
+        }
+      } else {
         // OAuth hesap — IMAP bağlantısını withClient ile test et
-        await withClient({ provider: acc.provider, email: acc.email, accessToken: creds.accessToken }, async (client) => {
-          await client.mailboxOpen('INBOX', { readOnly: true });
-        });
-        result.imap = { ok: true };
-        result.smtp = { ok: true, note: 'OAuth bağlantısı IMAP ile doğrulandı.' };
+        const creds = await freshCredentials(acc);
+        if (creds.accessToken) {
+          await withClient({ provider: acc.provider, email: acc.email, accessToken: creds.accessToken }, async (client) => {
+            await client.mailboxOpen('INBOX', { readOnly: true });
+          });
+          result.imap = { ok: true };
+          result.smtp = { ok: true, note: 'OAuth bağlantısı IMAP ile doğrulandı.' };
+        } else {
+          throw new Error('OAuth erişim anahtarı alınamadı.');
+        }
       }
     } catch (err) {
       result.imap = result.imap || { ok: false, error: err.message || String(err) };
