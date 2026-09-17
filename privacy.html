@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Postacı Email Client</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --border: #334155;
+      --badge-bg: #1e3a8a;
+      --badge-text: #93c5fd;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-main);
+      line-height: 1.7;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 48px;
+      box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+    }
+    .header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 24px;
+      margin-bottom: 32px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      background-color: var(--badge-bg);
+      color: var(--badge-text);
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 9999px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 2.2rem;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+    .meta {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+    h2 {
+      font-size: 1.4rem;
+      color: #ffffff;
+      margin-top: 36px;
+      margin-bottom: 14px;
+      border-left: 4px solid var(--accent);
+      padding-left: 12px;
+    }
+    p {
+      margin-bottom: 16px;
+      color: #cbd5e1;
+    }
+    ul {
+      margin-bottom: 18px;
+      padding-left: 24px;
+      color: #cbd5e1;
+    }
+    li {
+      margin-bottom: 8px;
+    }
+    .highlight-box {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 8px;
+      padding: 20px;
+      margin: 24px 0;
+    }
+    .highlight-box p {
+      color: #bfdbfe;
+      margin-bottom: 0;
+      font-weight: 500;
+    }
+    footer {
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      text-align: center;
+    }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .lang-switch {
+      margin-bottom: 24px;
+      display: flex;
+      gap: 12px;
+    }
+    .lang-btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #0f172a;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .lang-btn.active {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="lang-switch">
+      <a href="#english" class="lang-btn active">English</a>
+      <a href="#turkish" class="lang-btn">Türkçe</a>
+    </div>
+
+    <section id="english">
+      <div class="header">
+        <span class="badge">Official Legal Document</span>
+        <h1>Privacy Policy for Postacı</h1>
+        <div class="meta">
+          <strong>Application:</strong> Postacı (Desktop Email Client)<br>
+          <strong>Developer:</strong> Ekrem Eşref Kılınç<br>
+          <strong>Last Updated:</strong> March 2026
+        </div>
+      </div>
+
+      <h2>1. Overview</h2>
+      <p>
+        <strong>Postacı</strong> is an open-source, local desktop email client designed for high performance and privacy. This Privacy Policy explains how Postacı accesses, handles, stores, and protects user data, specifically including information obtained through Google OAuth and Gmail APIs.
+      </p>
+
+      <h2>2. Local-Only Architecture (No Cloud Servers)</h2>
+      <p>
+        Postacı operates entirely as a local desktop software installed on your machine.
+      </p>
+      <ul>
+        <li><strong>No External Servers:</strong> The developer does NOT operate any central, remote, or cloud servers.</li>
+        <li><strong>Direct Connection:</strong> All communications (OAuth authentication, IMAP synchronization, SMTP sending) occur directly between your personal computer and your email provider (Google, Microsoft, Yahoo, or custom IMAP/SMTP servers).</li>
+        <li><strong>Local Storage:</strong> Your emails, metadata, account tokens, and credentials are stored strictly on your local disk inside an encrypted SQLite database.</li>
+      </ul>
+
+      <h2>3. Google User Data & Permissions</h2>
+      <p>
+        When you connect a Google account to Postacı using OAuth 2.0, the application requests the following permissions:
+      </p>
+      <ul>
+        <li><code>openid</code>, <code>email</code>, <code>profile</code>: Used solely to identify your account name and email address within the app.</li>
+        <li><code>https://mail.google.com/</code>: Used strictly via IMAP/SMTP protocols to allow you to read, search, draft, archive, and send emails directly from the desktop application.</li>
+      </ul>
+
+      <div class="highlight-box">
+        <p>
+          <strong>Google API Services User Data Policy Compliance:</strong><br>
+          Postacı's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.
+        </p>
+      </div>
+
+      <h2>4. Data Sharing and Transfer</h2>
+      <ul>
+        <li><strong>Zero Data Selling:</strong> We do NOT sell, rent, monetize, or lease your personal information or email data to any third party, broker, or advertising platform.</li>
+        <li><strong>No Third-Party Analytics:</strong> Postacı contains no tracking scripts, advertising SDKs, or third-party telemetry.</li>
+        <li><strong>No AI Model Training:</strong> Your email content and personal data are NEVER used to train, develop, or improve artificial intelligence or machine learning models.</li>
+      </ul>
+
+      <h2>5. Data Retention and Deletion</h2>
+      <p>
+        Since all data is stored locally on your device:
+      </p>
+      <ul>
+        <li>You can remove an account at any time within the app's settings, which permanently deletes all tokens and cached emails for that account from the local database.</li>
+        <li>Uninstalling the application or deleting the application data directory completely purges all data from your computer.</li>
+        <li>You can revoke Postacı's access at any time through your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">Google Account Security Settings</a>.</li>
+      </ul>
+
+      <h2>6. Contact Information</h2>
+      <p>
+        If you have any questions or concerns regarding this Privacy Policy, you can reach out via:
+      </p>
+      <ul>
+        <li><strong>Developer:</strong> Ekrem Eşref Kılınç</li>
+        <li><strong>Email:</strong> <a href="mailto:ekilinc@mehmetakif.edu.tr">ekilinc@mehmetakif.edu.tr</a></li>
+        <li><strong>GitHub Repository:</strong> <a href="https://github.com/eekilinc/Postaci" target="_blank" rel="noopener noreferrer">https://github.com/eekilinc/Postaci</a></li>
+      </ul>
+    </section>
+
+    <hr style="border: 0; border-top: 1px dashed var(--border); margin: 48px 0;">
+
+    <section id="turkish">
+      <div class="header">
+        <span class="badge">Resmi Hukuki Metin</span>
+        <h1>Postacı Gizlilik Politikası</h1>
+        <div class="meta">
+          <strong>Uygulama:</strong> Postacı (Masaüstü E-Posta İstemcisi)<br>
+          <strong>Geliştirici:</strong> Ekrem Eşref Kılınç<br>
+          <strong>Son Güncelleme:</strong> Mart 2026
+        </div>
+      </div>
+
+      <h2>1. Genel Bakış</h2>
+      <p>
+        <strong>Postacı</strong>, kullanıcı gizliliğini ve yüksek performansı ön planda tutan açık kaynaklı bir yerel masaüstü e-posta istemcisidir. Bu Gizlilik Politikası, Postacı'nın kullanıcı verilerini ve Google OAuth / Gmail API'leri aracılığıyla erişilen bilgileri nasıl işlediğini, sakladığını ve koruduğunu açıklar.
+      </p>
+
+      <h2>2. Yalnızca Yerel Mimari (Harici Sunucu Yoktur)</h2>
+      <p>
+        Postacı tamamen bilgisayarınızda çalışan yerel bir masaüstü yazılımıdır:
+      </p>
+      <ul>
+        <li><strong>Merkezi Sunucu Bulunmaz:</strong> Geliştirici kullanıcı verilerini toplayan hiçbir uzak sunucuya sahip değildir.</li>
+        <li><strong>Doğrudan Bağlantı:</strong> Tüm ağ istekleri yalnızca sizin bilgisayarınız ile e-posta sağlayıcınız (Google, Microsoft, Yahoo vb.) arasında doğrudan gerçekleşir.</li>
+        <li><strong>Yerel Depolama:</strong> E-postalarınız, veritabanı ve erişim belirteçleri (tokens) sadece kendi bilgisayarınızdaki yerel SQLite veritabanında saklanır.</li>
+      </ul>
+
+      <h2>3. Google Kullanıcı Verileri ve İzinler</h2>
+      <ul>
+        <li>İstenen Gmail izinleri (<code>https://mail.google.com/</code>), yalnızca masaüstü arayüzünden e-postalarınızı okumanız, aramanız ve yanıt göndermeniz için doğrudan IMAP/SMTP üzerinden kullanılır.</li>
+        <li>Postacı, Google API'lerinden alınan kullanıcı verilerini Google'ın <strong>Sınırlı Kullanım (Limited Use)</strong> gereksinimleri dahil olmak üzere <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Hizmetleri Kullanıcı Verileri Politikası</a>'na tam uyumlu olarak işler.</li>
+      </ul>
+
+      <h2>4. Veri Paylaşımı ve Güvenlik</h2>
+      <ul>
+        <li>Verileriniz hiçbir reklam şirketi, aracı kurum veya 3. şahıs ile paylaşılmaz veya satılmaz.</li>
+        <li>E-postalarınız yapay zeka modellerini eğitmek amacıyla kesinlikle kullanılmaz.</li>
+        <li>İstediğiniz zaman hesap ayarlarından hesabı silebilir veya Google Güvenlik Ayarları sayfasından erişim yetkisini kaldırabilirsiniz.</li>
+      </ul>
+
+      <h2>5. İletişim</h2>
+      <p>
+        Gizlilik politikası ile ilgili tüm sorularınız için:
+      </p>
+      <ul>
+        <li><strong>E-posta:</strong> <a href="mailto:ekilinc@mehmetakif.edu.tr">ekilinc@mehmetakif.edu.tr</a></li>
+        <li><strong>GitHub:</strong> <a href="https://github.com/eekilinc/Postaci" target="_blank" rel="noopener noreferrer">https://github.com/eekilinc/Postaci</a></li>
+      </ul>
+    </section>
+
+    <footer>
+      &copy; 2026 Postacı - Ekrem Eşref Kılınç. Tüm hakları saklıdır.
+    </footer>
+  </div>
+</body>
+</html>
