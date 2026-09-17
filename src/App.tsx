@@ -995,6 +995,7 @@ export default function App() {
     onOpenCommandPalette: () => setShowCommandPalette((prev) => !prev),
     onOpenShortcutsHelp: () => setShowShortcutsHelp(true),
     onSelectAll: handleSelectAll,
+    shortcutsEnabled: localStorage.getItem('postaci_gmail_shortcuts') !== 'false',
     isModalOpen: showCompose || showAdd || showSettings || showCommandPalette || showShortcutsHelp,
   });
 

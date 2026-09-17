@@ -17,6 +17,7 @@ interface UseKeyboardShortcutsProps {
   onOpenCommandPalette: () => void;
   onOpenShortcutsHelp: () => void;
   onSelectAll?: () => void;
+  shortcutsEnabled?: boolean;
   isModalOpen: boolean;
 }
 
@@ -35,6 +36,7 @@ export function useKeyboardShortcuts({
   onOpenCommandPalette,
   onOpenShortcutsHelp,
   onSelectAll,
+  shortcutsEnabled = true,
   isModalOpen,
 }: UseKeyboardShortcutsProps) {
   useEffect(() => {
@@ -68,6 +70,10 @@ export function useKeyboardShortcuts({
       // Ctrl/Cmd/Alt ile birlikte basılan diğer tuşlar sistem/uygulama kısayollarıdır
       // (Ctrl+C kopyalama, Ctrl+R yenileme vb.) — harf kısayollarını tetikleme
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // Gmail tarzı harf kısayolları ayarlardan kapatılmışsa tek tuş kısayolları çalışmaz
+      // (Komut paleti, arama odağı ve Ctrl+A seçimi yukarıda aynen çalışır)
+      if (shortcutsEnabled === false) return;
 
       switch (e.key) {
         case '?':
@@ -183,6 +189,7 @@ export function useKeyboardShortcuts({
     onOpenCommandPalette,
     onOpenShortcutsHelp,
     onSelectAll,
+    shortcutsEnabled,
     isModalOpen,
   ]);
 }

@@ -521,6 +521,36 @@ async function syncInbox({ provider, email, accessToken, password, imapHost, ima
   return syncFolder({ provider, email, accessToken, password, imapHost, imapPort, folderPath: 'INBOX', db, limit });
 }
 
+// Hafif rozet tazeleme: ileti ÇEKMEZ, her klasöre STATUS sorup okunmamış sayısını DB'ye yazar.
+// Arka plan senkronunda INBOX dışı klasörlerin rozetlerini taze tutar (ucuz: klasör başına 1 komut).
+async function refreshFolderCounts({ provider, email, accessToken, password, imapHost, imapPort, db }) {
+  const rows = db.prepare(
+    `SELECT path FROM folders WHERE account_id=(SELECT id FROM accounts WHERE email=?)`
+  ).all(email);
+  const paths = (rows || [])
+    .map((r) => r.path)
+    .filter((p) => p && String(p).toUpperCase() !== '[GMAIL]');
+  if (paths.length === 0) return { updated: 0, failed: 0 };
+  return withClient({ provider, email, accessToken, password, imapHost, imapPort }, async (client) => {
+    const upd = db.prepare(
+      `UPDATE folders SET unread_count=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND path=?`
+    );
+    let updated = 0;
+    let failed = 0;
+    for (const p of paths) {
+      try {
+        const st = await client.status(p, { messages: true, unseen: true });
+        const unseen = st && typeof st.unseen === 'number' ? st.unseen : 0;
+        upd.run(unseen, email, p);
+        updated++;
+      } catch {
+        failed++;
+      }
+    }
+    return { updated, failed };
+  });
+}
+
 function createTransporter({ provider, email, accessToken, password, smtpHost, smtpPort, smtpSecure }) {
   if (password && smtpHost && smtpPort) {
     return nodemailer.createTransport({
@@ -985,4 +1015,4 @@ async function batchMoveToFolder({ provider, email, accessToken, password, imapH
   });
 }
 
-module.exports = { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, findArchivePath, moveToFolder, batchMoveToFolder, openClient, withClient, invalidateClient, imapErrDetail };
+module.exports = { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, refreshFolderCounts, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, findArchivePath, moveToFolder, batchMoveToFolder, openClient, withClient, invalidateClient, imapErrDetail };

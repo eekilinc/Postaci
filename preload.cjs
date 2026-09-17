@@ -1,13 +1,23 @@
 // preload.cjs - güvenli IPC köprüsü
 const { contextBridge, ipcRenderer } = require('electron');
 
-let appVersion = '1.0.27';
+let appVersion = null;
 try {
   const v = ipcRenderer.sendSync('app:get-version-sync');
   if (v) appVersion = v;
 } catch {
   // Preload scripti asla çökmeyecek şekilde güvenli varsayılan değer kullanılır
 }
+if (!appVersion) {
+  // Ana süreç yanıt vermezse package.json'dan oku (her zaman güncel kalır)
+  try {
+    const path = require('path');
+    const fs = require('fs');
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+    if (pkg && pkg.version) appVersion = pkg.version;
+  } catch {}
+}
+if (!appVersion) appVersion = '1.0.37';
 
 contextBridge.exposeInMainWorld('postaci', {
   version: appVersion,

@@ -31,7 +31,7 @@ const path = require('path');
 const fs = require('fs');
 const { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, listContacts, upsertContact, deleteContact, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts } = require('./electron/db.cjs');
 const { startOAuthFlow } = require('./electron/auth.cjs');
-const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient, imapErrDetail, invalidateClient } = require('./electron/mail.cjs');
+const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, refreshFolderCounts, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient, imapErrDetail, invalidateClient } = require('./electron/mail.cjs');
 const { detectSettings } = require('./electron/providers.cjs');
 const { splitAddresses, buildReply, buildReplyAll, buildForward } = require('./electron/compose.cjs');
 
@@ -120,7 +120,7 @@ function isAuthFailed(e) {
     resp = e && typeof e.response === 'object' ? JSON.stringify(e.response) : String(e?.response || '');
   } catch { resp = ''; }
   const s = `${e?.message || ''} ${e?.responseText || ''} ${resp}`.toLowerCase();
-  return /authenticationfailed|invalid credentials|invalid_grant|unauthorized_client|auth failed|login failed/i.test(s);
+  return /authenticationfailed|invalid credentials|invalid_grant|unauthorized_client|auth failed|login failed|invalid login|authentication unsuccessful|535.*auth/i.test(s);
 }
 
 // Ölü önbellek access token durumu: yerel token'ı sil, refresh ile zorla yenile, işi bir kez daha dene.
@@ -618,15 +618,26 @@ async function runBackgroundSync() {
           continue;
         }
         const res = await withAuthRetry(fullAcc, (creds) =>
-          imapLock(fullAcc.email, () => syncFolder({
-            provider: fullAcc.provider,
-            email: fullAcc.email,
-            folderPath: 'INBOX',
-            db: getDb(),
-            limit: 30,
-            ...creds,
-            skipUid: (uid) => isDeleted(fullAcc.email, 'INBOX', String(uid)),
-          })));
+          imapLock(fullAcc.email, async () => {
+            const r = await syncFolder({
+              provider: fullAcc.provider,
+              email: fullAcc.email,
+              folderPath: 'INBOX',
+              db: getDb(),
+              limit: 30,
+              ...creds,
+              skipUid: (uid) => isDeleted(fullAcc.email, 'INBOX', String(uid)),
+            });
+            // INBOX dışı klasörler: ileti çekmeden yalnızca rozet sayaçlarını tazele (ucuz STATUS)
+            try {
+              await refreshFolderCounts({
+                provider: fullAcc.provider, email: fullAcc.email, db: getDb(), ...creds,
+              });
+            } catch (e) {
+              console.warn(`[bg-sync] ${fullAcc.email} klasör sayaçları atlandı:`, e?.message || e);
+            }
+            return r;
+          }));
         _lastSyncTime.set(normEmail, Date.now());
 
         if (res && res.newMessages && res.newMessages.length > 0) {
@@ -1407,7 +1418,25 @@ app.whenReady().then(() => {
     return true;
   });
   ipcMain.handle('mail:star', (_evt, email, folderPath, uid) => {
-    return toggleStarDb(email, folderPath || 'INBOX', uid);
+    const next = toggleStarDb(email, folderPath || 'INBOX', uid);
+    // Sunucu bayrağı best-effort (okundu işaretindeki desen): önce yerel, IMAP arka planda
+    if (!String(uid).startsWith('draft-') && !String(uid).startsWith('local-')) {
+      setImmediate(async () => {
+        try {
+          const acc = getAccountByEmail(email);
+          if (!acc) return;
+          const creds = await freshCredentials(acc);
+          await imapLock(email, () =>
+            batchToggleFlag({
+              provider: acc.provider, email: acc.email,
+              folderPath: folderPath || 'INBOX', uids: [String(uid)],
+              isFlagged: !!next, ...creds,
+            })
+          );
+        } catch { /* best-effort */ }
+      });
+    }
+    return next;
   });
 
   function isTrashFolder(folderPath) {
@@ -2087,24 +2116,27 @@ app.whenReady().then(() => {
     const atts = attachments || [];
     const totalBytes = atts.reduce((n, a) => n + Math.ceil((a.dataBase64 || '').length * 3 / 4), 0);
     if (totalBytes > 20 * 1024 * 1024) throw new Error('Ekler toplam 20MB sınırını aşıyor.');
-    const creds = await freshCredentials(acc);
-    const smtpOpts = acc.auth_type === 'password'
-      ? { smtpHost: acc.smtp_host, smtpPort: acc.smtp_port, smtpSecure: !!acc.smtp_secure }
-      : {};
-    const transporter = createTransporter({ provider: acc.provider, email: acc.email, ...creds, ...smtpOpts });
     const ccList = splitAddresses(cc);
     const bccList = splitAddresses(bcc);
     const raw = await buildRaw({ from: acc.email, to: toList, cc: ccList, subject: subject || '(konusuz)', text, html, inReplyTo, references, attachments: atts });
+    const smtpOpts = acc.auth_type === 'password'
+      ? { smtpHost: acc.smtp_host, smtpPort: acc.smtp_port, smtpSecure: !!acc.smtp_secure }
+      : {};
     let info;
     try {
-      info = await sendRaw(transporter, raw, { from: acc.email, to: [...toList, ...ccList, ...bccList] });
+      // Ölü token durumunda otomatik yenileyip bir kez daha dene
+      info = await withAuthRetry(acc, async (creds) => {
+        const transporter = createTransporter({ provider: acc.provider, email: acc.email, ...creds, ...smtpOpts });
+        return sendRaw(transporter, raw, { from: acc.email, to: [...toList, ...ccList, ...bccList] });
+      });
     } catch (e) {
       console.error(`[send] ${fromEmail} hata:`, e?.message || e);
-      throw new Error(`Gönderilemedi (${e?.message || e})`);
+      throw new Error(`Gönderilemedi (${friendlySyncError(acc.provider, e)})`);
     }
     saveSentMessage(acc.email, { to: toList.join(', '), subject, text, html });
     // Sunucudaki Gönderilmiş klasörüne kopya (best-effort)
     try {
+      const creds = await freshCredentials(getAccountByEmail(fromEmail) || acc);
       await appendToSent({ provider: acc.provider, email: acc.email, raw, ...creds });
     } catch { /* yerel kayıt esas */ }
     return { messageId: info?.messageId || null };
