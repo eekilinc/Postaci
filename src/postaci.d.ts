@@ -128,6 +128,12 @@ declare global {
         exportEml: (email: string, folderPath: string, uid: string) => Promise<{ saved: boolean; path?: string }>;
         emptyTrash: (email: string) => Promise<boolean>;
         syncMore: (email: string, folderPath: string, beforeUid?: string, limit?: number) => Promise<{ total: number; synced: number; failed?: number }>;
+        diagnose: (email: string) => Promise<{
+          email: string;
+          ok: boolean;
+          steps: { key: string; ok: boolean; detail: string }[];
+          hint: string;
+        }>;
         search: (email: string, folderPath: string | undefined, query: string) => Promise<
           { uid: string; subject: string | null; from_addr: string | null; to_addr: string | null; date: string | null; snippet: string | null; is_read: number; folder_path: string; starred?: number; has_att?: number; account_email?: string; account_provider?: string }[]
         >;

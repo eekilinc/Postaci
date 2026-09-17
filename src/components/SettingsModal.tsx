@@ -125,6 +125,9 @@ export function SettingsModal({
   const [confirmDeleteAcc, setConfirmDeleteAcc] = useState<Account | null>(null);
   const [deletingAcc, setDeletingAcc] = useState(false);
   const [deleteAccError, setDeleteAccError] = useState<string | null>(null);
+  // Hesap tanısı (salt-okunur mail:diagnose) state'i — hesap ekleme akışına dokunmaz
+  const [diagnosingEmail, setDiagnosingEmail] = useState<string | null>(null);
+  const [diagnoseResults, setDiagnoseResults] = useState<Record<string, { ok: boolean; steps: { key: string; ok: boolean; detail: string }[]; hint: string }>>({});
 
   // 3. Ölçeklendirme (Zoom / Scaling)
   const [appScale, setAppScale] = useState<number>(() => {
@@ -641,6 +644,23 @@ export function SettingsModal({
       setDeleteAccError(err instanceof Error ? err.message : String(err));
     } finally {
       setDeletingAcc(false);
+    }
+  };
+
+  // Hesap Tanısı — salt-okunur, DB'ye yazmaz
+  const handleDiagnose = async (acc: Account) => {
+    if (!window.postaci?.mail?.diagnose || diagnosingEmail) return;
+    setDiagnosingEmail(acc.email);
+    try {
+      const res = await window.postaci.mail.diagnose(acc.email);
+      setDiagnoseResults((prev) => ({ ...prev, [acc.email]: { ok: res.ok, steps: res.steps, hint: res.hint } }));
+    } catch (err) {
+      setDiagnoseResults((prev) => ({
+        ...prev,
+        [acc.email]: { ok: false, steps: [{ key: 'fatal', ok: false, detail: err instanceof Error ? err.message : String(err) }], hint: '' },
+      }));
+    } finally {
+      setDiagnosingEmail(null);
     }
   };
 
@@ -1920,8 +1940,9 @@ export function SettingsModal({
                       return (
                         <div
                           key={acc.id}
-                          className="flex items-center justify-between rounded-xl border border-zinc-200/90 bg-zinc-50/80 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-850/60 hover:shadow-2xs transition"
+                          className="rounded-xl border border-zinc-200/90 bg-zinc-50/80 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-850/60 hover:shadow-2xs transition"
                         >
+                          <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0 flex-1 pr-2">
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-zinc-900 dark:text-zinc-100 truncate">
@@ -1948,8 +1969,17 @@ export function SettingsModal({
                             </div>
                           </div>
 
-                          {/* Düzenle & Kaldır Aksiyonları */}
+                          {/* Düzenle & Kaldır & Tanı Aksiyonları */}
                           <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleDiagnose(acc)}
+                              disabled={diagnosingEmail !== null}
+                              className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-750 transition disabled:opacity-50"
+                              title={language === 'en' ? 'Run read-only sync diagnosis' : 'Salt-okunur senkron tanısı çalıştır'}
+                            >
+                              {diagnosingEmail === acc.email ? '…' : (language === 'en' ? 'Diagnose' : 'Tanı')}
+                            </button>
                             <button
                               type="button"
                               onClick={() => handleStartEdit(acc)}
@@ -1966,6 +1996,31 @@ export function SettingsModal({
                               {language === 'en' ? 'Remove' : 'Kaldır'}
                             </button>
                           </div>
+                          </div>
+                          {/* Tanı sonucu (salt-okunur) */}
+                          {diagnoseResults[acc.email] && (
+                            <div className={`mt-2 rounded-xl border p-2.5 text-[11px] leading-relaxed ${
+                              diagnoseResults[acc.email].ok
+                                ? 'border-emerald-200 bg-emerald-50/60 text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/30 dark:text-emerald-200'
+                                : 'border-red-200 bg-red-50/60 text-red-800 dark:border-red-800/60 dark:bg-red-950/30 dark:text-red-200'
+                            }`}>
+                              <div className="font-bold mb-1">
+                                {diagnoseResults[acc.email].ok
+                                  ? (language === 'en' ? '✓ Connection healthy' : '✓ Bağlantı sağlıklı')
+                                  : (language === 'en' ? '✕ Sync problem found' : '✕ Senkron sorunu bulundu')}
+                              </div>
+                              <ul className="space-y-0.5">
+                                {diagnoseResults[acc.email].steps.map((s) => (
+                                  <li key={s.key} className="break-words">
+                                    <span className="font-semibold">{s.ok ? '✓' : '✕'} {s.key}:</span> {s.detail}
+                                  </li>
+                                ))}
+                              </ul>
+                              {diagnoseResults[acc.email].hint && (
+                                <p className="mt-1 font-medium">💡 {diagnoseResults[acc.email].hint}</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

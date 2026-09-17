@@ -1049,12 +1049,16 @@ app.whenReady().then(() => {
   ipcMain.handle('mail:sync', async (_evt, email) => {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
-    const creds = await freshCredentials(acc);
-    const res = await imapLock(email, () => syncInbox({ provider: acc.provider, email: acc.email, db: getDb(), ...creds }));
-    if (res && res.newMessages && res.newMessages.length > 0) {
-      notifyNewMessages(acc.email, res.newMessages);
+    try {
+      const creds = await freshCredentials(acc);
+      const res = await imapLock(email, () => syncInbox({ provider: acc.provider, email: acc.email, db: getDb(), ...creds }));
+      if (res && res.newMessages && res.newMessages.length > 0) {
+        notifyNewMessages(acc.email, res.newMessages);
+      }
+      return res;
+    } catch (e) {
+      throw new Error(friendlySyncError(acc.provider, e));
     }
-    return res;
   });
   const _folderSyncMap = new Map(); // email -> timestamp
   const _folderSyncInFlight = new Map(); // email -> Promise
@@ -1153,17 +1157,21 @@ app.whenReady().then(() => {
   ipcMain.handle('mail:sync-folder', async (_evt, email, folderPath) => {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
-    const normEmail = (email || '').toLowerCase().trim();
-    _lastSyncTime.set(normEmail, Date.now());
-    const creds = await freshCredentials(acc);
-    const res = await imapLock(email, () => syncFolder({
-      provider: acc.provider, email: acc.email, folderPath, db: getDb(), ...creds,
-      skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
-    }));
-    if (folderPath === 'INBOX' && res && res.newMessages && res.newMessages.length > 0) {
-      notifyNewMessages(acc.email, res.newMessages);
+    try {
+      const normEmail = (email || '').toLowerCase().trim();
+      _lastSyncTime.set(normEmail, Date.now());
+      const creds = await freshCredentials(acc);
+      const res = await imapLock(email, () => syncFolder({
+        provider: acc.provider, email: acc.email, folderPath, db: getDb(), ...creds,
+        skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
+      }));
+      if (folderPath === 'INBOX' && res && res.newMessages && res.newMessages.length > 0) {
+        notifyNewMessages(acc.email, res.newMessages);
+      }
+      return res;
+    } catch (e) {
+      throw new Error(friendlySyncError(acc.provider, e));
     }
-    return res;
   });
   ipcMain.handle('mail:list', (_evt, email, folderPath, limit, offset) => {
     return listMessages(email, folderPath || 'INBOX', limit || 50, offset || 0);
@@ -1201,7 +1209,8 @@ app.whenReady().then(() => {
         }
         results.push({ email: acc.email, ...res });
       } catch (e) {
-        results.push({ email: acc.email, error: e?.message || e });
+        const prov = (() => { try { return (getAccountByEmail(acc.email) || {}).provider; } catch { return undefined; } })();
+        results.push({ email: acc.email, error: friendlySyncError(prov, e) });
       }
     }
     return results;
@@ -1209,13 +1218,17 @@ app.whenReady().then(() => {
   ipcMain.handle('mail:sync-more', async (_evt, email, folderPath, beforeUid, limit) => {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
-    const creds = await freshCredentials(acc);
-    return imapLock(email, () => syncFolder({
-      provider: acc.provider, email: acc.email, folderPath: folderPath || 'INBOX',
-      db: getDb(), limit: limit || 50, beforeUid: beforeUid || null,
-      ...creds,
-      skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
-    }));
+    try {
+      const creds = await freshCredentials(acc);
+      return await imapLock(email, () => syncFolder({
+        provider: acc.provider, email: acc.email, folderPath: folderPath || 'INBOX',
+        db: getDb(), limit: limit || 50, beforeUid: beforeUid || null,
+        ...creds,
+        skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
+      }));
+    } catch (e) {
+      throw new Error(friendlySyncError(acc.provider, e));
+    }
   });
   ipcMain.handle('mail:search', (_evt, email, folderPath, query) => {
     if (!query || !query.trim()) return [];
@@ -2222,10 +2235,81 @@ app.whenReady().then(() => {
         }
       }
     } catch (err) {
-      result.imap = result.imap || { ok: false, error: err.message || String(err) };
+      result.imap = result.imap || { ok: false, error: friendlySyncError(acc.provider, err) };
     }
 
     return result;
+  });
+
+  // ── Gmail / OAuth dostu hata eşlemesi (salt metin dönüşümü, akışa dokunmaz) ──
+  function friendlySyncError(provider, err) {
+    const raw = err?.message || String(err || '');
+    const low = raw.toLowerCase();
+    const isGoogle = (provider || '').toLowerCase().includes('google') || low.includes('gmail');
+    if (/invalid_grant|invalid client|unauthorized_client|access_denied|token has been expired or revoked|refresh token/i.test(raw)) {
+      return `${raw} — Bu hesap Google erişimini reddetmiş/geri almış olabilir. Çözüm: Gmail'de IMAP'ın açık olduğunu doğrulayın (Gmail Ayarları → Yönlendirme ve POP/IMAP → IMAP erişimini etkinleştir), sonra Ayarlar → Hesaplar → Yeni Hesap Ekle ile AYNI e-postayı yeniden bağlayın (mevcut veriler korunur).`;
+    }
+    if (/imap.*disabled|imap access is disabled|application-specific password|app password|invalid credentials|authentication failed|auth failed|login failed/i.test(raw)) {
+      return `${raw} — Gmail bu hesaba IMAP ile girişe izin vermiyor. Çözüm: (1) Gmail web → Ayarlar → IMAP'i etkinleştirin, (2) Google Hesabı → Güvenlik → Postacı erişimini kaldırıp hesabı yeniden bağlayın.`;
+    }
+    if (/too many simultaneous connections|too many connections/i.test(raw)) {
+      return `${raw} — Gmail eşzamanlı bağlantı limitine takıldı (çok hesap aynı anda). Birkaç saniye bekleyip Eşitle'ye tekrar basın; arka plan senkronizasyonu sırayla dener.`;
+    }
+    if (/timeout|etimedout|econnreset|epipe|socket|network|fetch failed|enotfound/i.test(raw)) {
+      return `${raw} — Geçici ağ/IMAP kesintisi. İnterneti kontrol edip Eşitle'yi tekrar deneyin.`;
+    }
+    if (isGoogle && /no such mailbox|mailbox|folder/i.test(raw)) {
+      return `${raw} — Klasör Gmail'de bulunamadı (etiket adı değişmiş olabilir). Klasör listesini yenileyip INBOX üzerinden eşitleyin.`;
+    }
+    return raw;
+  }
+
+  // ── Salt-okunur hesap tanısı (DB'ye yazmaz, hesap ekleme akışına dokunmaz) ──
+  // Adımlar: hesap kaydı → token varlığı → token yenileme → IMAP INBOX açma + status
+  ipcMain.handle('mail:diagnose', async (_evt, email) => {
+    const steps = [];
+    const push = (key, ok, detail) => { steps.push({ key, ok, detail: String(detail || '').slice(0, 500) }); };
+    try {
+      const acc = getAccountByEmail(email);
+      if (!acc) {
+        push('account', false, `${email} yerel DB'de bulunamadı.`);
+        return { email, ok: false, steps, hint: 'Hesap listede yoksa yeniden ekleyin.' };
+      }
+      push('account', true, `provider=${acc.provider || '?'} auth=${acc.auth_type || 'oauth'}`);
+      if (acc.auth_type === 'password') {
+        push('token', !!acc.password_enc, acc.password_enc ? 'Kayıtlı şifre mevcut.' : 'Kayıtlı şifre yok.');
+      } else {
+        push('token', !!(acc.refresh_token_enc || acc.access_token_enc), acc.refresh_token_enc ? 'Refresh token kayıtlı.' : 'Refresh token YOK — hesabı yeniden bağlayın.');
+      }
+      let creds;
+      try {
+        creds = await freshCredentials(acc);
+        push('refresh', true, acc.auth_type === 'password' ? 'Şifre çözüldü.' : `Access token alındı (süre: ${acc.token_expiry || 'bilinmiyor'}).`);
+      } catch (e) {
+        push('refresh', false, friendlySyncError(acc.provider, e));
+        return { email, ok: false, steps, hint: 'Token yenilenemedi — Gmail IMAP iznini ve yeniden bağlamayı deneyin.' };
+      }
+      try {
+        const info = await imapLock(email, async () => {
+          return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
+            const mb = await client.mailboxOpen('INBOX', { readOnly: true });
+            let status = null;
+            try { status = await client.status('INBOX', { messages: true, unseen: true }); } catch {}
+            return { exists: mb?.exists ?? client.mailbox?.exists ?? null, status };
+          });
+        });
+        const total = info?.status?.messages ?? info?.exists ?? '?';
+        const unseen = info?.status?.unseen ?? '?';
+        push('imap', true, `INBOX açıldı. kutuda=${total} okunmamış=${unseen}`);
+        return { email, ok: true, steps, hint: total === 0 ? 'INBOX sunucuda boş görünüyor — Gmail webde gelen kutusunu kontrol edin.' : 'Bağlantı sağlıklı. Liste boşsa Eşitle + klasör seçimine bakın.' };
+      } catch (e) {
+        push('imap', false, friendlySyncError(acc.provider, e));
+        return { email, ok: false, steps, hint: 'IMAP INBOX açılamadı — yukarıdaki IMAP/Gmail kontrol listesini uygulayın.' };
+      }
+    } catch (e) {
+      push('fatal', false, friendlySyncError('', e));
+      return { email, ok: false, steps, hint: 'Beklenmeyen tanı hatası.' };
+    }
   });
 
   ipcMain.handle('accounts:add-manual', async (_evt, { email, password, imap, smtp }) => {

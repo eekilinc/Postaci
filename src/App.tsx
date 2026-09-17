@@ -426,7 +426,17 @@ export default function App() {
         loadFolders(activeAccount);
         updateUnifiedCount();
       } catch (err) {
-        if (!cancelled) console.error('[sync error]', err);
+        if (!cancelled) {
+          console.error('[sync error]', err);
+          // Liste tamamen boşsa sessiz kalma: kullanıcı neden mail gelmediğini görsün.
+          // Dolu listede transient hatalarda banner gösterme (gürültü önleme).
+          const msg = err instanceof Error ? err.message : String(err);
+          window.postaci?.mail?.count(activeAccount, targetFolder)?.then((c) => {
+            if (!cancelled && (c?.total || 0) === 0) {
+              setError(msg);
+            }
+          }).catch(() => {});
+        }
       } finally {
         if (!cancelled) setSyncing(false);
       }
