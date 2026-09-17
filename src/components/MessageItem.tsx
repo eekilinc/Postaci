@@ -134,7 +134,15 @@ export const MessageItem = memo(
       <div
         role="button"
         tabIndex={0}
-        onClick={() => onSelect(msg)}
+        onClick={(e) => {
+          // Ctrl/Cmd + tık — iletiyi açmadan çoklu seçime ekle/çıkar
+          if ((e.ctrlKey || e.metaKey) && onToggleSelectUid) {
+            e.preventDefault();
+            onToggleSelectUid(msg.uid, e.shiftKey);
+            return;
+          }
+          onSelect(msg);
+        }}
         onKeyDown={(e) => e.key === 'Enter' && onSelect(msg)}
         className={`group relative flex items-center gap-3 mx-1.5 text-left rounded-xl transition-card cursor-pointer border ${densityClass} ${
           isChecked

@@ -16,6 +16,7 @@ interface UseKeyboardShortcutsProps {
   onDelete: (m: Msg) => void;
   onOpenCommandPalette: () => void;
   onOpenShortcutsHelp: () => void;
+  onSelectAll?: () => void;
   isModalOpen: boolean;
 }
 
@@ -33,6 +34,7 @@ export function useKeyboardShortcuts({
   onDelete,
   onOpenCommandPalette,
   onOpenShortcutsHelp,
+  onSelectAll,
   isModalOpen,
 }: UseKeyboardShortcutsProps) {
   useEffect(() => {
@@ -55,6 +57,17 @@ export function useKeyboardShortcuts({
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
       if (isModalOpen) return;
+
+      // Ctrl+A / Cmd+A — listedeki tüm iletileri seç (metin alanlarında doğal davranış korunur)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        onSelectAll?.();
+        return;
+      }
+
+      // Ctrl/Cmd/Alt ile birlikte basılan diğer tuşlar sistem/uygulama kısayollarıdır
+      // (Ctrl+C kopyalama, Ctrl+R yenileme vb.) — harf kısayollarını tetikleme
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
 
       switch (e.key) {
         case '?':
@@ -169,6 +182,7 @@ export function useKeyboardShortcuts({
     onDelete,
     onOpenCommandPalette,
     onOpenShortcutsHelp,
+    onSelectAll,
     isModalOpen,
   ]);
 }

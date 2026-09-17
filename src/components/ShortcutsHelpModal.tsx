@@ -30,6 +30,8 @@ export function ShortcutsHelpModal({ isOpen, onClose }: ShortcutsHelpModalProps)
       shortcuts: [
         { keys: ['↓', orText, 'J'], desc: t('shortcuts.nextMail') },
         { keys: ['↑', orText, 'K'], desc: t('shortcuts.prevMail') },
+        { keys: ['Ctrl', 'A'], desc: t('shortcuts.selectAll') },
+        { keys: ['Ctrl', '+', language === 'en' ? 'Click' : 'Tık'], desc: t('shortcuts.toggleSelect') },
       ],
     },
     {

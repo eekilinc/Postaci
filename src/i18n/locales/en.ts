@@ -319,6 +319,8 @@ export const en: Record<string, string> = {
   'shortcuts.escape': 'Close active modal, search or pane',
   'shortcuts.nextMail': 'Select next email',
   'shortcuts.prevMail': 'Select previous email',
+  'shortcuts.selectAll': 'Select all messages in the list (multi-select)',
+  'shortcuts.toggleSelect': 'Add / remove one by one with Ctrl + click',
   'shortcuts.compose': 'Compose new email',
   'shortcuts.reply': 'Reply to selected email',
   'shortcuts.replyAll': 'Reply to all',

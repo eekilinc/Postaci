@@ -994,6 +994,7 @@ export default function App() {
     onDelete: deleteMessage,
     onOpenCommandPalette: () => setShowCommandPalette((prev) => !prev),
     onOpenShortcutsHelp: () => setShowShortcutsHelp(true),
+    onSelectAll: handleSelectAll,
     isModalOpen: showCompose || showAdd || showSettings || showCommandPalette || showShortcutsHelp,
   });
 

@@ -311,7 +311,23 @@ export function MessageList({
 
       {/* Mailbird 3.0 Klasör Başlığı & İleti Sayısı */}
       <div className="flex items-center justify-between px-3.5 py-2 border-b border-zinc-200/70 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-950/20">
-        <div className="flex items-baseline gap-2 min-w-0 truncate">
+        <div className="flex items-center gap-2 min-w-0 truncate">
+          {messages.length > 0 && onSelectAll && (
+            <input
+              ref={(el) => {
+                if (el) {
+                  const count = selectedUids?.size ?? 0;
+                  el.indeterminate = count > 0 && count < messages.length;
+                }
+              }}
+              type="checkbox"
+              checked={(selectedUids?.size ?? 0) > 0 && (selectedUids?.size ?? 0) === messages.length}
+              onChange={() => onSelectAll()}
+              onClick={(e) => e.stopPropagation()}
+              className="h-3.5 w-3.5 rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-0 cursor-pointer shrink-0"
+              title={language === 'en' ? 'Select all (Ctrl+A)' : 'Tümünü seç (Ctrl+A)'}
+            />
+          )}
           <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight truncate">
             {folderDisplayName}
           </h2>

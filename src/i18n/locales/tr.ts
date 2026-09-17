@@ -319,6 +319,8 @@ export const tr: Record<string, string> = {
   'shortcuts.escape': 'Açık modal, arama veya paneli kapat',
   'shortcuts.nextMail': 'Bir sonraki e-postayı seç',
   'shortcuts.prevMail': 'Bir önceki e-postayı seç',
+  'shortcuts.selectAll': 'Listedeki tüm iletileri seç (çoklu seçim)',
+  'shortcuts.toggleSelect': 'Ctrl + tık ile seçime tek tek ekle / çıkar',
   'shortcuts.compose': 'Yeni e-posta oluştur (Compose)',
   'shortcuts.reply': 'Seçili e-postayı yanıtla (Reply)',
   'shortcuts.replyAll': 'Tümünü yanıtla (Reply All)',
