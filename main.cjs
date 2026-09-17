@@ -31,7 +31,7 @@ const path = require('path');
 const fs = require('fs');
 const { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, listContacts, upsertContact, deleteContact, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts } = require('./electron/db.cjs');
 const { startOAuthFlow } = require('./electron/auth.cjs');
-const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient } = require('./electron/mail.cjs');
+const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient, imapErrDetail } = require('./electron/mail.cjs');
 const { detectSettings } = require('./electron/providers.cjs');
 const { splitAddresses, buildReply, buildReplyAll, buildForward } = require('./electron/compose.cjs');
 
@@ -2243,7 +2243,9 @@ app.whenReady().then(() => {
 
   // ── Gmail / OAuth dostu hata eşlemesi (salt metin dönüşümü, akışa dokunmaz) ──
   function friendlySyncError(provider, err) {
-    const raw = err?.message || String(err || '');
+    // imapflow genel mesajların (örn. 'Command failed') asıl nedenini
+    // responseText/response alanlarında taşır — önce tam detayı kur
+    const raw = (typeof imapErrDetail === 'function' ? imapErrDetail(err) : (err?.message || String(err || '')));
     const low = raw.toLowerCase();
     const isGoogle = (provider || '').toLowerCase().includes('google') || low.includes('gmail');
     if (/invalid_grant|invalid client|unauthorized_client|access_denied|token has been expired or revoked|refresh token/i.test(raw)) {

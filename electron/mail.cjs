@@ -87,6 +87,23 @@ function addrToString(addr) {
   return list.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(', ');
 }
 
+// IMAP hatasının TAM detayı: imapflow 'Command failed' gibi genel mesajların
+// asıl nedenini responseText/response alanlarında taşır. Teşhis için hepsini birleştir.
+function imapErrDetail(e) {
+  const parts = [];
+  if (e?.message) parts.push(String(e.message));
+  if (e?.responseText) parts.push(`sunucu-yanıtı=${String(e.responseText).slice(0, 300)}`);
+  if (e?.response !== undefined && e?.response !== null) {
+    try {
+      const s = typeof e.response === 'object' ? JSON.stringify(e.response) : String(e.response);
+      if (s && s !== '{}') parts.push(`kod=${s.slice(0, 200)}`);
+    } catch {}
+  }
+  if (e?.code) parts.push(`code=${String(e.code).slice(0, 100)}`);
+  if (parts.length === 0) parts.push(String(e || 'bilinmeyen hata'));
+  return parts.join(' | ').slice(0, 600);
+}
+
 // Aktif IMAP istemci havuzu (email -> { client, credHash, idleTimer })
 // Sürekli connect/logout yapmak yerine bağlantıyı canlı tutar;
 // özellikle Hotmail / Microsoft / Exchange sunucularında hızlı oturum aç/kapa kaynaklı
@@ -401,7 +418,12 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     );
 
     // UID ile çalış: önce UID listesi, son N tanesini (veya beforeUid öncesindekileri) çek
-    const allUids = (await client.search({ all: true }, { uid: true })) || [];
+    let allUids;
+    try {
+      allUids = (await client.search({ all: true }, { uid: true })) || [];
+    } catch (e) {
+      throw new Error(`[${folderPath}] UID araması (SEARCH ALL) başarısız: ${imapErrDetail(e)}`);
+    }
 
     // Sunucudan silinmiş veya taşınmış mesajları yerel SQLite veritabanından temizle
     if (!beforeUid && allUids) {
@@ -446,7 +468,8 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     let firstError = null;
     const newMessages = [];
     if (target.length > 0) {
-      for await (const msg of client.fetch(target.join(','), { envelope: true, flags: true, bodyStructure: true }, { uid: true })) {
+      try {
+        for await (const msg of client.fetch(target.join(','), { envelope: true, flags: true, bodyStructure: true }, { uid: true })) {
         try {
           // Yakın zamanda silinen mesajları yeniden ekleme
           if (skipUid && skipUid(msg.uid)) continue;
@@ -483,6 +506,10 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
           // İlk hatanın nedenini sakla — arayüzde teşhis için gösterilecek (önceden yutuluyordu)
           if (!firstError) firstError = e?.message ? String(e.message).slice(0, 300) : String(e || '').slice(0, 300);
         }
+        }
+      } catch (e) {
+        // Tekil ileti hataları yukarıda sayılır; buraya düşen toplu FETCH/üretici hatasıdır
+        throw new Error(`[${folderPath}] ileti çekme (FETCH, ${target.length} ileti) başarısız: ${imapErrDetail(e)}`);
       }
     }
     console.log(`[sync] ${email} [${folderPath}]: kutuda=${total} hedef=${target.length} çekilen=${synced} yeni=${newMessages.length} hatalı=${failed}${firstError ? ` ilkHata=${firstError}` : ''}`);
@@ -958,4 +985,4 @@ async function batchMoveToFolder({ provider, email, accessToken, password, imapH
   });
 }
 
-module.exports = { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, findArchivePath, moveToFolder, batchMoveToFolder, openClient, withClient, invalidateClient };
+module.exports = { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, findArchivePath, moveToFolder, batchMoveToFolder, openClient, withClient, invalidateClient, imapErrDetail };

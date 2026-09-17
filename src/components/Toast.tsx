@@ -14,7 +14,7 @@ export function Toast({ message, type, onClose, accent = '#6366f1', loading = fa
 
   useEffect(() => {
     if (loading) return;
-    timerRef.current = setTimeout(onClose, type === 'error' ? 6000 : 4000);
+    timerRef.current = setTimeout(onClose, type === 'error' ? 12000 : 4000);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [message, type, onClose, loading]);
 
