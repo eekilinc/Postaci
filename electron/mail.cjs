@@ -443,6 +443,7 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     const target = candidateUids.slice(-limit);
     let synced = 0;
     let failed = 0;
+    let firstError = null;
     const newMessages = [];
     if (target.length > 0) {
       for await (const msg of client.fetch(target.join(','), { envelope: true, flags: true, bodyStructure: true }, { uid: true })) {
@@ -477,13 +478,15 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
               date: env.date ? new Date(env.date).toISOString() : null,
             });
           }
-        } catch {
+        } catch (e) {
           failed++;
+          // İlk hatanın nedenini sakla — arayüzde teşhis için gösterilecek (önceden yutuluyordu)
+          if (!firstError) firstError = e?.message ? String(e.message).slice(0, 300) : String(e || '').slice(0, 300);
         }
       }
     }
-    console.log(`[sync] ${email} [${folderPath}]: kutuda=${total} hedef=${target.length} çekilen=${synced} yeni=${newMessages.length} hatalı=${failed}`);
-    return { total, synced, failed, newMessages };
+    console.log(`[sync] ${email} [${folderPath}]: kutuda=${total} hedef=${target.length} çekilen=${synced} yeni=${newMessages.length} hatalı=${failed}${firstError ? ` ilkHata=${firstError}` : ''}`);
+    return { total, synced, failed, firstError, newMessages };
   });
 }
 

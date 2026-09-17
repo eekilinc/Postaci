@@ -4,6 +4,22 @@ import type { FilterKey, Msg } from '../types';
 
 const PAGE_SIZE = 50;
 
+// Eşitle sonucunu tek cümlede özetler; sessiz başarısızlıkları görünür kılar
+function formatSyncNotice(
+  folderPath: string | null,
+  r: { total: number; synced: number; failed?: number; firstError?: string | null },
+): string {
+  const where = folderPath ? ` ${folderPath}` : '';
+  let s = `Eşitlendi${where}: kutuda ${r.total}, çekilen ${r.synced}`;
+  if (r.failed) {
+    s += `, hatalı ${r.failed}`;
+    if (r.firstError) s += ` (neden: ${r.firstError.slice(0, 180)})`;
+  } else if (r.total > 0 && r.synced === 0) {
+    s += `. Sunucu ${r.total} ileti bildiriyor ama hiçbiri listeye düşmedi — klasör adı/eşleşmesi veya okuma izni sorunu olabilir.`;
+  }
+  return s + '.';
+}
+
 export function useMessages() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [totalDbCount, setTotalDbCount] = useState(0);
@@ -173,6 +189,13 @@ export function useMessages() {
         const results = await window.postaci.mail.syncAllInboxes();
         if (reqIdRef.current !== currentReqId) return;
         const totalSynced = results.reduce((sum, r) => sum + (r.synced || 0), 0);
+        const errs = results.filter((r) => r.error);
+        if (errs.length > 0) {
+          setError(
+            `${errs.length} hesapta eşitlenemedi: ` +
+            errs.map((r) => `${r.email} (${String(r.error).slice(0, 160)})`).join(' • ')
+          );
+        }
         setNotice(`Tüm gelen kutuları eşitlendi (${totalSynced} yeni ileti çekildi).`);
         setTimeout(() => setNotice(null), 3000);
         loadMessages(null, 'INBOX', true);
@@ -183,16 +206,12 @@ export function useMessages() {
         const r = await window.postaci.mail.sync(email!);
         if (reqIdRef.current !== currentReqId) return;
         setServerTotal(r.total);
-        setNotice(
-          `Eşitlendi: kutuda ${r.total}, çekilen ${r.synced}${r.failed ? `, hatalı ${r.failed}` : ''}.`,
-        );
+        setNotice(formatSyncNotice(null, r));
       } else {
         const r = await window.postaci.mail.syncFolder(email!, folderPath);
         if (reqIdRef.current !== currentReqId) return;
         setServerTotal(r.total);
-        setNotice(
-          `Eşitlendi ${folderPath}: kutuda ${r.total}, çekilen ${r.synced}${r.failed ? `, hatalı ${r.failed}` : ''}.`,
-        );
+        setNotice(formatSyncNotice(folderPath, r));
       }
       if (reqIdRef.current !== currentReqId) return;
       loadMessages(email, folderPath, false);
