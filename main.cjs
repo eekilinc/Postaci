@@ -31,7 +31,7 @@ const path = require('path');
 const fs = require('fs');
 const { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, listContacts, upsertContact, deleteContact, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts } = require('./electron/db.cjs');
 const { startOAuthFlow } = require('./electron/auth.cjs');
-const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient, imapErrDetail } = require('./electron/mail.cjs');
+const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient, imapErrDetail, invalidateClient } = require('./electron/mail.cjs');
 const { detectSettings } = require('./electron/providers.cjs');
 const { splitAddresses, buildReply, buildReplyAll, buildForward } = require('./electron/compose.cjs');
 
@@ -111,6 +111,35 @@ async function freshCredentials(account, forceRefresh = false) {
     return { password, imapHost: account.imap_host, imapPort: account.imap_port };
   }
   return { accessToken: await freshAccessToken(account, forceRefresh) };
+}
+
+// IMAP kimlik doğrulama reddi mi? (ölü/geri alınmış token, yanlış hesap token'ı)
+function isAuthFailed(e) {
+  let resp = '';
+  try {
+    resp = e && typeof e.response === 'object' ? JSON.stringify(e.response) : String(e?.response || '');
+  } catch { resp = ''; }
+  const s = `${e?.message || ''} ${e?.responseText || ''} ${resp}`.toLowerCase();
+  return /authenticationfailed|invalid credentials|invalid_grant|unauthorized_client|auth failed|login failed/i.test(s);
+}
+
+// Ölü önbellek access token durumu: yerel token'ı sil, refresh ile zorla yenile, işi bir kez daha dene.
+// Hesap ekleme akışına dokunmaz; yalnızca mevcut kaydın token'ını tazeler.
+async function withAuthRetry(acc, doWork) {
+  const email = acc.email;
+  try {
+    return await doWork(await freshCredentials(acc));
+  } catch (e) {
+    if (acc.auth_type === 'password' || !isAuthFailed(e)) throw e;
+    console.log(`[auth-retry] ${email}: sunucu kimliği reddetti, access token yenilenip tekrar denenecek...`);
+    try { invalidateClient(email); } catch {}
+    const latest = getAccountByEmail(email) || acc;
+    if (!latest.refresh_token_enc) throw e; // Yenileyecek token yok — gerçekten yeniden bağlanmalı
+    updateTokens(email, { refreshTokenEnc: latest.refresh_token_enc, accessTokenEnc: null, tokenExpiry: null });
+    try { _tokenRefreshPromises.delete((email || '').toLowerCase().trim()); } catch {}
+    const creds = await freshCredentials(getAccountByEmail(email) || latest, true);
+    return await doWork(creds);
+  }
 }
 
 // Yakın zamanda silinen mesajlar — sync'in bunları tekrar eklemesini önler
@@ -588,16 +617,16 @@ async function runBackgroundSync() {
         if (Date.now() - lastSync < 10000) {
           continue;
         }
-        const creds = await freshCredentials(fullAcc);
-        const res = await imapLock(fullAcc.email, () => syncFolder({
-          provider: fullAcc.provider,
-          email: fullAcc.email,
-          folderPath: 'INBOX',
-          db: getDb(),
-          limit: 30,
-          ...creds,
-          skipUid: (uid) => isDeleted(fullAcc.email, 'INBOX', String(uid)),
-        }));
+        const res = await withAuthRetry(fullAcc, (creds) =>
+          imapLock(fullAcc.email, () => syncFolder({
+            provider: fullAcc.provider,
+            email: fullAcc.email,
+            folderPath: 'INBOX',
+            db: getDb(),
+            limit: 30,
+            ...creds,
+            skipUid: (uid) => isDeleted(fullAcc.email, 'INBOX', String(uid)),
+          })));
         _lastSyncTime.set(normEmail, Date.now());
 
         if (res && res.newMessages && res.newMessages.length > 0) {
@@ -1050,8 +1079,8 @@ app.whenReady().then(() => {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
     try {
-      const creds = await freshCredentials(acc);
-      const res = await imapLock(email, () => syncInbox({ provider: acc.provider, email: acc.email, db: getDb(), ...creds }));
+      const res = await withAuthRetry(acc, (creds) =>
+        imapLock(email, () => syncInbox({ provider: acc.provider, email: acc.email, db: getDb(), ...creds })));
       if (res && res.newMessages && res.newMessages.length > 0) {
         notifyNewMessages(acc.email, res.newMessages);
       }
@@ -1077,11 +1106,19 @@ app.whenReady().then(() => {
       } catch (initialErr) {
         let activeErr = initialErr;
         const errStr = `${activeErr?.message || ''} ${activeErr?.responseText || ''} ${activeErr?.response || ''}`.toLowerCase();
-        if (errStr.includes('authenticated but not connected') && acc.provider === 'microsoft') {
+        const needForcedRefresh =
+          (errStr.includes('authenticated but not connected') && acc.provider === 'microsoft') ||
+          (acc.auth_type !== 'password' && isAuthFailed(initialErr));
+        if (needForcedRefresh) {
           try {
-            console.log(`[mail:folders] ${email} için Microsoft token zorla yenilenip tekrar deneniyor...`);
-            creds = await freshCredentials(acc, true);
-            list = await imapLock(email, () => listFolders({ provider: acc.provider, email: acc.email, ...creds }));
+            console.log(`[mail:folders] ${email} için token zorla yenilenip tekrar deneniyor...`);
+            try { invalidateClient(email); } catch {}
+            const latest = getAccountByEmail(email) || acc;
+            if (latest.refresh_token_enc) {
+              updateTokens(email, { refreshTokenEnc: latest.refresh_token_enc, accessTokenEnc: null, tokenExpiry: null });
+              creds = await freshCredentials(getAccountByEmail(email) || acc, true);
+              list = await imapLock(email, () => listFolders({ provider: acc.provider, email: acc.email, ...creds }));
+            }
           } catch (retryErr) {
             activeErr = retryErr;
           }
@@ -1099,7 +1136,7 @@ app.whenReady().then(() => {
               });
             }
           } catch {}
-          throw err;
+          throw activeErr;
         }
       }
       try {
@@ -1160,11 +1197,11 @@ app.whenReady().then(() => {
     try {
       const normEmail = (email || '').toLowerCase().trim();
       _lastSyncTime.set(normEmail, Date.now());
-      const creds = await freshCredentials(acc);
-      const res = await imapLock(email, () => syncFolder({
-        provider: acc.provider, email: acc.email, folderPath, db: getDb(), ...creds,
-        skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
-      }));
+      const res = await withAuthRetry(acc, (creds) =>
+        imapLock(email, () => syncFolder({
+          provider: acc.provider, email: acc.email, folderPath, db: getDb(), ...creds,
+          skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
+        })));
       if (folderPath === 'INBOX' && res && res.newMessages && res.newMessages.length > 0) {
         notifyNewMessages(acc.email, res.newMessages);
       }
@@ -1199,11 +1236,11 @@ app.whenReady().then(() => {
       try {
         const full = getAccountByEmail(acc.email);
         if (!full) continue;
-        const creds = await freshCredentials(full);
-        const res = await imapLock(acc.email, () => syncFolder({
-          provider: full.provider, email: full.email, folderPath: 'INBOX', db: getDb(), ...creds,
-          skipUid: (uid) => isDeleted(full.email, 'INBOX', String(uid)),
-        }));
+        const res = await withAuthRetry(full, (creds) =>
+          imapLock(acc.email, () => syncFolder({
+            provider: full.provider, email: full.email, folderPath: 'INBOX', db: getDb(), ...creds,
+            skipUid: (uid) => isDeleted(full.email, 'INBOX', String(uid)),
+          })));
         if (res && res.newMessages && res.newMessages.length > 0) {
           notifyNewMessages(acc.email, res.newMessages);
         }
@@ -1219,13 +1256,13 @@ app.whenReady().then(() => {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
     try {
-      const creds = await freshCredentials(acc);
-      return await imapLock(email, () => syncFolder({
-        provider: acc.provider, email: acc.email, folderPath: folderPath || 'INBOX',
-        db: getDb(), limit: limit || 50, beforeUid: beforeUid || null,
-        ...creds,
-        skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
-      }));
+      return await withAuthRetry(acc, (creds) =>
+        imapLock(email, () => syncFolder({
+          provider: acc.provider, email: acc.email, folderPath: folderPath || 'INBOX',
+          db: getDb(), limit: limit || 50, beforeUid: beforeUid || null,
+          ...creds,
+          skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
+        })));
     } catch (e) {
       throw new Error(friendlySyncError(acc.provider, e));
     }
@@ -2222,17 +2259,15 @@ app.whenReady().then(() => {
           result.smtp = { ok: false, error: 'SMTP sunucusu veya portu belirtilmemiş.' };
         }
       } else {
-        // OAuth hesap — IMAP bağlantısını withClient ile test et
-        const creds = await freshCredentials(acc);
-        if (creds.accessToken) {
+        // OAuth hesap — IMAP bağlantısını withClient ile test et (ölü tokenda otomatik yenileme dahil)
+        await withAuthRetry(acc, async (creds) => {
+          if (!creds.accessToken) throw new Error('OAuth erişim anahtarı alınamadı.');
           await withClient({ provider: acc.provider, email: acc.email, accessToken: creds.accessToken }, async (client) => {
             await client.mailboxOpen('INBOX', { readOnly: true });
           });
-          result.imap = { ok: true };
-          result.smtp = { ok: true, note: 'OAuth bağlantısı IMAP ile doğrulandı.' };
-        } else {
-          throw new Error('OAuth erişim anahtarı alınamadı.');
-        }
+        });
+        result.imap = { ok: true };
+        result.smtp = { ok: true, note: 'OAuth bağlantısı IMAP ile doğrulandı.' };
       }
     } catch (err) {
       result.imap = result.imap || { ok: false, error: friendlySyncError(acc.provider, err) };
@@ -2252,7 +2287,7 @@ app.whenReady().then(() => {
       return `${raw} — Bu hesap Google erişimini reddetmiş/geri almış olabilir. Çözüm: Gmail'de IMAP'ın açık olduğunu doğrulayın (Gmail Ayarları → Yönlendirme ve POP/IMAP → IMAP erişimini etkinleştir), sonra Ayarlar → Hesaplar → Yeni Hesap Ekle ile AYNI e-postayı yeniden bağlayın (mevcut veriler korunur).`;
     }
     if (/imap.*disabled|imap access is disabled|application-specific password|app password|invalid credentials|authentication failed|auth failed|login failed/i.test(raw)) {
-      return `${raw} — Gmail bu hesaba IMAP ile girişe izin vermiyor. Çözüm: (1) Gmail web → Ayarlar → IMAP'i etkinleştirin, (2) Google Hesabı → Güvenlik → Postacı erişimini kaldırıp hesabı yeniden bağlayın.`;
+      return `${raw} — Gmail bu hesaba IMAP ile girişe izin vermiyor (erişim anahtarı otomatik yenilenmeyi denedi, sonuç değişmedi). Çözüm: (1) Gmail web → Ayarlar → IMAP'in etkin olduğunu doğrulayın, (2) Google Hesabı → Güvenlik → Postacı erişimini kaldırıp Ayarlar → Hesaplar → Yeni Hesap Ekle ile AYNI e-postayı yeniden bağlayın (açılan Google ekranında DOĞRU hesabı seçtiğinizden emin olun). Okul/iş hesabıysa yöneticiniz IMAP'i veya üçüncü taraf uygulamaları kapatmış olabilir.`;
     }
     if (/too many simultaneous connections|too many connections/i.test(raw)) {
       return `${raw} — Gmail eşzamanlı bağlantı limitine takıldı (çok hesap aynı anda). Birkaç saniye bekleyip Eşitle'ye tekrar basın; arka plan senkronizasyonu sırayla dener.`;
@@ -2283,23 +2318,23 @@ app.whenReady().then(() => {
       } else {
         push('token', !!(acc.refresh_token_enc || acc.access_token_enc), acc.refresh_token_enc ? 'Refresh token kayıtlı.' : 'Refresh token YOK — hesabı yeniden bağlayın.');
       }
-      let creds;
       try {
-        creds = await freshCredentials(acc);
+        await freshCredentials(acc);
         push('refresh', true, acc.auth_type === 'password' ? 'Şifre çözüldü.' : `Access token alındı (süre: ${acc.token_expiry || 'bilinmiyor'}).`);
       } catch (e) {
         push('refresh', false, friendlySyncError(acc.provider, e));
         return { email, ok: false, steps, hint: 'Token yenilenemedi — Gmail IMAP iznini ve yeniden bağlamayı deneyin.' };
       }
       try {
-        const info = await imapLock(email, async () => {
-          return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
-            const mb = await client.mailboxOpen('INBOX', { readOnly: true });
-            let status = null;
-            try { status = await client.status('INBOX', { messages: true, unseen: true }); } catch {}
-            return { exists: mb?.exists ?? client.mailbox?.exists ?? null, status };
-          });
-        });
+        const info = await withAuthRetry(acc, (creds) =>
+          imapLock(email, async () => {
+            return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
+              const mb = await client.mailboxOpen('INBOX', { readOnly: true });
+              let status = null;
+              try { status = await client.status('INBOX', { messages: true, unseen: true }); } catch {}
+              return { exists: mb?.exists ?? client.mailbox?.exists ?? null, status };
+            });
+          }));
         const total = info?.status?.messages ?? info?.exists ?? '?';
         const unseen = info?.status?.unseen ?? '?';
         push('imap', true, `INBOX açıldı. kutuda=${total} okunmamış=${unseen}`);
