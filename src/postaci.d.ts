@@ -108,6 +108,7 @@ declare global {
         sync: (email: string) => Promise<{ total: number; synced: number; failed?: number; firstError?: string | null }>;
         syncFolder: (email: string, folderPath: string) => Promise<{ total: number; synced: number; failed?: number; firstError?: string | null }>;
         folders: (email: string) => Promise<{ path: string; name: string; flags: string[]; unread_count?: number }[]>;
+        foldersRefresh: (email: string) => Promise<{ path: string; name: string; flags: string[]; unread_count?: number }[]>;
         list: (email: string, folderPath?: string, limit?: number, offset?: number) => Promise<
           { uid: string; subject: string | null; from_addr: string | null; to_addr: string | null; date: string | null; snippet: string | null; is_read: number; starred?: number; has_att?: number; account_email?: string; account_provider?: string; folder_path?: string }[]
         >;

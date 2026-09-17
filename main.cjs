@@ -1092,6 +1092,33 @@ app.whenReady().then(() => {
   const _folderSyncMap = new Map(); // email -> timestamp
   const _folderSyncInFlight = new Map(); // email -> Promise
 
+  // IPC yardımcı: asla sonsuza takılmaması için sınırlı süre (takılan IMAP sözünü boşa düşürür)
+  function withIpcTimeout(promise, ms, label) {
+    let t = null;
+    const timeout = new Promise((_, rej) => {
+      t = setTimeout(() => rej(new Error(`${label} zaman aşımına uğradı (${Math.round(ms / 1000)} sn). Tekrar deneyin.`)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => { if (t) clearTimeout(t); });
+  }
+
+  // Klasör önbelleğini tek yerden oku (okunmamış sayılarıyla birlikte)
+  function readFolderCache(email) {
+    const db = getDb();
+    const cached = db.prepare(`
+      SELECT f.name, f.path, f.flags,
+             COALESCE((SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END)
+                       FROM messages m
+                       WHERE m.account_id = f.account_id AND m.folder_path = f.path), 0) AS unread_count
+      FROM folders f
+      WHERE f.account_id = (SELECT id FROM accounts WHERE email = ?)
+    `).all(email);
+    return (cached || []).map((f) => {
+      let flags = [];
+      try { if (f.flags) flags = JSON.parse(f.flags); } catch {}
+      return { path: f.path, name: f.name, flags, delimiter: '/', unread_count: f.unread_count || 0 };
+    });
+  }
+
   async function fetchFoldersFromImap(acc) {
     const email = acc.email;
     if (_folderSyncInFlight.has(email)) {
@@ -1157,7 +1184,7 @@ app.whenReady().then(() => {
 
     _folderSyncInFlight.set(email, task);
     try {
-      return await task;
+      return await withIpcTimeout(task, 25000, 'Klasör listesi');
     } finally {
       _folderSyncInFlight.delete(email);
     }
@@ -1167,29 +1194,37 @@ app.whenReady().then(() => {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
 
-    // 1. ÖNCELİKLE yerel SQLite önbelleğini kontrol et:
-    // Varsa ANINDA (0 ms) dön, UI ve kullanıcı sıfır gecikmeyle açılır!
+    // 1. Sağlıklı önbellek varsa ANINDA (0 ms) dön
     try {
-      const db = getDb();
-      const cached = db.prepare(`
-        SELECT f.name, f.path, f.flags,
-               COALESCE((SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END)
-                         FROM messages m
-                         WHERE m.account_id = f.account_id AND m.folder_path = f.path), 0) AS unread_count
-        FROM folders f
-        WHERE f.account_id = (SELECT id FROM accounts WHERE email = ?)
-      `).all(email);
-      if (cached && cached.length > 0) {
-        return cached.map((f) => {
-          let flags = [];
-          try { if (f.flags) flags = JSON.parse(f.flags); } catch {}
-          return { path: f.path, name: f.name, flags, delimiter: '/', unread_count: f.unread_count || 0 };
-        });
-      }
+      const cached = readFolderCache(email);
+      if (cached.length > 2) return cached;
     } catch {}
 
-    // 2. Yalnızca yerel DB'de hiç klasör yoksa (ilk defa eklenen yepyeni hesap) IMAP'ten çek
-    return fetchFoldersFromImap(acc);
+    // 2. Önbellek boş veya şüpheli derecede eksikse (örn. yalnızca INBOX):
+    // IMAP'ten taze listeyi çekip DB'ye yaz, tazesini dön. Hata olursa eldekiyle devam et.
+    try {
+      await fetchFoldersFromImap(acc);
+      const fresh = readFolderCache(email);
+      if (fresh.length > 0) return fresh;
+    } catch (e) {
+      console.warn(`[mail:folders] ${email} taze liste alınamadı, mevcut önbellek kullanılıyor:`, e?.message);
+    }
+    try {
+      return readFolderCache(email);
+    } catch {
+      return [];
+    }
+  });
+  ipcMain.handle('mail:folders-refresh', async (_evt, email) => {
+    // Önbelleğe bakmadan IMAP'ten zorla tazele (klasör listesi eksikse manuel kurtarma)
+    const acc = getAccountByEmail(email);
+    if (!acc) throw new Error('Hesap bulunamadı.');
+    try {
+      await fetchFoldersFromImap(acc);
+    } catch (e) {
+      throw new Error(friendlySyncError(acc.provider, e));
+    }
+    return readFolderCache(email);
   });
   ipcMain.handle('mail:sync-folder', async (_evt, email, folderPath) => {
     const acc = getAccountByEmail(email);

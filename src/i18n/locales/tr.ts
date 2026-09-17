@@ -194,6 +194,7 @@ export const tr: Record<string, string> = {
   'notice.batchDeletedTrash': '{count} ileti çöp kutusuna taşındı.',
   'notice.batchArchived': '{count} ileti arşivlendi.',
   'notice.batchMoved': '{count} ileti "{folder}" klasörüne taşındı.',
+  'notice.foldersRefreshed': 'Klasör listesi sunucudan tazelendi ({count} klasör).',
 
   // Ayarlar Modalı (Settings Modal)
   'settings.title': 'Ayarlar',

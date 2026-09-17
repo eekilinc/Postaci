@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('postaci', {
     sync: (email) => ipcRenderer.invoke('mail:sync', email),
     syncFolder: (email, folderPath) => ipcRenderer.invoke('mail:sync-folder', email, folderPath),
     folders: (email) => ipcRenderer.invoke('mail:folders', email),
+    foldersRefresh: (email) => ipcRenderer.invoke('mail:folders-refresh', email),
     list: (email, folderPath, limit, offset) => ipcRenderer.invoke('mail:list', email, folderPath, limit, offset),
     count: (email, folderPath) => ipcRenderer.invoke('mail:count', email, folderPath),
     listUnified: (limit, offset) => ipcRenderer.invoke('mail:list-unified', limit, offset),

@@ -24,6 +24,7 @@ interface SidebarProps {
   unifiedUnreadCount?: number;
   accountUnreadCounts?: Record<string, number>;
   onCloseMobile?: () => void;
+  onRefreshFolders?: () => void;
   folderWidth?: number;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -49,6 +50,7 @@ export const Sidebar = memo(function Sidebar({
   unifiedUnreadCount,
   accountUnreadCounts = {},
   onCloseMobile,
+  onRefreshFolders,
   folderWidth,
   isCollapsed: propIsCollapsed,
   onToggleCollapse: propOnToggleCollapse,
@@ -118,6 +120,7 @@ export const Sidebar = memo(function Sidebar({
           stats={stats}
           accent={accent}
           onCloseMobile={onCloseMobile}
+          onRefreshFolders={onRefreshFolders}
           width={folderWidth}
         />
       )}

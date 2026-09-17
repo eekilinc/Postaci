@@ -194,6 +194,7 @@ export const en: Record<string, string> = {
   'notice.batchDeletedTrash': '{count} messages moved to trash.',
   'notice.batchArchived': '{count} messages archived.',
   'notice.batchMoved': '{count} messages moved to "{folder}".',
+  'notice.foldersRefreshed': 'Folder list refreshed from server ({count} folders).',
 
   // Settings Modal
   'settings.title': 'Settings',

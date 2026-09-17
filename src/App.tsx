@@ -1036,6 +1036,19 @@ export default function App() {
     setError(null);
   };
 
+  // Klasör listesini sunucudan zorla tazele (önbellek eksikse manuel kurtarma)
+  const handleRefreshFolders = useCallback(async () => {
+    if (!activeAccount || isUnified || !window.postaci?.mail?.foldersRefresh) return;
+    try {
+      const fresh = await window.postaci.mail.foldersRefresh(activeAccount);
+      setFolders(fresh);
+      setNotice(t('notice.foldersRefreshed', { count: fresh.length }));
+      setTimeout(() => setNotice(null), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [activeAccount, isUnified, setFolders, setNotice, setError, t]);
+
   // ── Render ───────────────────────────────────────────────────────────────
   const A = ACCENTS[accent];
 
@@ -1200,6 +1213,7 @@ export default function App() {
           unifiedUnreadCount={unifiedUnreadCount}
           accountUnreadCounts={unreadCounts.byAccount}
           onCloseMobile={() => setMobileSidebarOpen(false)}
+          onRefreshFolders={handleRefreshFolders}
           folderWidth={folderWidth}
           isCollapsed={folderCollapsed}
           onToggleCollapse={toggleFolderCollapse}

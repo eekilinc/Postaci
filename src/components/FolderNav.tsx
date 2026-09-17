@@ -9,6 +9,7 @@ import {
   ComposeIcon,
   SearchIcon,
   CloseIcon,
+  SyncIcon,
 } from './icons';
 
 interface FolderNavProps {
@@ -22,6 +23,7 @@ interface FolderNavProps {
   stats: { accounts: number; folders: number; messages: number } | null;
   accent: AccentKey;
   onCloseMobile?: () => void;
+  onRefreshFolders?: () => void;
   className?: string;
   width?: number;
 }
@@ -37,12 +39,14 @@ export const FolderNav = memo(function FolderNav({
   stats,
   accent,
   onCloseMobile,
+  onRefreshFolders,
   className = '',
   width,
 }: FolderNavProps) {
   const { t, language } = useTranslation();
   const A = ACCENTS[accent];
   const [folderQuery, setFolderQuery] = useState('');
+  const [refreshingFolders, setRefreshingFolders] = useState(false);
 
   const isGoogle = !!accounts.find((a) => a.email === activeAccount)?.provider?.includes('google');
 
@@ -83,6 +87,27 @@ export const FolderNav = memo(function FolderNav({
               title={t('common.close')}
             >
               <CloseIcon size={14} />
+            </button>
+          )}
+          {!isUnified && activeAccount && onRefreshFolders && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (refreshingFolders) return;
+                setRefreshingFolders(true);
+                try {
+                  await onRefreshFolders();
+                } finally {
+                  setRefreshingFolders(false);
+                }
+              }}
+              disabled={refreshingFolders}
+              className="p-1 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/60 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition disabled:opacity-50 shrink-0"
+              title={language === 'en' ? 'Refresh folder list from server' : 'Klasör listesini sunucudan tazele'}
+            >
+              <span className={refreshingFolders ? 'inline-block animate-spin' : 'inline-block'}>
+                <SyncIcon size={13} />
+              </span>
             </button>
           )}
         </div>
