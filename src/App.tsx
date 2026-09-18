@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // Tipler & sabitler
 import type { ComposeFile, DateFormatPreference, ListDensity, Msg, SnippetLines } from './types';
 import { getAccountSignature } from './utils/signatures';
+import { cleanIpcError } from './utils/errors';
 import { playNotificationSound } from './utils/sound';
 import { ACCENTS } from './constants';
 
@@ -645,7 +646,7 @@ export default function App() {
     } catch (e) {
       if (isUnified || (activeFolder === fromFolder && activeAccount === fromAccount)) {
         loadMessages(fromAccount, fromFolder, isUnified);
-        setError(e instanceof Error ? e.message : String(e));
+        setError(cleanIpcError(e));
         setTimeout(() => setError((prev) => (prev ? null : null)), 4000);
       }
     }
@@ -676,7 +677,7 @@ export default function App() {
     } catch (e) {
       if (isUnified || (activeFolder === fromFolder && activeAccount === fromAccount)) {
         loadMessages(fromAccount, fromFolder, isUnified);
-        setError(e instanceof Error ? e.message : String(e));
+        setError(cleanIpcError(e));
         setTimeout(() => setError((prev) => (prev ? null : null)), 4000);
       }
     }
@@ -708,7 +709,7 @@ export default function App() {
     } catch (e) {
       if (isUnified || (activeFolder === fromFolder && activeAccount === fromAccount)) {
         loadMessages(fromAccount, fromFolder, isUnified);
-        setError(e instanceof Error ? e.message : String(e));
+        setError(cleanIpcError(e));
         setTimeout(() => setError((prev) => (prev ? null : null)), 4000);
       }
     }
@@ -826,7 +827,7 @@ export default function App() {
       setCInReplyTo(tpl.inReplyTo); setCReferences(tpl.references);
       setShowCompose(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     }
   };
 
@@ -900,7 +901,7 @@ export default function App() {
         setTimeout(() => setNotice(null), 3000);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     }
   };
 
@@ -918,7 +919,7 @@ export default function App() {
       updateUnifiedCount();
     } catch (e) {
       setNoticeLoading(false);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     }
   };
 
@@ -1047,7 +1048,7 @@ export default function App() {
       setNotice(t('notice.foldersRefreshed', { count: fresh.length }));
       setTimeout(() => setNotice(null), 3000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     }
   }, [activeAccount, isUnified, setFolders, setNotice, setError, t]);
 

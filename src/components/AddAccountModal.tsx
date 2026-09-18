@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import type { AccentKey } from '../types';
 import { ACCENTS } from '../constants';
+import { cleanIpcError } from '../utils/errors';
 import { PostaciLogo } from './PostaciLogo';
 import {
   CloseIcon,
@@ -68,7 +69,7 @@ export function AddAccountModal({
       setNotice(`${res.email} bağlandı. Eşitleye basın.`);
       onConnected(res.email);
     } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e);
+      const raw = cleanIpcError(e);
       const clean = raw.replace(/^Error invoking remote method '[^']+': (Error:\s*)?/, '');
       setModalError(clean);
       setError(clean);
@@ -97,7 +98,7 @@ export function AddAccountModal({
         }: ${s.imap.host} / ${s.smtp.host}${s.note ? ' — ' + s.note : ''}`,
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     } finally {
       setBusy(null);
     }
@@ -124,7 +125,7 @@ export function AddAccountModal({
       setMPass('');
       onConnected(mEmail.trim());
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = cleanIpcError(e);
       setModalError(msg);
       setError(msg);
     } finally {

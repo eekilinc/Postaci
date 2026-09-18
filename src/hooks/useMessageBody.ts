@@ -2,6 +2,7 @@
 import { useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
 import type { Attachment, BodyResult, MarkReadTiming, Msg } from '../types';
+import { cleanIpcError } from '../utils/errors';
 
 export function useMessageBody() {
   const [body, setBody] = useState<BodyResult>(null);
@@ -143,7 +144,7 @@ export function useMessageBody() {
       .catch((e) => {
         if (!cancelled) {
           setBody({ html: null, text: null });
-          setBodyError(e instanceof Error ? e.message : String(e));
+          setBodyError(cleanIpcError(e));
         }
       })
       .finally(() => {
@@ -178,7 +179,7 @@ export function useMessageBody() {
       );
       if (r.saved) setNotice(`Kaydedildi: ${r.path}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     } finally {
       setSavingAtt(null);
     }
@@ -202,7 +203,7 @@ export function useMessageBody() {
       );
       setPreviewData({ ...data, index });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     } finally {
       setLoadingPreview(null);
     }

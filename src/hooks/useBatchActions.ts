@@ -1,6 +1,7 @@
 // src/hooks/useBatchActions.ts — Toplu eylem ve çoklu seçim mantığı
 import { useState } from 'react';
 import type { Msg } from '../types';
+import { cleanIpcError } from '../utils/errors';
 import { useTranslation } from '../i18n';
 
 interface UseBatchActionsProps {
@@ -109,7 +110,7 @@ export function useBatchActions({
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     }
   };
 
@@ -143,7 +144,7 @@ export function useBatchActions({
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     }
   };
 
@@ -175,7 +176,7 @@ export function useBatchActions({
         await window.postaci.mail.batchStar(acc, f, uids, starred);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     }
   };
 
@@ -211,7 +212,7 @@ export function useBatchActions({
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     }
   };
 
@@ -247,7 +248,7 @@ export function useBatchActions({
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(cleanIpcError(e));
     }
   };
 

@@ -374,8 +374,11 @@ function detectHasAttachment(structure) {
   return false;
 }
 
-async function syncFolder({ provider, email, accessToken, password, imapHost, imapPort, folderPath = 'INBOX', db, limit = 50, beforeUid = null, skipUid = null }) {
+async function syncFolder({ provider, email, accessToken, password, imapHost, imapPort, folderPath = 'INBOX', db, limit = 50, beforeUid = null, skipUid = null, skipPrune = false }) {
   return withClient({ provider, email, accessToken, password, imapHost, imapPort }, async (client) => {
+    const tStart = Date.now();
+    const phaseMs = {};
+    const mark = (k) => { phaseMs[k] = Date.now() - tStart; };
     if (folderPath === '[Gmail]' || folderPath.toUpperCase() === '[GMAIL]') {
       return { total: 0, synced: 0, failed: 0, newMessages: [] };
     }
@@ -428,27 +431,94 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
          date=excluded.date, is_read=excluded.is_read, has_att=excluded.has_att`,
     );
 
-    // UID ile çalış: önce UID listesi, son N tanesini (veya beforeUid öncesindekileri) çek
-    let allUids;
+    const updateFlags = db.prepare(
+      `UPDATE messages SET is_read=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`,
+    );
+
+    // ── Artımlı sync (Thunderbird/Evolution modeli) ─────────────────────────
+    // Eskiden HER sync'te SEARCH ALL + 50 iletiye ENVELOPE+FLAGS+BODYSTRUCTURE
+    // çekiliyordu. Büyük Gmail kutularında bu 75 sn'yi aşıp timeout'a düşüyor
+    // ve 30 sn'deki arka plan turlarıyla kuyruk yığılması yapıyordu.
+    // Şimdi: yereldeki en büyük UID'den sonrasını sunucu taraflı aralıklı
+    // UID SEARCH ile sor (genelde 0-5 ileti), bilinen iletilere yalnızca ucuz
+    // FLAGS çekişi yap, pahalı tam UID listesini yalnızca temizlik gerektiğinde
+    // ve en fazla bir kez çek.
+    let lastSeenUid = 0;
     try {
-      allUids = (await client.search({ all: true }, { uid: true })) || [];
-    } catch (e) {
-      throw new Error(`[${folderPath}] UID araması (SEARCH ALL) başarısız: ${imapErrDetail(e)}`);
+      const r = db.prepare(
+        `SELECT MAX(CAST(uid AS INTEGER)) AS m FROM messages
+         WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid GLOB '[0-9]*'`,
+      ).get(email, folderPath);
+      if (r && r.m) lastSeenUid = Number(r.m) || 0;
+    } catch { /* ilk sync sayılır */ }
+
+    const uidNext = Number(mb?.uidNext ?? client.mailbox?.uidNext ?? 0) || 0;
+    const serverMaxUid = uidNext > 0 ? uidNext - 1 : 0;
+    // UIDVALIDITY sıfırlanması/kutu değişimi: yereldeki UID'ler sunucunun üstündeyse
+    // artımlı devam edilemez — ilk sync yoluna düş (aşağıda + tam temizlik).
+    if (lastSeenUid > 0 && serverMaxUid > 0 && lastSeenUid > serverMaxUid) lastSeenUid = 0;
+
+    // Tam UID listesi tembel + paylaşımlı: ilk sync ve temizlik aynı listeyi kullanır,
+    // artımlı sync'te HİÇ çekilmez (büyük kutulardaki yavaşlığın ana kaynağı buydu).
+    let allUids = null;
+    async function getAllUids() {
+      if (!allUids) allUids = (await client.search({ all: true }, { uid: true })) || [];
+      return allUids;
     }
 
-    // Sunucudan silinmiş veya taşınmış mesajları yerel SQLite veritabanından temizle
-    if (!beforeUid && allUids) {
+    let target = [];       // tam çekilecek UID'ler (envelope+flags+bodyStructure)
+    let flagOnlyUids = []; // yalnızca bayrağı tazelenenecek bilinen UID'ler (ucuz FLAGS)
+    if (beforeUid) {
+      // "Daha eski iletiler": sunucu taraflı UID aralığıyla, son `limit` tanesi
+      const beforeNum = Number(beforeUid);
+      if (!Number.isNaN(beforeNum) && beforeNum > 1) {
+        try {
+          const older = (await client.search({ uid: `1:${beforeNum - 1}` }, { uid: true })) || [];
+          target = older.slice(-limit);
+        } catch (e) {
+          throw new Error(`[${folderPath}] eski ileti araması başarısız: ${imapErrDetail(e)}`);
+        }
+      }
+    } else if (lastSeenUid > 0) {
+      // Normal artımlı sync: yalnızca bu UID'den sonrakiler
       try {
+        const fresh = (await client.search({ uid: `${lastSeenUid + 1}:*` }, { uid: true })) || [];
+        target = fresh.slice(-limit);
+      } catch (e) {
+        throw new Error(`[${folderPath}] yeni ileti araması başarısız: ${imapErrDetail(e)}`);
+      }
+      // Bilinen son iletilerin okundu bayraklarını tek ucuz FLAGS komutuyla tazele
+      try {
+        flagOnlyUids = db.prepare(
+          `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?)
+           AND folder_path=? AND uid GLOB '[0-9]*' AND CAST(uid AS INTEGER) <= ?
+           ORDER BY CAST(uid AS INTEGER) DESC LIMIT 200`,
+        ).all(email, folderPath, lastSeenUid).map((x) => x.uid);
+      } catch { /* bayrak tazeleme atlanır, sync devam eder */ }
+    } else {
+      // İlk sync: tam liste bir kez çekilir (temizlikle paylaşılır), son `limit` çekilir
+      try {
+        target = (await getAllUids()).slice(-limit);
+      } catch (e) {
+        throw new Error(`[${folderPath}] UID araması (SEARCH ALL) başarısız: ${imapErrDetail(e)}`);
+      }
+    }
+    mark('search');
+    // Sunucudan silinmiş veya taşınmış mesajları yerel SQLite veritabanından temizle.
+    // Pahalı tam liste gerektirir: kullanıcı isteğinde her zaman, arka planda
+    // yalnızca skipPrune=false ise. Başarısız olursa sync'i DÜŞÜRMEZ (uyarı+devam).
+    if (!beforeUid && !skipPrune) {
+      try {
+        const serverUidSet = new Set((await getAllUids()).map(String));
         const localRows = db.prepare(
-          `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=?`
+          `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=?`,
         ).all(email, folderPath);
 
-        const serverUidSet = new Set(allUids.map(String));
         const deleteLocal = db.prepare(
-          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`,
         );
         const deleteAtt = db.prepare(
-          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`
+          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`,
         );
 
         for (const row of localRows) {
@@ -462,22 +532,31 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
           }
         }
       } catch (pruneErr) {
-        console.warn(`[sync] yerel silinenleri temizleme uyarısı:`, pruneErr?.message || pruneErr);
+        console.warn(`[sync] ${email} [${folderPath}] temizlik atlandı (sync devam ediyor):`, pruneErr?.message || pruneErr);
       }
     }
+    mark('prune');
 
-    let candidateUids = allUids;
-    if (beforeUid) {
-      const beforeNum = Number(beforeUid);
-      if (!Number.isNaN(beforeNum)) {
-        candidateUids = allUids.filter((u) => Number(u) < beforeNum);
-      }
-    }
-    const target = candidateUids.slice(-limit);
     let synced = 0;
     let failed = 0;
     let firstError = null;
+    let flagsTouched = 0;
     const newMessages = [];
+    // 1) Ucuz bayrak tazeleme (yalnızca artımlı yolda, tek FLAGS komutu)
+    if (flagOnlyUids.length > 0) {
+      try {
+        for await (const msg of client.fetch(flagOnlyUids.join(','), { flags: true }, { uid: true })) {
+          try {
+            const isSeen = !!(msg.flags && msg.flags.has('\\Seen'));
+            const info = updateFlags.run(isSeen ? 1 : 0, email, folderPath, String(msg.uid));
+            if (info && info.changes) flagsTouched++;
+          } catch { /* tekil bayrak hatası sayılmaz, devam */ }
+        }
+      } catch (e) {
+        console.warn(`[sync] ${email} [${folderPath}] bayrak tazeleme atlandı:`, e?.message || e);
+      }
+    }
+    mark('flags');
     if (target.length > 0) {
       try {
         for await (const msg of client.fetch(target.join(','), { envelope: true, flags: true, bodyStructure: true }, { uid: true })) {
@@ -523,13 +602,14 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
         throw new Error(`[${folderPath}] ileti çekme (FETCH, ${target.length} ileti) başarısız: ${imapErrDetail(e)}`);
       }
     }
-    console.log(`[sync] ${email} [${folderPath}]: kutuda=${total} hedef=${target.length} çekilen=${synced} yeni=${newMessages.length} hatalı=${failed}${firstError ? ` ilkHata=${firstError}` : ''}`);
+    mark('fetch');
+    console.log(`[sync] ${email} [${folderPath}]: kutuda=${total} hedef=${target.length} çekilen=${synced} yeni=${newMessages.length} bayrak=${flagsTouched} hatalı=${failed} süre=${Date.now() - tStart}ms (arama=${phaseMs.search}ms temizlik=${(phaseMs.prune ?? 0) - (phaseMs.search ?? 0)}ms bayrak=${(phaseMs.flags ?? 0) - (phaseMs.prune ?? 0)}ms çekiş=${Date.now() - tStart - (phaseMs.fetch ?? 0)}ms)${firstError ? ` ilkHata=${firstError}` : ''}`);
     return { total, synced, failed, firstError, newMessages };
   });
 }
 
-async function syncInbox({ provider, email, accessToken, password, imapHost, imapPort, db, limit = 30 }) {
-  return syncFolder({ provider, email, accessToken, password, imapHost, imapPort, folderPath: 'INBOX', db, limit });
+async function syncInbox({ provider, email, accessToken, password, imapHost, imapPort, db, limit = 30, skipPrune = false }) {
+  return syncFolder({ provider, email, accessToken, password, imapHost, imapPort, folderPath: 'INBOX', db, limit, skipPrune });
 }
 
 // Hafif rozet tazeleme: ileti ÇEKMEZ, her klasöre STATUS sorup okunmamış sayısını DB'ye yazar.

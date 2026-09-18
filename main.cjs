@@ -189,6 +189,17 @@ function imapLock(email, fn) {
 // (2) sınırlı paralellik (3) — yavaş hesap diğerlerini bloklamaz.
 const SYNC_PER_ACCOUNT_TIMEOUT_MS = 60000;
 const SYNC_CONCURRENCY = 3;
+// Tam temizlik (pahalı SEARCH ALL) arka planda en seyrek bu aralıkla yapılır;
+// ara turlar yalnızca yenileri çeker (Thunderbird'ün seyrek expunge taraması gibi).
+const FULL_PRUNE_INTERVAL_MS = 15 * 60 * 1000;
+const _lastFullPrune = new Map(); // email -> timestamp
+function shouldFullPrune(email) {
+  const key = (email || '').toLowerCase().trim();
+  const last = _lastFullPrune.get(key) || 0;
+  if (Date.now() - last < FULL_PRUNE_INTERVAL_MS) return false;
+  _lastFullPrune.set(key, Date.now());
+  return true;
+}
 
 function isTimeoutError(e) {
   return /zaman aşımına uğradı/i.test(e?.message || '');
@@ -198,6 +209,9 @@ function isTimeoutError(e) {
 // folderPath parametreli değil — çoklu senkron yalnızca INBOX çeker (ucuz STATUS rozetler için).
 async function syncOneInboxWithTimeout(fullAcc) {
   const email = fullAcc.email;
+  // Arka plan turu: pahalı tam temizlik en fazla 15 dk'da bir; ara turlar artımlı.
+  // Kullanıcı Eşitle'si her zaman tam temizlik yapar (aşağıdaki IPC'lerde skipPrune yok).
+  const doPrune = shouldFullPrune(email);
   const work = withAuthRetry(fullAcc, (creds) =>
     imapLock(email, async () => {
       const r = await syncFolder({
@@ -208,6 +222,7 @@ async function syncOneInboxWithTimeout(fullAcc) {
         limit: 30,
         ...creds,
         skipUid: (uid) => isDeleted(fullAcc.email, 'INBOX', String(uid)),
+        skipPrune: !doPrune,
       });
       // INBOX dışı klasörler: ileti çekmeden yalnızca rozet sayaçlarını tazele (ucuz STATUS)
       try {

@@ -1,6 +1,7 @@
 // src/hooks/useMessages.ts — mesaj listesi, filtreleme, sayfalama ve sync
 import { useMemo, useRef, useState } from 'react';
 import type { FilterKey, Msg } from '../types';
+import { cleanIpcError } from '../utils/errors';
 
 const PAGE_SIZE = 50;
 
@@ -139,7 +140,7 @@ export function useMessages() {
       setMessages(updatedList);
     } catch (e) {
       if (reqIdRef.current === currentReqId) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(cleanIpcError(e));
       }
     } finally {
       if (reqIdRef.current === currentReqId) {
@@ -218,7 +219,7 @@ export function useMessages() {
       window.postaci.db.stats().catch(() => {});
     } catch (e) {
       if (reqIdRef.current === currentReqId) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(cleanIpcError(e));
       }
     } finally {
       if (reqIdRef.current === currentReqId) {
