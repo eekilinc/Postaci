@@ -480,13 +480,32 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
         }
       }
     } else if (lastSeenUid > 0) {
-      // Normal artımlı sync: yalnızca bu UID'den sonrakiler
+      // Normal artımlı sync: yalnızca bu UID'den sonrakiler.
+      // Bazı sunucular ESEARCH yanıtında '*' içeren aralık döndürür, istemci
+      // bunu boş dizi olarak ayrıştırabilir — o yüzden sonuç sunucunun
+      // bildirdiği uidNext ile tutarlılık kontrolünden geçer, tutarsızsa
+      // eski tam liste yoluna düşülür (asla sessiz boş sync yok).
+      let fresh = null;
       try {
-        const fresh = (await client.search({ uid: `${lastSeenUid + 1}:*` }, { uid: true })) || [];
-        target = fresh.slice(-limit);
+        fresh = (await client.search({ uid: `${lastSeenUid + 1}:*` }, { uid: true })) || [];
       } catch (e) {
-        throw new Error(`[${folderPath}] yeni ileti araması başarısız: ${imapErrDetail(e)}`);
+        console.warn(`[sync] ${email} [${folderPath}] aralıklı arama başarısız, tam listeye düşülüyor:`, e?.message || e);
       }
+      if (fresh && fresh.length > 0) {
+        target = fresh.slice(-limit);
+      } else if (fresh === null || (serverMaxUid > lastSeenUid)) {
+        // Arama patladı VEYA sunucu daha yüksek UID bildiriyor ama aralık boş:
+        // tam liste yoluna düş (v1.0.40 davranışı).
+        if (fresh !== null) {
+          console.warn(`[sync] ${email} [${folderPath}] tutarsız aralık sonucu (son=${lastSeenUid} sunucuMax=${serverMaxUid}), tam listeye düşülüyor.`);
+        }
+        try {
+          target = (await getAllUids()).slice(-limit);
+        } catch (e) {
+          throw new Error(`[${folderPath}] UID araması (SEARCH ALL) başarısız: ${imapErrDetail(e)}`);
+        }
+      }
+      // fresh boş dizi + sunucuda da yeni yok = gerçekten yeni ileti yok, target boş kalır.
       // Bilinen son iletilerin okundu bayraklarını tek ucuz FLAGS komutuyla tazele
       try {
         flagOnlyUids = db.prepare(
@@ -509,10 +528,17 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     // yalnızca skipPrune=false ise. Başarısız olursa sync'i DÜŞÜRMEZ (uyarı+devam).
     if (!beforeUid && !skipPrune) {
       try {
-        const serverUidSet = new Set((await getAllUids()).map(String));
+        const fullList = await getAllUids();
+        const serverUidSet = new Set(fullList.map(String));
         const localRows = db.prepare(
           `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=?`,
         ).all(email, folderPath);
+
+        // Güvenlik: STATUS/exists sunucuda `total` ileti bildirirken SEARCH
+        // budanmış/bozuk dönerse yerel veriyi SİLME (eksik listeyle prune = veri kaybı).
+        if (total > 0 && serverUidSet.size < total / 2) {
+          console.warn(`[sync] ${email} [${folderPath}] temizlik atlandı: liste budanmış görünüyor (kutuda=${total} listede=${serverUidSet.size}).`);
+        } else {
 
         const deleteLocal = db.prepare(
           `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`,
@@ -531,6 +557,7 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
             try { deleteAtt.run(email, folderPath, String(row.uid)); } catch {}
           }
         }
+        } // else: liste sağlıklı, temizlik yukarıda yapıldı
       } catch (pruneErr) {
         console.warn(`[sync] ${email} [${folderPath}] temizlik atlandı (sync devam ediyor):`, pruneErr?.message || pruneErr);
       }
