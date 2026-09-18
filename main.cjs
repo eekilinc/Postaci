@@ -31,7 +31,7 @@ const path = require('path');
 const fs = require('fs');
 const { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, listContacts, upsertContact, deleteContact, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts } = require('./electron/db.cjs');
 const { startOAuthFlow } = require('./electron/auth.cjs');
-const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, refreshFolderCounts, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient, imapErrDetail, invalidateClient } = require('./electron/mail.cjs');
+const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, refreshFolderCounts, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient, imapErrDetail, invalidateClient, withTimeout } = require('./electron/mail.cjs');
 const { detectSettings } = require('./electron/providers.cjs');
 const { splitAddresses, buildReply, buildReplyAll, buildForward } = require('./electron/compose.cjs');
 
@@ -177,6 +177,84 @@ function imapLock(email, fn) {
   });
   _imapQueues.set(key, task.then(() => {}, () => {})); // kuyruk sonunu güncelle, hata yutma
   return task; // çağırıcıya gerçek sonuç / hata döner
+}
+
+// ── Çok hesaplı senkron dayanıklılığı ───────────────────────────────────────
+// Kök neden: runBackgroundSync + mail:sync-all-inboxes hesapları SIRAYLA ve
+// ZAMAN AŞIMSIZ senkronize ediyordu. Tek bir Gmail yavaşlarsa/asılırsa
+// (büyük kutuda FETCH, throttling, sessizce düşen soket) kuyruktaki TÜM
+// sonraki hesaplar sonsuza dek bekliyordu — "bazı Gmail'ler eşitlenmiyor,
+// özellikle son eklenenler" şikayetinin sebebi bu head-of-line bloklanması.
+// Çözüm: (1) hesap başına zaman aşımı + asılı soketi düşürme,
+// (2) sınırlı paralellik (3) — yavaş hesap diğerlerini bloklamaz.
+const SYNC_PER_ACCOUNT_TIMEOUT_MS = 60000;
+const SYNC_CONCURRENCY = 3;
+
+function isTimeoutError(e) {
+  return /zaman aşımına uğradı/i.test(e?.message || '');
+}
+
+// Tek hesabın INBOX senkronu: zaman aşımlı, asılı soketi temizleyen, bildirim üreten.
+// folderPath parametreli değil — çoklu senkron yalnızca INBOX çeker (ucuz STATUS rozetler için).
+async function syncOneInboxWithTimeout(fullAcc) {
+  const email = fullAcc.email;
+  const work = withAuthRetry(fullAcc, (creds) =>
+    imapLock(email, async () => {
+      const r = await syncFolder({
+        provider: fullAcc.provider,
+        email: fullAcc.email,
+        folderPath: 'INBOX',
+        db: getDb(),
+        limit: 30,
+        ...creds,
+        skipUid: (uid) => isDeleted(fullAcc.email, 'INBOX', String(uid)),
+      });
+      // INBOX dışı klasörler: ileti çekmeden yalnızca rozet sayaçlarını tazele (ucuz STATUS)
+      try {
+        await withTimeout(
+          refreshFolderCounts({
+            provider: fullAcc.provider, email: fullAcc.email, db: getDb(), ...creds,
+          }),
+          20000,
+          `[${email}] klasör sayaçları`,
+        );
+      } catch (e) {
+        console.warn(`[bg-sync] ${email} klasör sayaçları atlandı:`, e?.message || e);
+      }
+      return r;
+    }));
+  try {
+    return await withTimeout(work, SYNC_PER_ACCOUNT_TIMEOUT_MS, `[${email}] INBOX eşitleme`);
+  } catch (e) {
+    // Zaman aşımında asılı kalmış olabilecek soketi havuzdan düşür ki
+    // sonraki Eşitle denemesi temiz bağlantıyla başlasın, kuyruk açılsın.
+    if (isTimeoutError(e)) {
+      try { invalidateClient(email); } catch {}
+    }
+    throw e;
+  }
+}
+
+// Sınırlı paralellik havuzu: items üzerinde worker fn'i en fazla `limit`
+// eşzamanlı çalıştırır; biri yavaşlasa/asılsa diğerleri ilerler.
+// Her worker sonucu { ok, value } / { ok:false, error } olarak döner —
+// bir hesabın hatası diğerlerini ve havuzu durdurmaz.
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let next = 0;
+  const n = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: n }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      try {
+        results[i] = { ok: true, value: await worker(items[i], i) };
+      } catch (error) {
+        results[i] = { ok: false, error };
+      }
+    }
+  }));
+  return results;
 }
 
 function resolveAppIcon(preferIco = true) {
@@ -607,6 +685,8 @@ async function runBackgroundSync() {
     const accounts = listAccounts();
     if (!accounts || accounts.length === 0) return;
 
+    // Eşitlenecek hesapları belirle (son 10 sn'de manuel eşitlenenleri atla)
+    const pending = [];
     for (const acc of accounts) {
       try {
         const fullAcc = getAccountByEmail(acc.email);
@@ -614,48 +694,39 @@ async function runBackgroundSync() {
         const normEmail = (fullAcc.email || '').toLowerCase().trim();
         const lastSync = _lastSyncTime.get(normEmail) || 0;
         // Son 10 saniyede kullanıcı/arayüz zaten bu hesabı senkronize ettiyse arka planda tekrar çekme
-        if (Date.now() - lastSync < 10000) {
-          continue;
-        }
-        const res = await withAuthRetry(fullAcc, (creds) =>
-          imapLock(fullAcc.email, async () => {
-            const r = await syncFolder({
-              provider: fullAcc.provider,
-              email: fullAcc.email,
-              folderPath: 'INBOX',
-              db: getDb(),
-              limit: 30,
-              ...creds,
-              skipUid: (uid) => isDeleted(fullAcc.email, 'INBOX', String(uid)),
-            });
-            // INBOX dışı klasörler: ileti çekmeden yalnızca rozet sayaçlarını tazele (ucuz STATUS)
-            try {
-              await refreshFolderCounts({
-                provider: fullAcc.provider, email: fullAcc.email, db: getDb(), ...creds,
-              });
-            } catch (e) {
-              console.warn(`[bg-sync] ${fullAcc.email} klasör sayaçları atlandı:`, e?.message || e);
-            }
-            return r;
-          }));
-        _lastSyncTime.set(normEmail, Date.now());
+        if (Date.now() - lastSync < 10000) continue;
+        pending.push(fullAcc);
+      } catch (err) {
+        console.warn(`[bg-sync] ${acc.email} senkronizasyon atlandı:`, err?.message || err);
+      }
+    }
+    if (pending.length === 0) return;
 
+    // Sınırlı paralellik: yavaş/asılı bir hesap diğerlerini bloklamaz
+    const outcomes = await runWithConcurrency(pending, SYNC_CONCURRENCY, async (fullAcc) => {
+      const res = await syncOneInboxWithTimeout(fullAcc);
+      _lastSyncTime.set((fullAcc.email || '').toLowerCase().trim(), Date.now());
+      return res;
+    });
+
+    outcomes.forEach((o, i) => {
+      const fullAcc = pending[i];
+      if (o.ok) {
+        const res = o.value;
         if (res && res.newMessages && res.newMessages.length > 0) {
-          notifyNewMessages(acc.email, res.newMessages);
-
+          notifyNewMessages(fullAcc.email, res.newMessages);
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('notify:background-synced', {
-              email: acc.email,
+              email: fullAcc.email,
               folderPath: 'INBOX',
               count: res.newMessages.length,
             });
           }
         }
-      } catch (err) {
-        console.warn(`[bg-sync] ${acc.email} senkronizasyon atlandı:`, err?.message || err);
+      } else {
+        console.warn(`[bg-sync] ${fullAcc.email} senkronizasyon atlandı:`, o.error?.message || o.error);
       }
-      await new Promise((r) => setTimeout(r, 800)); // sağlayıcılar arası sakin geçiş
-    }
+    });
   } finally {
     bgSyncRunning = false;
   }
@@ -1090,13 +1161,18 @@ app.whenReady().then(() => {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
     try {
-      const res = await withAuthRetry(acc, (creds) =>
-        imapLock(email, () => syncInbox({ provider: acc.provider, email: acc.email, db: getDb(), ...creds })));
+      const res = await withIpcTimeout(
+        withAuthRetry(acc, (creds) =>
+          imapLock(email, () => syncInbox({ provider: acc.provider, email: acc.email, db: getDb(), ...creds }))),
+        75000,
+        'Eşitleme',
+      );
       if (res && res.newMessages && res.newMessages.length > 0) {
         notifyNewMessages(acc.email, res.newMessages);
       }
       return res;
     } catch (e) {
+      if (isTimeoutError(e)) { try { invalidateClient(email); } catch {} }
       throw new Error(friendlySyncError(acc.provider, e));
     }
   });
@@ -1243,16 +1319,21 @@ app.whenReady().then(() => {
     try {
       const normEmail = (email || '').toLowerCase().trim();
       _lastSyncTime.set(normEmail, Date.now());
-      const res = await withAuthRetry(acc, (creds) =>
-        imapLock(email, () => syncFolder({
-          provider: acc.provider, email: acc.email, folderPath, db: getDb(), ...creds,
-          skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
-        })));
+      const res = await withIpcTimeout(
+        withAuthRetry(acc, (creds) =>
+          imapLock(email, () => syncFolder({
+            provider: acc.provider, email: acc.email, folderPath, db: getDb(), ...creds,
+            skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
+          }))),
+        75000,
+        'Klasör eşitleme',
+      );
       if (folderPath === 'INBOX' && res && res.newMessages && res.newMessages.length > 0) {
         notifyNewMessages(acc.email, res.newMessages);
       }
       return res;
     } catch (e) {
+      if (isTimeoutError(e)) { try { invalidateClient(email); } catch {} }
       throw new Error(friendlySyncError(acc.provider, e));
     }
   });
@@ -1277,39 +1358,50 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('mail:sync-all-inboxes', async () => {
     const accs = listAccounts();
-    const results = [];
+    const fulls = [];
     for (const acc of accs) {
       try {
         const full = getAccountByEmail(acc.email);
-        if (!full) continue;
-        const res = await withAuthRetry(full, (creds) =>
-          imapLock(acc.email, () => syncFolder({
-            provider: full.provider, email: full.email, folderPath: 'INBOX', db: getDb(), ...creds,
-            skipUid: (uid) => isDeleted(full.email, 'INBOX', String(uid)),
-          })));
-        if (res && res.newMessages && res.newMessages.length > 0) {
-          notifyNewMessages(acc.email, res.newMessages);
-        }
-        results.push({ email: acc.email, ...res });
-      } catch (e) {
-        const prov = (() => { try { return (getAccountByEmail(acc.email) || {}).provider; } catch { return undefined; } })();
-        results.push({ email: acc.email, error: friendlySyncError(prov, e) });
-      }
+        if (full) fulls.push(full);
+      } catch { /* listeye devam */ }
     }
+    // Sınırlı paralellik + hesap başına zaman aşımı: tek yavaş hesap
+    // diğer 6 Gmail'i bloklamaz; her hesabın sonucu (başarı/hata) ayrı ayrı döner.
+    const outcomes = await runWithConcurrency(fulls, SYNC_CONCURRENCY, (full) => syncOneInboxWithTimeout(full));
+    const results = [];
+    outcomes.forEach((o, i) => {
+      const full = fulls[i];
+      if (o.ok) {
+        const res = o.value;
+        if (res && res.newMessages && res.newMessages.length > 0) {
+          notifyNewMessages(full.email, res.newMessages);
+        }
+        results.push({ email: full.email, ...res });
+      } else {
+        if (isTimeoutError(o.error)) { try { invalidateClient(full.email); } catch {} }
+        const prov = full.provider;
+        results.push({ email: full.email, error: friendlySyncError(prov, o.error) });
+      }
+    });
     return results;
   });
   ipcMain.handle('mail:sync-more', async (_evt, email, folderPath, beforeUid, limit) => {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
     try {
-      return await withAuthRetry(acc, (creds) =>
-        imapLock(email, () => syncFolder({
-          provider: acc.provider, email: acc.email, folderPath: folderPath || 'INBOX',
-          db: getDb(), limit: limit || 50, beforeUid: beforeUid || null,
-          ...creds,
-          skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
-        })));
+      return await withIpcTimeout(
+        withAuthRetry(acc, (creds) =>
+          imapLock(email, () => syncFolder({
+            provider: acc.provider, email: acc.email, folderPath: folderPath || 'INBOX',
+            db: getDb(), limit: limit || 50, beforeUid: beforeUid || null,
+            ...creds,
+            skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
+          }))),
+        75000,
+        'Eski iletiler',
+      );
     } catch (e) {
+      if (isTimeoutError(e)) { try { invalidateClient(email); } catch {} }
       throw new Error(friendlySyncError(acc.provider, e));
     }
   });
@@ -2393,15 +2485,19 @@ app.whenReady().then(() => {
         return { email, ok: false, steps, hint: 'Token yenilenemedi — Gmail IMAP iznini ve yeniden bağlamayı deneyin.' };
       }
       try {
-        const info = await withAuthRetry(acc, (creds) =>
-          imapLock(email, async () => {
-            return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
-              const mb = await client.mailboxOpen('INBOX', { readOnly: true });
-              let status = null;
-              try { status = await client.status('INBOX', { messages: true, unseen: true }); } catch {}
-              return { exists: mb?.exists ?? client.mailbox?.exists ?? null, status };
-            });
-          }));
+        const info = await withIpcTimeout(
+          withAuthRetry(acc, (creds) =>
+            imapLock(email, async () => {
+              return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
+                const mb = await client.mailboxOpen('INBOX', { readOnly: true });
+                let status = null;
+                try { status = await client.status('INBOX', { messages: true, unseen: true }); } catch {}
+                return { exists: mb?.exists ?? client.mailbox?.exists ?? null, status };
+              });
+            })),
+          45000,
+          'Tanı bağlantısı',
+        );
         const total = info?.status?.messages ?? info?.exists ?? '?';
         const unseen = info?.status?.unseen ?? '?';
         push('imap', true, `INBOX açıldı. kutuda=${total} okunmamış=${unseen}`);

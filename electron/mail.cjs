@@ -293,6 +293,17 @@ async function openClient({ provider, email, accessToken, password, imapHost, im
   }
 }
 
+// Belirli sürede bitmeyen IMAP sözünü zaman aşımıyla düşürür.
+// Asılı kalan soket/kuyruk bir sonraki hesabı sonsuza dek bloklamasın diye
+// çağıran taraf catch bloğunda invalidateClient(email) çağırmalıdır.
+function withTimeout(promise, ms, label) {
+  let t = null;
+  const timeout = new Promise((_, rej) => {
+    t = setTimeout(() => rej(new Error(`${label} zaman aşımına uğradı (${Math.round(ms / 1000)} sn).`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => { if (t) clearTimeout(t); });
+}
+
 async function fetchBody({ provider, email, accessToken, password, imapHost, imapPort, folderPath = 'INBOX', uid }) {
   // İletinin tamamını indirip mailparser ile ayrıştır: parça numaralarıyla uğraşmaz,
   // base64/quoted-printable ve karakter setlerini doğru çözer.
@@ -1015,4 +1026,4 @@ async function batchMoveToFolder({ provider, email, accessToken, password, imapH
   });
 }
 
-module.exports = { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, refreshFolderCounts, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, findArchivePath, moveToFolder, batchMoveToFolder, openClient, withClient, invalidateClient, imapErrDetail };
+module.exports = { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, refreshFolderCounts, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, findArchivePath, moveToFolder, batchMoveToFolder, openClient, withClient, invalidateClient, imapErrDetail, withTimeout };
