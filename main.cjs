@@ -31,7 +31,7 @@ const path = require('path');
 const fs = require('fs');
 const { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, listContacts, upsertContact, deleteContact, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts } = require('./electron/db.cjs');
 const { startOAuthFlow } = require('./electron/auth.cjs');
-const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, refreshFolderCounts, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient, imapErrDetail, invalidateClient, withTimeout } = require('./electron/mail.cjs');
+const { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, refreshFolderCounts, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, moveToFolder, batchMoveToFolder, withClient, imapErrDetail, invalidateClient, withTimeout, isAuthFailed } = require('./electron/mail.cjs');
 const { detectSettings } = require('./electron/providers.cjs');
 const { splitAddresses, buildReply, buildReplyAll, buildForward } = require('./electron/compose.cjs');
 
@@ -113,15 +113,7 @@ async function freshCredentials(account, forceRefresh = false) {
   return { accessToken: await freshAccessToken(account, forceRefresh) };
 }
 
-// IMAP kimlik doğrulama reddi mi? (ölü/geri alınmış token, yanlış hesap token'ı)
-function isAuthFailed(e) {
-  let resp = '';
-  try {
-    resp = e && typeof e.response === 'object' ? JSON.stringify(e.response) : String(e?.response || '');
-  } catch { resp = ''; }
-  const s = `${e?.message || ''} ${e?.responseText || ''} ${resp}`.toLowerCase();
-  return /authenticationfailed|invalid credentials|invalid_grant|unauthorized_client|auth failed|login failed|invalid login|authentication unsuccessful|535.*auth/i.test(s);
-}
+// isAuthFailed electron/mail.cjs dosyasından aktarılmıştır (authenticationFailed ve oauthError kontrolleri dahil)
 
 // Ölü önbellek access token durumu: yerel token'ı sil, refresh ile zorla yenile, işi bir kez daha dene.
 // Hesap ekleme akışına dokunmaz; yalnızca mevcut kaydın token'ını tazeler.
@@ -1133,6 +1125,39 @@ app.whenReady().then(() => {
       tokenExpiry: expiry,
     };
     addAccount(saved);
+
+    // IMAP bağlantısını test et ve klasörleri önceden çek (kullanıcıyı ana ekranda bekletmemek için)
+    try {
+      console.log(`[auth:start] ${profile.email} (${provider}) için IMAP bağlantısı doğrulanıyor...`);
+      const folders = await listFolders({
+        provider,
+        email: profile.email,
+        accessToken: tokens.access_token,
+      });
+      if (folders && folders.length > 0) {
+        const db = getDb();
+        const upsert = db.prepare(`
+          INSERT INTO folders (account_id, name, path, flags, unread_count)
+          VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), ?, ?, ?, 0)
+          ON CONFLICT(account_id, path) DO UPDATE SET name=excluded.name, flags=excluded.flags
+        `);
+        for (const f of folders) {
+          upsert.run(profile.email, f.name || f.path, f.path, JSON.stringify(f.flags || []));
+        }
+        console.log(`[auth:start] ${profile.email} için ${folders.length} klasör başarıyla önbelleğe alındı.`);
+      }
+    } catch (testErr) {
+      console.warn(`[auth:start] ${profile.email} IMAP ilk bağlantı uyarısı:`, testErr?.message || testErr);
+      if (isAuthFailed(testErr)) {
+        throw new Error(
+          `Giriş yapıldı fakat ${provider === 'google' ? 'Gmail' : provider} IMAP erişimini reddetti. ` +
+          (provider === 'google'
+            ? 'Lütfen giriş yaparken "Tüm e-postalarınızı okuma/yönetme" kutusunu işaretlediğinizden ve Gmail Ayarları → Yönlendirme ve POP/IMAP sekmesinde "IMAP\'i etkinleştir" seçeneğinin açık olduğundan emin olun.'
+            : friendlySyncError(provider, testErr))
+        );
+      }
+    }
+
     return saved;
   });
   ipcMain.on('app:get-version-sync', (event) => {
@@ -1177,7 +1202,7 @@ app.whenReady().then(() => {
       const res = await withIpcTimeout(
         withAuthRetry(acc, (creds) =>
           imapLock(email, () => syncInbox({ provider: acc.provider, email: acc.email, db: getDb(), ...creds }))),
-        75000,
+        35000,
         'Eşitleme',
       );
       if (res && res.newMessages && res.newMessages.length > 0) {
@@ -1338,7 +1363,7 @@ app.whenReady().then(() => {
             provider: acc.provider, email: acc.email, folderPath, db: getDb(), ...creds,
             skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
           }))),
-        75000,
+        35000,
         'Klasör eşitleme',
       );
       if (folderPath === 'INBOX' && res && res.newMessages && res.newMessages.length > 0) {
@@ -2456,19 +2481,19 @@ app.whenReady().then(() => {
     const low = raw.toLowerCase();
     const isGoogle = (provider || '').toLowerCase().includes('google') || low.includes('gmail');
     if (/invalid_grant|invalid client|unauthorized_client|access_denied|token has been expired or revoked|refresh token/i.test(raw)) {
-      return `${raw} — Bu hesap Google erişimini reddetmiş/geri almış olabilir. Çözüm: Gmail'de IMAP'ın açık olduğunu doğrulayın (Gmail Ayarları → Yönlendirme ve POP/IMAP → IMAP erişimini etkinleştir), sonra Ayarlar → Hesaplar → Yeni Hesap Ekle ile AYNI e-postayı yeniden bağlayın (mevcut veriler korunur).`;
+      return `${raw} — Google/sağlayıcı oturumu reddetti. Çözüm: Ayarlar → Hesaplar'dan bu hesabı silip tekrar ekleyin (açılan Google izin ekranında 'Tüm e-postaları okuma/yönetme' kutusunu işaretlediğinizden emin olun).`;
     }
-    if (/imap.*disabled|imap access is disabled|application-specific password|app password|invalid credentials|authentication failed|auth failed|login failed/i.test(raw)) {
-      return `${raw} — Gmail bu hesaba IMAP ile girişe izin vermiyor (erişim anahtarı otomatik yenilenmeyi denedi, sonuç değişmedi). Çözüm: (1) Gmail web → Ayarlar → IMAP'in etkin olduğunu doğrulayın, (2) Google Hesabı → Güvenlik → Postacı erişimini kaldırıp Ayarlar → Hesaplar → Yeni Hesap Ekle ile AYNI e-postayı yeniden bağlayın (açılan Google ekranında DOĞRU hesabı seçtiğinizden emin olun). Okul/iş hesabıysa yöneticiniz IMAP'i veya üçüncü taraf uygulamaları kapatmış olabilir.`;
+    if (/imap.*disabled|imap access is disabled|application-specific password|app password|invalid credentials|authentication failed|auth failed|login failed|oauth.*401|alert.*please log in via your web browser/i.test(raw)) {
+      return `${raw} — Gmail bu hesaba IMAP erişimini onaylamadı. Lütfen kontrol edin:\n1) Gmail web arayüzünde Ayarlar → 'Tüm ayarları görüntüleyin' → 'Yönlendirme ve POP/IMAP' sekmesinde 'IMAP'i etkinleştir' seçeneğinin açık olduğundan emin olun.\n2) Google girişinde istenen e-posta okuma/yazma izin kutusunu onaylayın.\n3) Okul/kurum hesabıysa yöneticiniz üçüncü taraf IMAP erişimini kapatmış olabilir (bu durumda Ayarlar → Hesaplar → Manuel IMAP seçeneği ile Google Uygulama Şifresi girerek bağlanabilirsiniz).`;
     }
     if (/too many simultaneous connections|too many connections/i.test(raw)) {
-      return `${raw} — Gmail eşzamanlı bağlantı limitine takıldı (çok hesap aynı anda). Birkaç saniye bekleyip Eşitle'ye tekrar basın; arka plan senkronizasyonu sırayla dener.`;
+      return `${raw} — Gmail eşzamanlı bağlantı limitine takıldı (çok hesap aynı anda). Birkaç saniye bekleyip Eşitle'ye tekrar basın.`;
     }
-    if (/timeout|etimedout|econnreset|epipe|socket|network|fetch failed|enotfound/i.test(raw)) {
-      return `${raw} — Geçici ağ/IMAP kesintisi. İnterneti kontrol edip Eşitle'yi tekrar deneyin.`;
+    if (/zaman aşımına uğradı|timeout|etimedout|econnreset|epipe|socket|network|fetch failed|enotfound/i.test(raw)) {
+      return `${raw} — Sunucu bağlantısı zaman aşımına uğradı veya ağ kesildi. İnternet bağlantınızı kontrol edip tekrar deneyin.`;
     }
     if (isGoogle && /no such mailbox|mailbox|folder/i.test(raw)) {
-      return `${raw} — Klasör Gmail'de bulunamadı (etiket adı değişmiş olabilir). Klasör listesini yenileyip INBOX üzerinden eşitleyin.`;
+      return `${raw} — Klasör Gmail'de bulunamadı (etiket silinmiş veya adı değişmiş olabilir). Klasör listesini yenileyip tekrar deneyin.`;
     }
     return raw;
   }

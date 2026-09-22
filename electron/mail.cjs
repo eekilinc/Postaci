@@ -104,6 +104,22 @@ function imapErrDetail(e) {
   return parts.join(' | ').slice(0, 600);
 }
 
+// IMAP kimlik doğrulama reddi mi? (ölü/geri alınmış token, yanlış şifre, eksik OAuth kapsamı, kapalı IMAP)
+function isAuthFailed(e) {
+  if (!e) return false;
+  if (e.authenticationFailed) return true;
+  let resp = '';
+  try {
+    resp = e && typeof e.response === 'object' ? JSON.stringify(e.response) : String(e?.response || '');
+  } catch { resp = ''; }
+  let oauthErr = '';
+  try {
+    oauthErr = e && typeof e.oauthError === 'object' ? JSON.stringify(e.oauthError) : String(e?.oauthError || '');
+  } catch { oauthErr = ''; }
+  const s = `${e?.message || ''} ${e?.responseText || ''} ${resp} ${oauthErr}`.toLowerCase();
+  return /authenticationfailed|invalid credentials|invalid_grant|unauthorized_client|access_denied|auth failed|login failed|invalid login|authentication unsuccessful|535.*auth|xoauth2|oauth.*401|alert.*please log in via your web browser/i.test(s);
+}
+
 // Aktif IMAP istemci havuzu (email -> { client, credHash, idleTimer })
 // Sürekli connect/logout yapmak yerine bağlantıyı canlı tutar;
 // özellikle Hotmail / Microsoft / Exchange sunucularında hızlı oturum aç/kapa kaynaklı
@@ -264,6 +280,9 @@ async function openClient({ provider, email, accessToken, password, imapHost, im
     logger: false,
     auth,
     disableAutoIdle: true,
+    connectionTimeout: 15000,
+    greetingTimeout: 10000,
+    socketTimeout: 30000,
   });
   // Soket hataları (örn. ECONNRESET) 'error' olayına düşer; dinleyicisiz
   // EventEmitter ana süreci çökertir ("A JavaScript error occurred").
@@ -275,20 +294,34 @@ async function openClient({ provider, email, accessToken, password, imapHost, im
     try {
       client.close();
     } catch {}
+
+    // Kimlik doğrulama reddinde (yanlış şifre, süresi dolmuş veya izinsiz token, IMAP kapalı):
+    // ASLA burada bekleyip retry döngüsüne girme! Hemen fırlat ki withAuthRetry token yenilemeyi yönetsin
+    // veya kullanıcıya anında gerçek hatayı göstersin.
+    if (err?.authenticationFailed || isAuthFailed(err)) {
+      throw err;
+    }
+
     const msg = `${err?.message || ''} ${err?.responseText || ''} ${err?.response || ''}`;
+    // Yalnızca Microsoft Exchange oturum açılış gecikmesi ('User is authenticated but not connected') için en fazla 3 deneme
     if (
-      attempt <= 5 &&
-      (msg.includes('User is authenticated but not connected') ||
-        msg.includes('ECONNRESET') ||
-        msg.includes('ETIMEDOUT') ||
-        msg.includes('Command failed'))
+      attempt <= 3 &&
+      provider === 'microsoft' &&
+      msg.includes('User is authenticated but not connected')
     ) {
-      // Exchange backend oturum açılış gecikmesi (15-22 sn) için progresif aralıklar (3s, 5s, 8s, 10s)
-      const waitMs = attempt === 1 ? 3000 : attempt === 2 ? 5000 : attempt === 3 ? 8000 : 10000;
-      console.log(`[imap] Geçici bağlantı uyarısı (${err?.responseText || err?.message}), ${attempt}. deneme (${waitMs}ms) bekleniyor...`);
+      const waitMs = attempt === 1 ? 2000 : attempt === 2 ? 3000 : 5000;
+      console.log(`[imap] Exchange oturum hazırlığı bekleniyor (${attempt}. deneme, ${waitMs}ms)...`);
       await new Promise((r) => setTimeout(r, waitMs));
       return openClient({ provider, email, accessToken, password, imapHost, imapPort }, attempt + 1);
     }
+
+    // Geçici soket kopması (ECONNRESET/ETIMEDOUT) durumunda tek 1 hızlı tekrar (1 sn)
+    if (attempt === 1 && (msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT'))) {
+      console.log(`[imap] Geçici soket kopması (${err?.message}), 1 sn sonra tekrar deneniyor...`);
+      await new Promise((r) => setTimeout(r, 1000));
+      return openClient({ provider, email, accessToken, password, imapHost, imapPort }, attempt + 1);
+    }
+
     throw err;
   }
 }
@@ -497,16 +530,39 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
         ).all(email, folderPath, lastSeenUid).map((x) => String(x.uid));
       } catch { /* bayrak tazeleme atlanır, sync devam eder */ }
     } else {
-      // İlk sync (yerel kutu boşken): son `limit` adet iletiyi anında çek (sıfır SEARCH ALL yükü)
+      // İlk sync (yerel kutu boşken): son `limit` adet iletiyi doğrudan FETCH ile anında çek (tek roundtrip, 0 ms arama)
       if (total > 0) {
+        const startSeq = Math.max(1, total - limit + 1);
         try {
-          const startSeq = Math.max(1, total - limit + 1);
-          const uids = await client.search({ seq: `${startSeq}:*` }, { uid: true });
-          if (Array.isArray(uids) && uids.length > 0) {
-            target = uids.slice(-limit);
+          for await (const msg of client.fetch(`${startSeq}:*`, { envelope: true, flags: true, bodyStructure: true, uid: true })) {
+            if (!msg || !msg.uid) continue;
+            if (skipUid && skipUid(msg.uid)) continue;
+
+            const env = msg.envelope || {};
+            const isSeen = !!(msg.flags && msg.flags.has('\\Seen'));
+            const isStarred = !!(msg.flags && msg.flags.has('\\Flagged'));
+            const hasAtt = detectHasAttachment(msg.bodyStructure) ? 1 : 0;
+
+            upsertMsg.run(
+              email,
+              folderPath,
+              String(msg.uid),
+              env.subject || '(konusuz)',
+              addrToString(env.from),
+              addrToString(env.to),
+              env.date ? new Date(env.date).toISOString() : null,
+              '',
+              isSeen ? 1 : 0,
+              isStarred ? 1 : 0,
+              hasAtt,
+            );
+            synced++;
           }
-        } catch (seqErr) {
-          console.warn(`[sync] ${email} [${folderPath}] seq ile arama yapılamadı (${seqErr?.message}), alternatif deneniyor...`);
+          mark('fetch');
+          console.log(`[sync] ${email} [${folderPath}]: İlk eşitleme doğrudan FETCH ile tamamlandı (kutuda=${total}, çekilen=${synced}, ${Date.now() - tStart}ms)`);
+          return { total, synced, failed: 0, newMessages: [] };
+        } catch (fetchSeqErr) {
+          console.warn(`[sync] ${email} [${folderPath}] seq ile doğrudan çekme yapılamadı (${fetchSeqErr?.message}), UID yoluna dönülüyor...`);
           try {
             const uidNext = Number(mb?.uidNext ?? client.mailbox?.uidNext ?? 0) || 0;
             if (uidNext > 1) {
@@ -860,6 +916,27 @@ async function verifyImap({ host, port, email, password }) {
 async function listFolders({ provider, email, accessToken, password, imapHost, imapPort }) {
   // IMAP sunucusundaki tüm klasörleri listeler (özel bayraklarla: Sent/Trash/Drafts/Junk)
   return withClient({ provider, email, accessToken, password, imapHost, imapPort }, async (client) => {
+    try {
+      // 1. Doğrudan client.list() ile düz liste al (çok daha hızlıdır ve ağaç dönüşüm yükü yoktur)
+      const rawList = await client.list();
+      if (Array.isArray(rawList) && rawList.length > 0) {
+        return rawList.map((n) => {
+          const flags = n.flags ? [...n.flags] : [];
+          if (n.specialUse && !flags.includes(n.specialUse)) {
+            flags.push(n.specialUse);
+          }
+          return {
+            path: n.path,
+            name: n.name || n.path,
+            flags,
+            delimiter: n.delimiter || '/',
+          };
+        });
+      }
+    } catch (listErr) {
+      console.warn('[listFolders] client.list() başarısız, listTree ile deneniyor:', listErr?.message);
+    }
+
     const tree = await client.listTree();
     const flatten = (rootNodes) => {
       const out = [];
@@ -1140,4 +1217,4 @@ async function batchMoveToFolder({ provider, email, accessToken, password, imapH
   });
 }
 
-module.exports = { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, refreshFolderCounts, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, findArchivePath, moveToFolder, batchMoveToFolder, openClient, withClient, invalidateClient, imapErrDetail, withTimeout };
+module.exports = { refreshAccessToken, emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, refreshFolderCounts, fetchBody, fetchAttachment, markSeen, markUnseen, createTransporter, buildRaw, sendRaw, appendToSent, verifyImap, listFolders, moveToTrash, batchMoveToTrash, batchMarkSeen, batchToggleFlag, findArchivePath, moveToFolder, batchMoveToFolder, openClient, withClient, invalidateClient, imapErrDetail, withTimeout, isAuthFailed };
