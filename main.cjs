@@ -187,10 +187,9 @@ function imapLock(email, fn) {
 // özellikle son eklenenler" şikayetinin sebebi bu head-of-line bloklanması.
 // Çözüm: (1) hesap başına zaman aşımı + asılı soketi düşürme,
 // (2) sınırlı paralellik (3) — yavaş hesap diğerlerini bloklamaz.
-const SYNC_PER_ACCOUNT_TIMEOUT_MS = 60000;
-const SYNC_CONCURRENCY = 3;
-// Tam temizlik (pahalı SEARCH ALL) arka planda en seyrek bu aralıkla yapılır;
-// ara turlar yalnızca yenileri çeker (Thunderbird'ün seyrek expunge taraması gibi).
+const SYNC_PER_ACCOUNT_TIMEOUT_MS = 45000;
+const SYNC_CONCURRENCY = 2; // Gmail IP/bağlantı kısıtlamalarını önlemek için 2'li paralellik
+// Tam temizlik ve diğer klasörlerin rozetleri arka planda en seyrek bu aralıkla taranır
 const FULL_PRUNE_INTERVAL_MS = 15 * 60 * 1000;
 const _lastFullPrune = new Map(); // email -> timestamp
 function shouldFullPrune(email) {
@@ -206,11 +205,9 @@ function isTimeoutError(e) {
 }
 
 // Tek hesabın INBOX senkronu: zaman aşımlı, asılı soketi temizleyen, bildirim üreten.
-// folderPath parametreli değil — çoklu senkron yalnızca INBOX çeker (ucuz STATUS rozetler için).
 async function syncOneInboxWithTimeout(fullAcc) {
   const email = fullAcc.email;
-  // Arka plan turu: pahalı tam temizlik en fazla 15 dk'da bir; ara turlar artımlı.
-  // Kullanıcı Eşitle'si her zaman tam temizlik yapar (aşağıdaki IPC'lerde skipPrune yok).
+  // Arka plan turu: pahalı tam temizlik ve klasör sayaçları en fazla 15 dk'da bir; ara turlar hafif artımlı.
   const doPrune = shouldFullPrune(email);
   const work = withAuthRetry(fullAcc, (creds) =>
     imapLock(email, async () => {
@@ -224,25 +221,25 @@ async function syncOneInboxWithTimeout(fullAcc) {
         skipUid: (uid) => isDeleted(fullAcc.email, 'INBOX', String(uid)),
         skipPrune: !doPrune,
       });
-      // INBOX dışı klasörler: ileti çekmeden yalnızca rozet sayaçlarını tazele (ucuz STATUS)
-      try {
-        await withTimeout(
-          refreshFolderCounts({
-            provider: fullAcc.provider, email: fullAcc.email, db: getDb(), ...creds,
-          }),
-          20000,
-          `[${email}] klasör sayaçları`,
-        );
-      } catch (e) {
-        console.warn(`[bg-sync] ${email} klasör sayaçları atlandı:`, e?.message || e);
+      // INBOX dışı klasörler: yalnızca periyodik temizlik turunda (15 dk'da bir) sayaçları tazele (aşırı STATUS sorgusunu önler)
+      if (doPrune) {
+        try {
+          await withTimeout(
+            refreshFolderCounts({
+              provider: fullAcc.provider, email: fullAcc.email, db: getDb(), ...creds,
+            }),
+            15000,
+            `[${email}] klasör sayaçları`,
+          );
+        } catch (e) {
+          console.warn(`[bg-sync] ${email} klasör sayaçları atlandı:`, e?.message || e);
+        }
       }
       return r;
     }));
   try {
     return await withTimeout(work, SYNC_PER_ACCOUNT_TIMEOUT_MS, `[${email}] INBOX eşitleme`);
   } catch (e) {
-    // Zaman aşımında asılı kalmış olabilecek soketi havuzdan düşür ki
-    // sonraki Eşitle denemesi temiz bağlantıyla başlasın, kuyruk açılsın.
     if (isTimeoutError(e)) {
       try { invalidateClient(email); } catch {}
     }
@@ -250,15 +247,15 @@ async function syncOneInboxWithTimeout(fullAcc) {
   }
 }
 
-// Sınırlı paralellik havuzu: items üzerinde worker fn'i en fazla `limit`
-// eşzamanlı çalıştırır; biri yavaşlasa/asılsa diğerleri ilerler.
-// Her worker sonucu { ok, value } / { ok:false, error } olarak döner —
-// bir hesabın hatası diğerlerini ve havuzu durdurmaz.
+// Sınırlı paralellik havuzu: Gmail IMAP soket patlamasını önlemek için çalışanlar arasına küçük gecikme ekler
 async function runWithConcurrency(items, limit, worker) {
   const results = new Array(items.length);
   let next = 0;
   const n = Math.max(1, Math.min(limit, items.length));
-  await Promise.all(Array.from({ length: n }, async () => {
+  await Promise.all(Array.from({ length: n }, async (_x, workerIdx) => {
+    if (workerIdx > 0) {
+      await new Promise((r) => setTimeout(r, workerIdx * 300));
+    }
     while (true) {
       const i = next++;
       if (i >= items.length) return;
@@ -267,6 +264,7 @@ async function runWithConcurrency(items, limit, worker) {
       } catch (error) {
         results[i] = { ok: false, error };
       }
+      await new Promise((r) => setTimeout(r, 200));
     }
   }));
   return results;
@@ -471,7 +469,7 @@ function isInQuietHours() {
   try {
     const settings = getSetting('notification_settings', {
       notificationsEnabled: true,
-      syncIntervalMinutes: 0.5,
+      syncIntervalMinutes: 2,
       soundEnabled: true,
       quietHoursEnabled: false,
       quietHoursStart: '22:00',
@@ -632,7 +630,7 @@ function notifyNewMessages(accountEmail, newMessages) {
 
   const settings = getSetting('notification_settings', {
     notificationsEnabled: true,
-    syncIntervalMinutes: 0.5,
+    syncIntervalMinutes: 2,
     soundEnabled: true,
     quietHoursEnabled: false,
     quietHoursStart: '22:00',
@@ -691,7 +689,7 @@ async function runBackgroundSync() {
   try {
     const settings = getSetting('notification_settings', {
       notificationsEnabled: true,
-      syncIntervalMinutes: 0.5,
+      syncIntervalMinutes: 2,
       soundEnabled: true,
     });
 
@@ -754,13 +752,13 @@ function updateBackgroundSyncSchedule() {
   }
   const settings = getSetting('notification_settings', {
     notificationsEnabled: true,
-    syncIntervalMinutes: 0.5,
+    syncIntervalMinutes: 2,
     soundEnabled: true,
   });
 
-  const minutes = Number(settings.syncIntervalMinutes) || 0.5;
+  const minutes = Number(settings.syncIntervalMinutes) || 2;
   if (minutes > 0) {
-    const ms = Math.max(15000, Math.round(minutes * 60 * 1000));
+    const ms = Math.max(30000, Math.round(minutes * 60 * 1000));
     bgSyncTimer = setInterval(() => {
       runBackgroundSync().catch((e) => console.error('[bg-sync] hata:', e));
     }, ms);
@@ -2546,7 +2544,7 @@ app.whenReady().then(() => {
   ipcMain.handle('notifications:get-settings', () => {
     return getSetting('notification_settings', {
       notificationsEnabled: true,
-      syncIntervalMinutes: 0.5,
+      syncIntervalMinutes: 2,
       soundEnabled: true,
       quietHoursEnabled: false,
       quietHoursStart: '22:00',
@@ -2556,7 +2554,7 @@ app.whenReady().then(() => {
   ipcMain.handle('notifications:save-settings', (_evt, newSettings) => {
     const current = getSetting('notification_settings', {
       notificationsEnabled: true,
-      syncIntervalMinutes: 0.5,
+      syncIntervalMinutes: 2,
       soundEnabled: true,
       quietHoursEnabled: false,
       quietHoursStart: '22:00',

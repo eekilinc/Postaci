@@ -414,150 +414,133 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
 
     const upsertFolder = db.prepare(
       `INSERT INTO folders (account_id, name, path, unread_count)
-       VALUES ((SELECT id FROM accounts WHERE email=?), ?, ?, ?)
+       VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), ?, ?, ?)
        ON CONFLICT(account_id, path) DO UPDATE SET unread_count=excluded.unread_count`,
     );
     upsertFolder.run(email, folderPath === 'INBOX' ? 'Gelen Kutusu' : folderPath, folderPath, unread);
 
     const checkExists = db.prepare(
-      `SELECT 1 FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`,
+      `SELECT 1 FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`,
     );
 
     const upsertMsg = db.prepare(
-      `INSERT INTO messages (account_id, folder_path, uid, subject, from_addr, to_addr, date, snippet, is_read, has_att)
-       VALUES ((SELECT id FROM accounts WHERE email=?), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO messages (account_id, folder_path, uid, subject, from_addr, to_addr, date, snippet, is_read, starred, has_att)
+       VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(account_id, folder_path, uid) DO UPDATE SET
          subject=excluded.subject, from_addr=excluded.from_addr, to_addr=excluded.to_addr,
-         date=excluded.date, is_read=excluded.is_read, has_att=excluded.has_att`,
+         date=excluded.date, is_read=excluded.is_read, starred=excluded.starred, has_att=excluded.has_att`,
     );
 
     const updateFlags = db.prepare(
-      `UPDATE messages SET is_read=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`,
+      `UPDATE messages SET is_read=?, starred=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`,
     );
 
-    // ── Artımlı sync (Thunderbird/Evolution modeli) ─────────────────────────
-    // Eskiden HER sync'te SEARCH ALL + 50 iletiye ENVELOPE+FLAGS+BODYSTRUCTURE
-    // çekiliyordu. Büyük Gmail kutularında bu 75 sn'yi aşıp timeout'a düşüyor
-    // ve 30 sn'deki arka plan turlarıyla kuyruk yığılması yapıyordu.
-    // Şimdi: yereldeki en büyük UID'den sonrasını sunucu taraflı aralıklı
-    // UID SEARCH ile sor (genelde 0-5 ileti), bilinen iletilere yalnızca ucuz
-    // FLAGS çekişi yap, pahalı tam UID listesini yalnızca temizlik gerektiğinde
-    // ve en fazla bir kez çek.
+    // ── Artımlı sync (IMAP UIDNEXT modeli) ─────────────────────────────────
     let lastSeenUid = 0;
     try {
       const r = db.prepare(
         `SELECT MAX(CAST(uid AS INTEGER)) AS m FROM messages
-         WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid GLOB '[0-9]*'`,
+         WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid GLOB '[0-9]*'`,
       ).get(email, folderPath);
       if (r && r.m) lastSeenUid = Number(r.m) || 0;
     } catch { /* ilk sync sayılır */ }
 
     const uidNext = Number(mb?.uidNext ?? client.mailbox?.uidNext ?? 0) || 0;
     const serverMaxUid = uidNext > 0 ? uidNext - 1 : 0;
-    // UIDVALIDITY sıfırlanması/kutu değişimi: yereldeki UID'ler sunucunun üstündeyse
-    // artımlı devam edilemez — ilk sync yoluna düş (aşağıda + tam temizlik).
+    // UIDVALIDITY sıfırlanması/kutu değişimi durumunda ilk sync yoluna düş
     if (lastSeenUid > 0 && serverMaxUid > 0 && lastSeenUid > serverMaxUid) lastSeenUid = 0;
 
-    // Tam UID listesi tembel + paylaşımlı: ilk sync ve temizlik aynı listeyi kullanır,
-    // artımlı sync'te HİÇ çekilmez (büyük kutulardaki yavaşlığın ana kaynağı buydu).
-    let allUids = null;
-    async function getAllUids() {
-      if (!allUids) allUids = (await client.search({ all: true }, { uid: true })) || [];
-      return allUids;
-    }
-
     let target = [];       // tam çekilecek UID'ler (envelope+flags+bodyStructure)
-    let flagOnlyUids = []; // yalnızca bayrağı tazelenenecek bilinen UID'ler (ucuz FLAGS)
+    let flagOnlyUids = []; // yalnızca bayrağı tazelenecek bilinen UID'ler (ucuz FLAGS)
+
     if (beforeUid) {
-      // "Daha eski iletiler": sunucu taraflı UID aralığıyla, son `limit` tanesi
+      // Sayfalama: "Daha eski iletiler"
       const beforeNum = Number(beforeUid);
       if (!Number.isNaN(beforeNum) && beforeNum > 1) {
         try {
-          const older = (await client.search({ uid: `1:${beforeNum - 1}` }, { uid: true })) || [];
-          target = older.slice(-limit);
+          const older = await client.search({ uid: `1:${beforeNum - 1}` }, { uid: true });
+          if (Array.isArray(older)) {
+            target = older.slice(-limit);
+          }
         } catch (e) {
           throw new Error(`[${folderPath}] eski ileti araması başarısız: ${imapErrDetail(e)}`);
         }
       }
     } else if (lastSeenUid > 0) {
-      // Normal artımlı sync: yalnızca bu UID'den sonrakiler.
-      // Bazı sunucular ESEARCH yanıtında '*' içeren aralık döndürür, istemci
-      // bunu boş dizi olarak ayrıştırabilir — o yüzden sonuç sunucunun
-      // bildirdiği uidNext ile tutarlılık kontrolünden geçer, tutarsızsa
-      // eski tam liste yoluna düşülür (asla sessiz boş sync yok).
-      let fresh = null;
-      try {
-        fresh = (await client.search({ uid: `${lastSeenUid + 1}:*` }, { uid: true })) || [];
-      } catch (e) {
-        console.warn(`[sync] ${email} [${folderPath}] aralıklı arama başarısız, tam listeye düşülüyor:`, e?.message || e);
-      }
-      if (fresh && fresh.length > 0) {
-        target = fresh.slice(-limit);
-      } else if (fresh === null || (serverMaxUid > lastSeenUid)) {
-        // Arama patladı VEYA sunucu daha yüksek UID bildiriyor ama aralık boş:
-        // tam liste yoluna düş (v1.0.40 davranışı).
-        if (fresh !== null) {
-          console.warn(`[sync] ${email} [${folderPath}] tutarsız aralık sonucu (son=${lastSeenUid} sunucuMax=${serverMaxUid}), tam listeye düşülüyor.`);
-        }
+      // Normal artımlı sync:
+      // Eğer sunucudaki en büyük UID (serverMaxUid) yereldeki son görülen UID'den büyük değilse,
+      // IMAP garantisi gereği YENİ İLETİ YOKTUR (0 ms, sunucuya gereksiz arama yok).
+      if (serverMaxUid > 0 && serverMaxUid <= lastSeenUid) {
+        target = [];
+      } else {
         try {
-          target = (await getAllUids()).slice(-limit);
+          const fresh = await client.search({ uid: `${lastSeenUid + 1}:*` }, { uid: true });
+          if (Array.isArray(fresh) && fresh.length > 0) {
+            target = fresh.slice(-limit);
+          }
+        } catch (e) {
+          console.warn(`[sync] ${email} [${folderPath}] yeni ileti arama uyarısı:`, e?.message || e);
+        }
+      }
+
+      // Son bilinen iletilerin okundu ve yıldız durumlarını güncelle (ucuz FLAGS)
+      try {
+        flagOnlyUids = db.prepare(
+          `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
+           AND folder_path=? AND uid GLOB '[0-9]*' AND CAST(uid AS INTEGER) <= ?
+           ORDER BY CAST(uid AS INTEGER) DESC LIMIT 150`,
+        ).all(email, folderPath, lastSeenUid).map((x) => String(x.uid));
+      } catch { /* bayrak tazeleme atlanır, sync devam eder */ }
+    } else {
+      // İlk sync (yerel kutu boşken): son `limit` adet iletiyi çek
+      if (total > 0) {
+        try {
+          const allUids = await client.search({ all: true }, { uid: true });
+          if (Array.isArray(allUids) && allUids.length > 0) {
+            target = allUids.slice(-limit);
+          }
         } catch (e) {
           throw new Error(`[${folderPath}] UID araması (SEARCH ALL) başarısız: ${imapErrDetail(e)}`);
         }
       }
-      // fresh boş dizi + sunucuda da yeni yok = gerçekten yeni ileti yok, target boş kalır.
-      // Bilinen son iletilerin okundu bayraklarını tek ucuz FLAGS komutuyla tazele
-      try {
-        flagOnlyUids = db.prepare(
-          `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?)
-           AND folder_path=? AND uid GLOB '[0-9]*' AND CAST(uid AS INTEGER) <= ?
-           ORDER BY CAST(uid AS INTEGER) DESC LIMIT 200`,
-        ).all(email, folderPath, lastSeenUid).map((x) => x.uid);
-      } catch { /* bayrak tazeleme atlanır, sync devam eder */ }
-    } else {
-      // İlk sync: tam liste bir kez çekilir (temizlikle paylaşılır), son `limit` çekilir
-      try {
-        target = (await getAllUids()).slice(-limit);
-      } catch (e) {
-        throw new Error(`[${folderPath}] UID araması (SEARCH ALL) başarısız: ${imapErrDetail(e)}`);
-      }
     }
     mark('search');
-    // Sunucudan silinmiş veya taşınmış mesajları yerel SQLite veritabanından temizle.
-    // Pahalı tam liste gerektirir: kullanıcı isteğinde her zaman, arka planda
-    // yalnızca skipPrune=false ise. Başarısız olursa sync'i DÜŞÜRMEZ (uyarı+devam).
+
+    // ── Güvenli Prune (Veri Kaybı Korumalı Temizlik) ────────────────────────
+    // ASLA SEARCH ALL ile tüm posta kutusu çekilip yerel veriler silinmez (Gmail kısıtlamasında veri silinmesini önler).
+    // Yalnızca YERELDE kayıtlı bulunan son iletilerin sunucuda hâlâ bulunup bulunmadığı sorgulanır.
     if (!beforeUid && !skipPrune) {
       try {
-        const fullList = await getAllUids();
-        const serverUidSet = new Set(fullList.map(String));
         const localRows = db.prepare(
-          `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=?`,
+          `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=?
+           AND uid GLOB '[0-9]*' ORDER BY CAST(uid AS INTEGER) DESC LIMIT 200`,
         ).all(email, folderPath);
 
-        // Güvenlik: STATUS/exists sunucuda `total` ileti bildirirken SEARCH
-        // budanmış/bozuk dönerse yerel veriyi SİLME (eksik listeyle prune = veri kaybı).
-        if (total > 0 && serverUidSet.size < total / 2) {
-          console.warn(`[sync] ${email} [${folderPath}] temizlik atlandı: liste budanmış görünüyor (kutuda=${total} listede=${serverUidSet.size}).`);
-        } else {
+        const localUidsToCheck = localRows.map((r) => String(r.uid));
+        if (localUidsToCheck.length > 0) {
+          const existingOnServer = await client.search({ uid: localUidsToCheck.join(',') }, { uid: true });
+          if (Array.isArray(existingOnServer)) {
+            // Eğer kutuda total > 0 iken sorgu şüpheli şekilde 0 döndüyse, bu sunucu budamasıdır — SİLME!
+            if (existingOnServer.length === 0 && total > 0) {
+              console.warn(`[sync] ${email} [${folderPath}] temizlik atlandı: sunucu yanıtı şüpheli boş döndü (kutuda=${total}).`);
+            } else {
+              const serverUidSet = new Set(existingOnServer.map(String));
+              const deleteLocal = db.prepare(
+                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`,
+              );
+              const deleteAtt = db.prepare(
+                `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`,
+              );
 
-        const deleteLocal = db.prepare(
-          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`,
-        );
-        const deleteAtt = db.prepare(
-          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`,
-        );
-
-        for (const row of localRows) {
-          // Yerel taslaklar ('draft-...') veya henüz giden iletiler ('local-...') silinmemeli
-          if (String(row.uid).startsWith('draft-') || String(row.uid).startsWith('local-')) {
-            continue;
-          }
-          if (!serverUidSet.has(String(row.uid))) {
-            deleteLocal.run(email, folderPath, String(row.uid));
-            try { deleteAtt.run(email, folderPath, String(row.uid)); } catch {}
+              for (const uidStr of localUidsToCheck) {
+                if (!serverUidSet.has(uidStr)) {
+                  deleteLocal.run(email, folderPath, uidStr);
+                  try { deleteAtt.run(email, folderPath, uidStr); } catch {}
+                }
+              }
+            }
           }
         }
-        } // else: liste sağlıklı, temizlik yukarıda yapıldı
       } catch (pruneErr) {
         console.warn(`[sync] ${email} [${folderPath}] temizlik atlandı (sync devam ediyor):`, pruneErr?.message || pruneErr);
       }
@@ -569,13 +552,15 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     let firstError = null;
     let flagsTouched = 0;
     const newMessages = [];
-    // 1) Ucuz bayrak tazeleme (yalnızca artımlı yolda, tek FLAGS komutu)
+
+    // 1) Ucuz bayrak tazeleme (hem okundu hem de yıldızlı bayrağı)
     if (flagOnlyUids.length > 0) {
       try {
         for await (const msg of client.fetch(flagOnlyUids.join(','), { flags: true }, { uid: true })) {
           try {
             const isSeen = !!(msg.flags && msg.flags.has('\\Seen'));
-            const info = updateFlags.run(isSeen ? 1 : 0, email, folderPath, String(msg.uid));
+            const isStarred = !!(msg.flags && msg.flags.has('\\Flagged'));
+            const info = updateFlags.run(isSeen ? 1 : 0, isStarred ? 1 : 0, email, folderPath, String(msg.uid));
             if (info && info.changes) flagsTouched++;
           } catch { /* tekil bayrak hatası sayılmaz, devam */ }
         }
@@ -584,53 +569,54 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
       }
     }
     mark('flags');
+
+    // 2) Yeni iletileri çekme
     if (target.length > 0) {
       try {
         for await (const msg of client.fetch(target.join(','), { envelope: true, flags: true, bodyStructure: true }, { uid: true })) {
-        try {
-          // Yakın zamanda silinen mesajları yeniden ekleme
-          if (skipUid && skipUid(msg.uid)) continue;
+          try {
+            if (skipUid && skipUid(msg.uid)) continue;
 
-          const env = msg.envelope || {};
-          const isSeen = !!(msg.flags && msg.flags.has('\\Seen'));
-          const isNew = !checkExists.get(email, folderPath, String(msg.uid));
-          const hasAtt = detectHasAttachment(msg.bodyStructure) ? 1 : 0;
+            const env = msg.envelope || {};
+            const isSeen = !!(msg.flags && msg.flags.has('\\Seen'));
+            const isStarred = !!(msg.flags && msg.flags.has('\\Flagged'));
+            const isNew = !checkExists.get(email, folderPath, String(msg.uid));
+            const hasAtt = detectHasAttachment(msg.bodyStructure) ? 1 : 0;
 
-          upsertMsg.run(
-            email,
-            folderPath,
-            String(msg.uid),
-            env.subject || '(konusuz)',
-            addrToString(env.from),
-            addrToString(env.to),
-            env.date ? new Date(env.date).toISOString() : null,
-            '',
-            isSeen ? 1 : 0,
-            hasAtt,
-          );
-          synced++;
+            upsertMsg.run(
+              email,
+              folderPath,
+              String(msg.uid),
+              env.subject || '(konusuz)',
+              addrToString(env.from),
+              addrToString(env.to),
+              env.date ? new Date(env.date).toISOString() : null,
+              '',
+              isSeen ? 1 : 0,
+              isStarred ? 1 : 0,
+              hasAtt,
+            );
+            synced++;
 
-          if (isNew && !isSeen) {
-            newMessages.push({
-              uid: String(msg.uid),
-              subject: env.subject || '(konusuz)',
-              from: addrToString(env.from),
-              date: env.date ? new Date(env.date).toISOString() : null,
-            });
+            if (isNew && !isSeen) {
+              newMessages.push({
+                uid: String(msg.uid),
+                subject: env.subject || '(konusuz)',
+                from: addrToString(env.from),
+                date: env.date ? new Date(env.date).toISOString() : null,
+              });
+            }
+          } catch (e) {
+            failed++;
+            if (!firstError) firstError = e?.message ? String(e.message).slice(0, 300) : String(e || '').slice(0, 300);
           }
-        } catch (e) {
-          failed++;
-          // İlk hatanın nedenini sakla — arayüzde teşhis için gösterilecek (önceden yutuluyordu)
-          if (!firstError) firstError = e?.message ? String(e.message).slice(0, 300) : String(e || '').slice(0, 300);
-        }
         }
       } catch (e) {
-        // Tekil ileti hataları yukarıda sayılır; buraya düşen toplu FETCH/üretici hatasıdır
         throw new Error(`[${folderPath}] ileti çekme (FETCH, ${target.length} ileti) başarısız: ${imapErrDetail(e)}`);
       }
     }
     mark('fetch');
-    console.log(`[sync] ${email} [${folderPath}]: kutuda=${total} hedef=${target.length} çekilen=${synced} yeni=${newMessages.length} bayrak=${flagsTouched} hatalı=${failed} süre=${Date.now() - tStart}ms (arama=${phaseMs.search}ms temizlik=${(phaseMs.prune ?? 0) - (phaseMs.search ?? 0)}ms bayrak=${(phaseMs.flags ?? 0) - (phaseMs.prune ?? 0)}ms çekiş=${Date.now() - tStart - (phaseMs.fetch ?? 0)}ms)${firstError ? ` ilkHata=${firstError}` : ''}`);
+    console.log(`[sync] ${email} [${folderPath}]: kutuda=${total} hedef=${target.length} çekilen=${synced} yeni=${newMessages.length} bayrak=${flagsTouched} hatalı=${failed} süre=${Date.now() - tStart}ms${firstError ? ` ilkHata=${firstError}` : ''}`);
     return { total, synced, failed, firstError, newMessages };
   });
 }
@@ -640,18 +626,23 @@ async function syncInbox({ provider, email, accessToken, password, imapHost, ima
 }
 
 // Hafif rozet tazeleme: ileti ÇEKMEZ, her klasöre STATUS sorup okunmamış sayısını DB'ye yazar.
-// Arka plan senkronunda INBOX dışı klasörlerin rozetlerini taze tutar (ucuz: klasör başına 1 komut).
 async function refreshFolderCounts({ provider, email, accessToken, password, imapHost, imapPort, db }) {
   const rows = db.prepare(
-    `SELECT path FROM folders WHERE account_id=(SELECT id FROM accounts WHERE email=?)`
+    `SELECT path FROM folders WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)`
   ).all(email);
   const paths = (rows || [])
     .map((r) => r.path)
-    .filter((p) => p && String(p).toUpperCase() !== '[GMAIL]');
+    .filter((p) => {
+      if (!p) return false;
+      const up = String(p).toUpperCase();
+      // Tüm Postalar / All Mail yüz binlerce ileti içerebilir; arka planda STATUS sorgusunu yavaşlatıp soketi kilitler
+      if (up === '[GMAIL]' || up.includes('ALL MAIL') || up.includes('TÜM POSTALAR')) return false;
+      return true;
+    });
   if (paths.length === 0) return { updated: 0, failed: 0 };
   return withClient({ provider, email, accessToken, password, imapHost, imapPort }, async (client) => {
     const upd = db.prepare(
-      `UPDATE folders SET unread_count=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND path=?`
+      `UPDATE folders SET unread_count=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND path=?`
     );
     let updated = 0;
     let failed = 0;

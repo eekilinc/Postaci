@@ -128,6 +128,7 @@ function initDb(userDataPath) {
     CREATE INDEX IF NOT EXISTS idx_messages_search ON messages(subject, from_addr, snippet);
     CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(account_id, folder_path, is_read);
     CREATE INDEX IF NOT EXISTS idx_messages_att ON messages(account_id, folder_path, has_att);
+    CREATE INDEX IF NOT EXISTS idx_accounts_email_nocase ON accounts(email COLLATE NOCASE);
   `);
 
   // Geçmişten gelen kayıtlı ekler varsa has_att=1 olarak senkronize et
@@ -179,7 +180,10 @@ function getAccountById(id) {
 }
 
 function getAccountByEmail(email) {
-  return getDb().prepare('SELECT * FROM accounts WHERE email=?').get(email);
+  if (!email) return null;
+  const trimmed = String(email).trim();
+  return getDb().prepare('SELECT * FROM accounts WHERE email=? COLLATE NOCASE').get(trimmed)
+    || getDb().prepare('SELECT * FROM accounts WHERE email=?').get(trimmed);
 }
 
 function updateAccount(id, { displayName, imapHost, imapPort, smtpHost, smtpPort, smtpSecure, passwordEnc }) {
@@ -207,8 +211,8 @@ function deleteAccount(id) {
 
 function updateTokens(email, { refreshTokenEnc, accessTokenEnc, tokenExpiry }) {
   getDb()
-    .prepare('UPDATE accounts SET refresh_token_enc=?, access_token_enc=?, token_expiry=? WHERE email=?')
-    .run(refreshTokenEnc, accessTokenEnc, tokenExpiry, email);
+    .prepare('UPDATE accounts SET refresh_token_enc=?, access_token_enc=?, token_expiry=? WHERE email=? COLLATE NOCASE')
+    .run(refreshTokenEnc, accessTokenEnc, tokenExpiry, (email || '').trim());
 }
 
 function isDraftFolder(folderPath) {
@@ -224,7 +228,7 @@ function listMessages(email, folderPath, limit = 50, offset = 0) {
                 a.email AS account_email, a.provider AS account_provider,
                 (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
          FROM messages m JOIN accounts a ON a.id = m.account_id
-         WHERE a.email=? AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')
+         WHERE a.email=? COLLATE NOCASE AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')
          ORDER BY m.date DESC LIMIT ? OFFSET ?`,
       )
       .all(email, folderPath, limit, offset);
@@ -235,7 +239,7 @@ function listMessages(email, folderPath, limit = 50, offset = 0) {
               a.email AS account_email, a.provider AS account_provider,
               (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
        FROM messages m JOIN accounts a ON a.id = m.account_id
-       WHERE a.email=? AND m.folder_path=? ORDER BY m.date DESC LIMIT ? OFFSET ?`,
+       WHERE a.email=? COLLATE NOCASE AND m.folder_path=? ORDER BY m.date DESC LIMIT ? OFFSET ?`,
     )
     .all(email, folderPath, limit, offset);
 }
@@ -248,7 +252,7 @@ function countFolderMessages(email, folderPath) {
         `SELECT COUNT(*) as total,
                 SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread
          FROM messages m JOIN accounts a ON a.id = m.account_id
-         WHERE a.email=? AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')`,
+         WHERE a.email=? COLLATE NOCASE AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')`,
       )
       .get(email, folderPath);
     return {
@@ -261,7 +265,7 @@ function countFolderMessages(email, folderPath) {
       `SELECT COUNT(*) as total,
               SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread
        FROM messages m JOIN accounts a ON a.id = m.account_id
-       WHERE a.email=? AND m.folder_path=?`,
+       WHERE a.email=? COLLATE NOCASE AND m.folder_path=?`,
     )
     .get(email, folderPath);
   return {
@@ -322,7 +326,7 @@ function searchMessages(email, folderPath, query, limit = 100) {
               a.email AS account_email, a.provider AS account_provider,
               (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
        FROM messages m JOIN accounts a ON a.id = m.account_id
-       WHERE a.email=? AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
+       WHERE a.email=? COLLATE NOCASE AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
        ORDER BY m.date DESC LIMIT ?`,
     ).all(email, pattern, pattern, pattern, limit);
   }
@@ -332,7 +336,7 @@ function searchMessages(email, folderPath, query, limit = 100) {
               a.email AS account_email, a.provider AS account_provider,
               (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
        FROM messages m JOIN accounts a ON a.id = m.account_id
-       WHERE a.email=? AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')
+       WHERE a.email=? COLLATE NOCASE AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')
          AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
        ORDER BY m.date DESC LIMIT ?`,
     ).all(email, folderPath, pattern, pattern, pattern, limit);
@@ -342,7 +346,7 @@ function searchMessages(email, folderPath, query, limit = 100) {
             a.email AS account_email, a.provider AS account_provider,
             (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
      FROM messages m JOIN accounts a ON a.id = m.account_id
-     WHERE a.email=? AND m.folder_path=? AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
+     WHERE a.email=? COLLATE NOCASE AND m.folder_path=? AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
      ORDER BY m.date DESC LIMIT ?`,
   ).all(email, folderPath, pattern, pattern, pattern, limit);
 }
@@ -356,7 +360,7 @@ function getThreadMessages(email, folderPath, messageId) {
     const mid = stack.pop();
     if (!mid || seen.has(mid)) continue;
     seen.add(mid);
-    const row = db.prepare(`SELECT m.uid, m.message_id, m.refs, m.subject, m.from_addr, m.date, m.is_read FROM messages m JOIN accounts a ON a.id=m.account_id WHERE a.email=? AND m.folder_path=? AND m.message_id=?`).get(email, folderPath, mid);
+    const row = db.prepare(`SELECT m.uid, m.message_id, m.refs, m.subject, m.from_addr, m.date, m.is_read FROM messages m JOIN accounts a ON a.id=m.account_id WHERE a.email=? COLLATE NOCASE AND m.folder_path=? AND m.message_id=?`).get(email, folderPath, mid);
     if (row) {
       msgs.push(row);
       if (row.refs) {
@@ -364,7 +368,7 @@ function getThreadMessages(email, folderPath, messageId) {
       }
     }
     // child messages whose refs contain mid
-    const children = db.prepare(`SELECT message_id FROM messages m JOIN accounts a ON a.id=m.account_id WHERE a.email=? AND m.folder_path=? AND m.refs LIKE ?`).all(email, folderPath, `%${mid}%`);
+    const children = db.prepare(`SELECT message_id FROM messages m JOIN accounts a ON a.id=m.account_id WHERE a.email=? COLLATE NOCASE AND m.folder_path=? AND m.refs LIKE ?`).all(email, folderPath, `%${mid}%`);
     children.forEach(c => { if (c.message_id) stack.push(c.message_id); });
   }
   return msgs;
@@ -374,7 +378,7 @@ function getMessageMeta(email, folderPath, uid) {
   return getDb()
     .prepare(
       `SELECT m.subject, m.from_addr, m.date FROM messages m JOIN accounts a ON a.id = m.account_id
-       WHERE a.email=? AND m.folder_path=? AND m.uid=?`,
+       WHERE a.email=? COLLATE NOCASE AND m.folder_path=? AND m.uid=?`,
     )
     .get(email, folderPath, String(uid));
 }
@@ -383,14 +387,14 @@ function getMessageBody(email, folderPath, uid) {
   let row = getDb()
     .prepare(
       `SELECT m.body_html, m.body_text, m.message_id, m.refs FROM messages m JOIN accounts a ON a.id = m.account_id
-       WHERE a.email=? AND m.folder_path=? AND m.uid=?`,
+       WHERE a.email=? COLLATE NOCASE AND m.folder_path=? AND m.uid=?`,
     )
     .get(email, folderPath, String(uid));
   if (!row) {
     row = getDb()
       .prepare(
         `SELECT m.body_html, m.body_text, m.message_id, m.refs FROM messages m JOIN accounts a ON a.id = m.account_id
-         WHERE a.email=? AND m.uid=?`,
+         WHERE a.email=? COLLATE NOCASE AND m.uid=?`,
       )
       .get(email, String(uid));
   }
@@ -403,7 +407,7 @@ function saveMessageBody(email, folderPath, uid, { html, text, messageId, refere
     .prepare(
       `UPDATE messages SET body_html=?, body_text=?,
          message_id=COALESCE(?, message_id), refs=COALESCE(?, refs)
-       WHERE account_id=(SELECT id FROM accounts WHERE email=?)
+       WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
        AND folder_path=? AND uid=?`,
     )
     .run(html || null, text || null, messageId || null,
@@ -416,7 +420,7 @@ function listAttachments(email, folderPath, uid) {
     .prepare(
       `SELECT t.idx, t.filename, t.content_type, t.size FROM attachments t
        JOIN accounts a ON a.id = t.account_id
-       WHERE a.email=? AND t.folder_path=? AND t.msg_uid=? ORDER BY t.idx`,
+       WHERE a.email=? COLLATE NOCASE AND t.folder_path=? AND t.msg_uid=? ORDER BY t.idx`,
     )
     .all(email, folderPath, String(uid));
 }
@@ -424,18 +428,18 @@ function listAttachments(email, folderPath, uid) {
 function saveAttachments(email, folderPath, uid, list) {
   const d = getDb();
   const del = d.prepare(
-    `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`,
+    `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`,
   );
   const ins = d.prepare(
     `INSERT INTO attachments (account_id, folder_path, msg_uid, idx, filename, content_type, size)
-     VALUES ((SELECT id FROM accounts WHERE email=?), ?, ?, ?, ?, ?, ?)`,
+     VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), ?, ?, ?, ?, ?, ?)`,
   );
   const txn = d.transaction((items) => {
     del.run(email, folderPath, String(uid));
     items.forEach((a, i) => ins.run(email, folderPath, String(uid), i, a.filename, a.contentType || null, a.size || 0));
     if (items && items.length > 0) {
       try {
-        d.prepare(`UPDATE messages SET has_att=1 WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`).run(email, folderPath, String(uid));
+        d.prepare(`UPDATE messages SET has_att=1 WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`).run(email, folderPath, String(uid));
       } catch {}
     }
   });
@@ -445,7 +449,7 @@ function saveAttachments(email, folderPath, uid, list) {
 function markReadDb(email, folderPath, uid) {
   getDb()
     .prepare(
-      `UPDATE messages SET is_read=1 WHERE account_id=(SELECT id FROM accounts WHERE email=?)
+      `UPDATE messages SET is_read=1 WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
        AND folder_path=? AND uid=?`,
     )
     .run(email, folderPath, String(uid));
@@ -454,7 +458,7 @@ function markReadDb(email, folderPath, uid) {
 function markUnreadDb(email, folderPath, uid) {
   getDb()
     .prepare(
-      `UPDATE messages SET is_read=0 WHERE account_id=(SELECT id FROM accounts WHERE email=?)
+      `UPDATE messages SET is_read=0 WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
        AND folder_path=? AND uid=?`,
     )
     .run(email, folderPath, String(uid));
@@ -462,9 +466,9 @@ function markUnreadDb(email, folderPath, uid) {
 
 function toggleStarDb(email, folderPath, uid) {
   const db = getDb();
-  const row = db.prepare(`SELECT starred FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`).get(email, folderPath, String(uid));
+  const row = db.prepare(`SELECT starred FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`).get(email, folderPath, String(uid));
   const next = row && row.starred ? 0 : 1;
-  db.prepare(`UPDATE messages SET starred=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`).run(next, email, folderPath, String(uid));
+  db.prepare(`UPDATE messages SET starred=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`).run(next, email, folderPath, String(uid));
   return next;
 }
 
@@ -473,7 +477,7 @@ function saveSentMessage(email, { to, subject, text, html }) {
   getDb()
     .prepare(
       `INSERT INTO messages (account_id, folder_path, uid, subject, from_addr, to_addr, date, snippet, body_text, body_html, is_read)
-       VALUES ((SELECT id FROM accounts WHERE email=?), 'SENT', ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+       VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), 'SENT', ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     )
     .run(email, uid, subject || '(konusuz)', email, to, new Date().toISOString(), (text || '').slice(0, 200), text || null, html || null);
   return uid;
@@ -481,6 +485,9 @@ function saveSentMessage(email, { to, subject, text, html }) {
 
 function addAccount({ provider, email, displayName, refreshTokenEnc, accessTokenEnc, tokenExpiry, authType, imapHost, imapPort, smtpHost, smtpPort, smtpSecure, passwordEnc }) {
   const d = getDb();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const existing = getAccountByEmail(cleanEmail);
+  const targetEmail = existing ? existing.email : cleanEmail;
   const row = d
     .prepare(
       `INSERT INTO accounts (provider, email, display_name, refresh_token_enc, access_token_enc, token_expiry,
@@ -500,7 +507,7 @@ function addAccount({ provider, email, displayName, refreshTokenEnc, accessToken
          smtp_secure=coalesce(excluded.smtp_secure, accounts.smtp_secure),
          password_enc=coalesce(excluded.password_enc, accounts.password_enc)`,
     )
-    .run(provider, email, displayName || null, refreshTokenEnc || null, accessTokenEnc || null, tokenExpiry || null,
+    .run(provider, targetEmail, displayName || null, refreshTokenEnc || null, accessTokenEnc || null, tokenExpiry || null,
       authType || 'oauth', imapHost || null, imapPort || null, smtpHost || null, smtpPort || null,
       smtpSecure == null ? null : (smtpSecure ? 1 : 0), passwordEnc || null);
   return row.lastInsertRowid;
@@ -699,7 +706,7 @@ function searchContacts(query, limit = 8) {
 function batchMarkReadDb(email, folderPath, uids, isRead = 1) {
   const db = getDb();
   const stmt = db.prepare(
-    `UPDATE messages SET is_read=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+    `UPDATE messages SET is_read=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
   );
   const trans = db.transaction((list) => {
     for (const uid of list) {
@@ -712,7 +719,7 @@ function batchMarkReadDb(email, folderPath, uids, isRead = 1) {
 function batchToggleStarDb(email, folderPath, uids, starred = 1) {
   const db = getDb();
   const stmt = db.prepare(
-    `UPDATE messages SET starred=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+    `UPDATE messages SET starred=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
   );
   const trans = db.transaction((list) => {
     for (const uid of list) {
@@ -729,7 +736,7 @@ function getDraftFolder(email) {
   try {
     const rows = db.prepare(
       `SELECT path FROM folders 
-       WHERE account_id=(SELECT id FROM accounts WHERE email=?) 
+       WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) 
          AND (lower(path) LIKE '%draft%' OR lower(path) LIKE '%taslak%')`
     ).all(email);
     if (rows && rows.length > 0) {
@@ -751,7 +758,7 @@ function saveDraftMessage(email, { to, subject, text, html }) {
 
   db.prepare(
     `INSERT INTO messages (account_id, folder_path, uid, subject, from_addr, to_addr, date, snippet, body_text, body_html, is_read)
-     VALUES ((SELECT id FROM accounts WHERE email=?), ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+     VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
   ).run(email, folderPath, uid, subject || '(Taslak)', email, to || '', new Date().toISOString(), (text || '').slice(0, 200), text || null, html || null);
   return { uid, folderPath };
 }
