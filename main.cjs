@@ -157,15 +157,30 @@ const _lastSyncTime = new Map(); // email -> timestamp
 // Bu yapı aynı hesaba ait işlemleri sıralayıp 'User is authenticated but not connected'
 // kilitlerini önler (concurrency = 1 per account).
 const _imapQueues = new Map(); // email → Promise (kuyruk sonu)
+const _lastImapOpTime = new Map(); // email → timestamp
+const _activeFolderPerAccount = new Map(); // normEmail → folderPath (terk edilen klasörleri atlamak için)
+
 function imapLock(email, fn) {
   const key = (email || '').toLowerCase().trim();
   const prev = _imapQueues.get(key) ?? Promise.resolve();
   const task = prev.then(async () => {
-    await new Promise((r) => setTimeout(r, 200)); // Exchange proxy oturum kilidi için güvenlik payı
-    return fn();
+    // Ardışık çok hızlı çağrılarda minik güvenlik payı (50ms); boşta bekleyen bağlantıda 0ms
+    const lastOp = _lastImapOpTime.get(key) || 0;
+    const elapsed = Date.now() - lastOp;
+    if (elapsed < 50) {
+      await new Promise((r) => setTimeout(r, 50 - elapsed));
+    }
+    try {
+      return await fn();
+    } finally {
+      _lastImapOpTime.set(key, Date.now());
+    }
   }, async () => {
-    await new Promise((r) => setTimeout(r, 200));
-    return fn();
+    try {
+      return await fn();
+    } finally {
+      _lastImapOpTime.set(key, Date.now());
+    }
   });
   _imapQueues.set(key, task.then(() => {}, () => {})); // kuyruk sonunu güncelle, hata yutma
   return task; // çağırıcıya gerçek sonuç / hata döner
@@ -1361,17 +1376,28 @@ app.whenReady().then(() => {
     if (!acc) throw new Error('Hesap bulunamadı.');
     try {
       const normEmail = (email || '').toLowerCase().trim();
+      const normFolder = (folderPath || 'INBOX').trim();
       _lastSyncTime.set(normEmail, Date.now());
+      _activeFolderPerAccount.set(normEmail, normFolder);
+
       const res = await withIpcTimeout(
         withAuthRetry(acc, (creds) =>
-          imapLock(email, () => syncFolder({
-            provider: acc.provider, email: acc.email, folderPath, db: getDb(), ...creds,
-            skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
-          }))),
+          imapLock(email, async () => {
+            // Kullanıcı bu sırada başka bir klasöre geçtiyse terk edilen klasörü atla (IMAP kilitleme yapma)
+            const latest = _activeFolderPerAccount.get(normEmail);
+            if (latest && latest.toLowerCase() !== normFolder.toLowerCase()) {
+              console.log(`[sync-folder] ${email} '${normFolder}' atlandı; kullanıcı '${latest}' klasörüne geçti.`);
+              return { total: 0, synced: 0, skipped: true };
+            }
+            return syncFolder({
+              provider: acc.provider, email: acc.email, folderPath: normFolder, db: getDb(), ...creds,
+              skipUid: (uid) => isDeleted(email, normFolder, String(uid)),
+            });
+          })),
         35000,
         'Klasör eşitleme',
       );
-      if (folderPath === 'INBOX' && res && res.newMessages && res.newMessages.length > 0) {
+      if (normFolder.toUpperCase() === 'INBOX' && res && res.newMessages && res.newMessages.length > 0) {
         notifyNewMessages(acc.email, res.newMessages);
       }
       return res;

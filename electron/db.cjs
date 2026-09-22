@@ -228,7 +228,7 @@ function listMessages(email, folderPath, limit = 50, offset = 0) {
                 a.email AS account_email, a.provider AS account_provider,
                 (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
          FROM messages m JOIN accounts a ON a.id = m.account_id
-         WHERE a.email=? COLLATE NOCASE AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')
+         WHERE a.email=? COLLATE NOCASE AND (m.folder_path=? COLLATE NOCASE OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')
          ORDER BY m.date DESC LIMIT ? OFFSET ?`,
       )
       .all(email, folderPath, limit, offset);
@@ -239,7 +239,7 @@ function listMessages(email, folderPath, limit = 50, offset = 0) {
               a.email AS account_email, a.provider AS account_provider,
               (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
        FROM messages m JOIN accounts a ON a.id = m.account_id
-       WHERE a.email=? COLLATE NOCASE AND m.folder_path=? ORDER BY m.date DESC LIMIT ? OFFSET ?`,
+       WHERE a.email=? COLLATE NOCASE AND m.folder_path=? COLLATE NOCASE ORDER BY m.date DESC LIMIT ? OFFSET ?`,
     )
     .all(email, folderPath, limit, offset);
 }
@@ -252,7 +252,7 @@ function countFolderMessages(email, folderPath) {
         `SELECT COUNT(*) as total,
                 SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread
          FROM messages m JOIN accounts a ON a.id = m.account_id
-         WHERE a.email=? COLLATE NOCASE AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')`,
+         WHERE a.email=? COLLATE NOCASE AND (m.folder_path=? COLLATE NOCASE OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')`,
       )
       .get(email, folderPath);
     return {
@@ -265,7 +265,7 @@ function countFolderMessages(email, folderPath) {
       `SELECT COUNT(*) as total,
               SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread
        FROM messages m JOIN accounts a ON a.id = m.account_id
-       WHERE a.email=? COLLATE NOCASE AND m.folder_path=?`,
+       WHERE a.email=? COLLATE NOCASE AND m.folder_path=? COLLATE NOCASE`,
     )
     .get(email, folderPath);
   return {
@@ -336,7 +336,7 @@ function searchMessages(email, folderPath, query, limit = 100) {
               a.email AS account_email, a.provider AS account_provider,
               (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
        FROM messages m JOIN accounts a ON a.id = m.account_id
-       WHERE a.email=? COLLATE NOCASE AND (m.folder_path=? OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')
+       WHERE a.email=? COLLATE NOCASE AND (m.folder_path=? COLLATE NOCASE OR m.uid LIKE 'draft-%' OR lower(m.folder_path) LIKE '%draft%' OR lower(m.folder_path) LIKE '%taslak%')
          AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
        ORDER BY m.date DESC LIMIT ?`,
     ).all(email, folderPath, pattern, pattern, pattern, limit);
@@ -346,7 +346,7 @@ function searchMessages(email, folderPath, query, limit = 100) {
             a.email AS account_email, a.provider AS account_provider,
             (m.has_att = 1 OR EXISTS(SELECT 1 FROM attachments att WHERE att.account_id = m.account_id AND att.folder_path = m.folder_path AND att.msg_uid = m.uid)) AS has_att
      FROM messages m JOIN accounts a ON a.id = m.account_id
-     WHERE a.email=? COLLATE NOCASE AND m.folder_path=? AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
+     WHERE a.email=? COLLATE NOCASE AND m.folder_path=? COLLATE NOCASE AND (lower(m.subject) LIKE ? OR lower(m.from_addr) LIKE ? OR lower(m.snippet) LIKE ?)
      ORDER BY m.date DESC LIMIT ?`,
   ).all(email, folderPath, pattern, pattern, pattern, limit);
 }

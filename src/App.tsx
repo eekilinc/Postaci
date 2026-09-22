@@ -409,6 +409,7 @@ export default function App() {
     if (!activeAccount) return;
     if (!targetSelectUidRef.current) {
       setSelected(null);
+      resetBody();
     }
     let cancelled = false;
     const targetFolder = activeFolder || 'INBOX';
@@ -416,16 +417,20 @@ export default function App() {
     // 1. Yerel SQLite mesajlarını ANINDA ekranda göster (0ms bekleme, sıfır zıplama)
     loadMessages(activeAccount, targetFolder, false);
 
-    // 2. Arka planda sunucu senkronizasyonu
-    const doSync = async () => {
-      if (!window.postaci) return;
+    // 2. Arka planda sunucu senkronizasyonu:
+    // Kullanıcı seri bir şekilde klasörleri gezerken IMAP kuyruğunun kilitlenmesini
+    // önlemek için ağ senkronizasyon isteği 250ms gecikmeli (debounce) tetiklenir.
+    const syncTimer = setTimeout(async () => {
+      if (cancelled || !window.postaci) return;
       try {
         setSyncing(true);
-        await window.postaci.mail.syncFolder(activeAccount, targetFolder);
+        const res = await window.postaci.mail.syncFolder(activeAccount, targetFolder);
         if (cancelled) return; // Kullanıcı başka klasöre/hesaba geçtiyse bu sync sonucunu UI'a uygulama
-        loadMessages(activeAccount, targetFolder, false);
-        loadFolders(activeAccount);
-        updateUnifiedCount();
+        if (!res?.skipped) {
+          loadMessages(activeAccount, targetFolder, false);
+          loadFolders(activeAccount);
+          updateUnifiedCount();
+        }
       } catch (err) {
         if (!cancelled) {
           console.error('[sync error]', err);
@@ -441,11 +446,11 @@ export default function App() {
       } finally {
         if (!cancelled) setSyncing(false);
       }
-    };
-    doSync();
+    }, 250);
 
     return () => {
       cancelled = true;
+      clearTimeout(syncTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFolder, activeAccount, isUnified]);
@@ -1035,6 +1040,7 @@ export default function App() {
     if (path === activeFolder) return;
     setActiveFolder(path);
     setSelected(null);
+    resetBody();
     setNotice(null);
     setError(null);
   };

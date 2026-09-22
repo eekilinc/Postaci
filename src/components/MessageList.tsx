@@ -184,8 +184,9 @@ export function MessageList({
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
+    if (messages.length === 0 || loadingMore) return;
     if (target.scrollTop + target.clientHeight >= target.scrollHeight - 70) {
-      if (hasMoreDb && !loadingMore) {
+      if (hasMoreDb) {
         onLoadMore();
       }
     }
@@ -463,7 +464,19 @@ export function MessageList({
         className="flex-1 overflow-y-auto px-1 py-1"
       >
         {messages.length === 0 ? (
-          <EmptyState type={emptyType} searchQuery={searchQuery} />
+          syncing ? (
+            <div className="flex flex-col items-center justify-center h-64 p-6 text-center text-zinc-500 dark:text-zinc-400">
+              <SyncIcon size={24} className="animate-spin text-blue-600 dark:text-blue-400 mb-3" />
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                {language === 'en' ? 'Syncing folder...' : 'Klasör eşitleniyor...'}
+              </p>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                {language === 'en' ? 'Fetching messages from server' : 'İletiler sunucudan alınıyor'}
+              </p>
+            </div>
+          ) : (
+            <EmptyState type={emptyType} searchQuery={searchQuery} />
+          )
         ) : (
           displayedMessages.map((m) => (
             <MessageItem

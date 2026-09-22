@@ -33,6 +33,28 @@ export function useMessages() {
 
   // Her klasör / hesap sorgusu için artan sayaç (yarış durumlarını / zıplamaları önler)
   const reqIdRef = useRef(0);
+  const activeFolderRef = useRef<string | null>(null);
+  const activeAccountRef = useRef<string | null>(null);
+  const isUnifiedRef = useRef<boolean>(false);
+
+  // Klasör bazlı bellek önbelleği: key = accountEmail:folderPath (veya __unified__)
+  // Daha önce ziyaret edilmiş bir klasöre dönüldüğünde mesajlar 0 ms'de anında ekrana gelir
+  const folderCacheRef = useRef<Map<string, { list: Msg[]; total: number }>>(new Map());
+
+  const getCacheKey = (email: string | null, folderPath: string, unified: boolean) => {
+    if (unified) return '__unified__';
+    return `${(email || '').toLowerCase().trim()}:${(folderPath || 'INBOX').toLowerCase().trim()}`;
+  };
+
+  const setMessagesAndCache: React.Dispatch<React.SetStateAction<Msg[]>> = (valOrFn) => {
+    setMessages((prev) => {
+      const nextVal = typeof valOrFn === 'function' ? (valOrFn as (p: Msg[]) => Msg[])(prev) : valOrFn;
+      const cacheKey = getCacheKey(activeAccountRef.current, activeFolderRef.current || 'INBOX', isUnifiedRef.current);
+      const existing = folderCacheRef.current.get(cacheKey);
+      folderCacheRef.current.set(cacheKey, { list: nextVal, total: existing?.total ?? nextVal.length });
+      return nextVal;
+    });
+  };
 
   const loadMessages = (
     email: string | null,
@@ -42,15 +64,44 @@ export function useMessages() {
     if ((!email && !isUnified) || !window.postaci) {
       setMessages([]);
       setTotalDbCount(0);
+      activeFolderRef.current = null;
+      activeAccountRef.current = null;
+      isUnifiedRef.current = false;
       return;
     }
     const currentReqId = ++reqIdRef.current;
+    const isTargetChanged =
+      activeFolderRef.current !== folderPath ||
+      activeAccountRef.current !== email ||
+      isUnifiedRef.current !== isUnified;
+
+    activeFolderRef.current = folderPath;
+    activeAccountRef.current = email;
+    isUnifiedRef.current = isUnified;
+
+    const cacheKey = getCacheKey(email, folderPath, isUnified);
+
+    // Klasör değiştiğinde:
+    // Eğer önbellekte bu klasöre ait kayıt varsa hemen 0 ms'de ekrana ver
+    // Yoksa eski klasörün mesajlarının ekranda kalmaması için anında temizle!
+    if (isTargetChanged) {
+      const cached = folderCacheRef.current.get(cacheKey);
+      if (cached) {
+        setMessages(cached.list);
+        setTotalDbCount(cached.total);
+      } else {
+        setMessages([]);
+        setTotalDbCount(0);
+      }
+      setServerTotal(0);
+    }
 
     if (isUnified) {
       window.postaci.mail
         .countUnified()
         .then((counts) => {
           if (reqIdRef.current !== currentReqId) return;
+          if (!isUnifiedRef.current) return;
           setTotalDbCount(counts.total);
         })
         .catch(() => {});
@@ -59,7 +110,9 @@ export function useMessages() {
         .listUnified(PAGE_SIZE, 0)
         .then((list) => {
           if (reqIdRef.current !== currentReqId) return;
+          if (!isUnifiedRef.current) return;
           setMessages(list);
+          folderCacheRef.current.set(cacheKey, { list, total: list.length });
         })
         .catch(() => {});
       return;
@@ -70,7 +123,12 @@ export function useMessages() {
       .count(email!, folderPath)
       .then((counts) => {
         if (reqIdRef.current !== currentReqId) return;
+        if (activeFolderRef.current !== folderPath || activeAccountRef.current !== email || isUnifiedRef.current) return;
         setTotalDbCount(counts.total);
+        const existing = folderCacheRef.current.get(cacheKey);
+        if (existing) {
+          folderCacheRef.current.set(cacheKey, { ...existing, total: counts.total });
+        }
       })
       .catch(() => {});
 
@@ -79,7 +137,9 @@ export function useMessages() {
       .list(email!, folderPath, PAGE_SIZE, 0)
       .then((list) => {
         if (reqIdRef.current !== currentReqId) return;
+        if (activeFolderRef.current !== folderPath || activeAccountRef.current !== email || isUnifiedRef.current) return;
         setMessages(list);
+        folderCacheRef.current.set(cacheKey, { list, total: list.length });
       })
       .catch(() => {});
   };
@@ -87,7 +147,9 @@ export function useMessages() {
   // Yerel DB'den sonraki 50 mesajı yükle
   const loadMore = async (email: string | null, folderPath: string, isUnified: boolean = false) => {
     if ((!email && !isUnified) || !window.postaci || loadingMore || searchQuery.trim()) return;
-    if (messages.length >= totalDbCount) return;
+    // Klasör yeni değişiyorsa veya henüz ilk sayfa yüklenmemişse loadMore asla tetiklenmemeli
+    if (messages.length === 0 || messages.length >= totalDbCount) return;
+    if (activeFolderRef.current !== folderPath || activeAccountRef.current !== email || isUnifiedRef.current !== isUnified) return;
 
     const currentReqId = reqIdRef.current;
     setLoadingMore(true);
@@ -96,11 +158,16 @@ export function useMessages() {
         ? await window.postaci.mail.listUnified(PAGE_SIZE, messages.length)
         : await window.postaci.mail.list(email!, folderPath, PAGE_SIZE, messages.length);
       if (reqIdRef.current !== currentReqId) return;
+      if (activeFolderRef.current !== folderPath || activeAccountRef.current !== email || isUnifiedRef.current !== isUnified) return;
+
       if (nextBatch.length > 0) {
         setMessages((prev) => {
           const existingUids = new Set(prev.map((m) => m.uid));
           const additions = nextBatch.filter((m) => !existingUids.has(m.uid));
-          return [...prev, ...additions];
+          const updated = [...prev, ...additions];
+          const cacheKey = getCacheKey(email, folderPath, isUnified);
+          folderCacheRef.current.set(cacheKey, { list: updated, total: totalDbCount });
+          return updated;
         });
       }
     } finally {
@@ -230,7 +297,7 @@ export function useMessages() {
 
   return {
     messages,
-    setMessages,
+    setMessages: setMessagesAndCache,
     filteredMessages,
     totalDbCount,
     serverTotal,
