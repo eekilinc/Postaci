@@ -458,7 +458,12 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
       const beforeNum = Number(beforeUid);
       if (!Number.isNaN(beforeNum) && beforeNum > 1) {
         try {
-          const older = await client.search({ uid: `1:${beforeNum - 1}` }, { uid: true });
+          // Önce yakın UID penceresini ara (tüm kutuyu taramayı önler)
+          const startUid = Math.max(1, beforeNum - 2000);
+          let older = await client.search({ uid: `${startUid}:${beforeNum - 1}` }, { uid: true });
+          if (!Array.isArray(older) || older.length === 0) {
+            older = await client.search({ uid: `1:${beforeNum - 1}` }, { uid: true });
+          }
           if (Array.isArray(older)) {
             target = older.slice(-limit);
           }
@@ -492,15 +497,26 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
         ).all(email, folderPath, lastSeenUid).map((x) => String(x.uid));
       } catch { /* bayrak tazeleme atlanır, sync devam eder */ }
     } else {
-      // İlk sync (yerel kutu boşken): son `limit` adet iletiyi çek
+      // İlk sync (yerel kutu boşken): son `limit` adet iletiyi anında çek (sıfır SEARCH ALL yükü)
       if (total > 0) {
         try {
-          const allUids = await client.search({ all: true }, { uid: true });
-          if (Array.isArray(allUids) && allUids.length > 0) {
-            target = allUids.slice(-limit);
+          const startSeq = Math.max(1, total - limit + 1);
+          const uids = await client.search({ seq: `${startSeq}:*` }, { uid: true });
+          if (Array.isArray(uids) && uids.length > 0) {
+            target = uids.slice(-limit);
           }
-        } catch (e) {
-          throw new Error(`[${folderPath}] UID araması (SEARCH ALL) başarısız: ${imapErrDetail(e)}`);
+        } catch (seqErr) {
+          console.warn(`[sync] ${email} [${folderPath}] seq ile arama yapılamadı (${seqErr?.message}), alternatif deneniyor...`);
+          try {
+            const uidNext = Number(mb?.uidNext ?? client.mailbox?.uidNext ?? 0) || 0;
+            if (uidNext > 1) {
+              const startUid = Math.max(1, uidNext - 2000);
+              const nearUids = await client.search({ uid: `${startUid}:*` }, { uid: true });
+              if (Array.isArray(nearUids) && nearUids.length > 0) {
+                target = nearUids.slice(-limit);
+              }
+            }
+          } catch {}
         }
       }
     }

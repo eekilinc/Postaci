@@ -1210,7 +1210,7 @@ app.whenReady().then(() => {
                        FROM messages m
                        WHERE m.account_id = f.account_id AND m.folder_path = f.path), 0) AS unread_count
       FROM folders f
-      WHERE f.account_id = (SELECT id FROM accounts WHERE email = ?)
+      WHERE f.account_id = (SELECT id FROM accounts WHERE email = ? COLLATE NOCASE)
     `).all(email);
     return (cached || []).map((f) => {
       let flags = [];
@@ -1254,7 +1254,7 @@ app.whenReady().then(() => {
           console.warn('[mail:folders] IMAP klasör listesi alınamadı, DB önbelleği kullanılıyor:', activeErr?.message);
           try {
             const db = getDb();
-            const cached = db.prepare(`SELECT name, path, flags FROM folders WHERE account_id=(SELECT id FROM accounts WHERE email=?)`).all(email);
+            const cached = db.prepare(`SELECT name, path, flags FROM folders WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)`).all(email);
             if (cached && cached.length > 0) {
               return cached.map((f) => {
                 let flags = [];
@@ -1270,7 +1270,7 @@ app.whenReady().then(() => {
         const db = getDb();
         const upsert = db.prepare(`
           INSERT INTO folders (account_id, name, path, flags, unread_count)
-          VALUES ((SELECT id FROM accounts WHERE email=?), ?, ?, ?, 0)
+          VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), ?, ?, ?, 0)
           ON CONFLICT(account_id, path) DO UPDATE SET name=excluded.name, flags=excluded.flags
         `);
         for (const f of list) {
@@ -1552,7 +1552,7 @@ app.whenReady().then(() => {
     try {
       const row = getDb().prepare(
         `SELECT path FROM folders
-         WHERE account_id = (SELECT id FROM accounts WHERE email=?)
+         WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
            AND (lower(path) LIKE '%çöp%' OR lower(path) LIKE '%trash%' OR lower(path) LIKE '%deleted%' OR lower(name) LIKE '%çöp%' OR lower(name) LIKE '%trash%')
          ORDER BY id ASC LIMIT 1`
       ).get(email);
@@ -1568,7 +1568,7 @@ app.whenReady().then(() => {
     try {
       const row = getDb().prepare(
         `SELECT path FROM folders
-         WHERE account_id = (SELECT id FROM accounts WHERE email=?)
+         WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
            AND (lower(path) LIKE '%archive%' OR lower(path) LIKE '%arşiv%' OR lower(path) LIKE '%tüm postalar%' OR lower(path) LIKE '%all mail%')
          ORDER BY id ASC LIMIT 1`
       ).get(email);
@@ -1590,7 +1590,7 @@ app.whenReady().then(() => {
     if (String(uid).startsWith('draft-') || String(uid).startsWith('local-')) {
       try {
         getDb().prepare(
-          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND uid=?`
+          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND uid=?`
         ).run(email, String(uid));
       } catch (err) {
         console.warn('[mail:delete] taslak silme uyarısı:', err?.message);
@@ -1603,10 +1603,10 @@ app.whenReady().then(() => {
     let localAtts = [];
     try {
       localMsg = getDb().prepare(
-        `SELECT * FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+        `SELECT * FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
       ).get(email, folderPath, String(uid));
       localAtts = getDb().prepare(
-        `SELECT * FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`
+        `SELECT * FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
       ).all(email, folderPath, String(uid));
     } catch {}
 
@@ -1615,11 +1615,11 @@ app.whenReady().then(() => {
       // UYARI: Çöp kutusuna eski INBOX UID'si ile geçici kayıt eklemiyoruz!
       // Bu geçersiz UID çöpten silinmeye çalışıldığında bulunamaz ve hortlamaya yol açar.
       getDb().prepare(
-        `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+        `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
       ).run(email, folderPath, String(uid));
       try {
         getDb().prepare(
-          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`
+          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
         ).run(email, folderPath, String(uid));
       } catch {}
     } catch (dbErr) {
@@ -1651,10 +1651,10 @@ app.whenReady().then(() => {
             markDeleted(email, folderPath, res.realUid);
             try {
               getDb().prepare(
-                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
               ).run(email, folderPath, res.realUid);
               getDb().prepare(
-                `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`
+                `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
               ).run(email, folderPath, res.realUid);
             } catch {}
           }
@@ -1666,7 +1666,7 @@ app.whenReady().then(() => {
           try {
             const db = getDb();
             const existing = db.prepare(
-              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             ).get(email, finalDest, finalUid);
 
             if (!existing) {
@@ -1727,7 +1727,7 @@ app.whenReady().then(() => {
       try {
         const db = getDb();
         const delStmt = db.prepare(
-          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND uid=?`
+          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND uid=?`
         );
         db.transaction((list) => {
           for (const uid of list) delStmt.run(email, String(uid));
@@ -1746,18 +1746,18 @@ app.whenReady().then(() => {
         if (!isTrash) {
           const placeholders = serverUids.map(() => '?').join(',');
           localMsgs = db.prepare(
-            `SELECT * FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid IN (${placeholders})`
+            `SELECT * FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid IN (${placeholders})`
           ).all(email, folderPath, ...serverUids.map(String));
           localAtts = db.prepare(
-            `SELECT * FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid IN (${placeholders})`
+            `SELECT * FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid IN (${placeholders})`
           ).all(email, folderPath, ...serverUids.map(String));
         }
 
         const stmt = db.prepare(
-          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
         );
         const attStmt = db.prepare(
-          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`
+          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
         );
         db.transaction((list) => {
           for (const uid of list) {
@@ -1785,7 +1785,7 @@ app.whenReady().then(() => {
             try {
               const db = getDb();
               const checkStmt = db.prepare(
-                `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+                `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
               );
               const insMsg = db.prepare(`
                 INSERT INTO messages (account_id, folder_path, uid, subject, from_addr, to_addr, date, snippet, body_html, body_text, is_read, message_id, refs, starred)
@@ -1848,7 +1848,7 @@ app.whenReady().then(() => {
     markDeleted(email, fromFolder, String(uid));
     try {
       getDb().prepare(
-        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
       ).run(toFolder, email, fromFolder, String(uid));
     } catch (e) {
       console.warn('[mail:move-to-folder] DB uyarısı:', e?.message);
@@ -1868,20 +1868,20 @@ app.whenReady().then(() => {
           try {
             const db = getDb();
             const existing = db.prepare(
-              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             ).get(email, toFolder, finalUid);
             if (existing) {
               db.prepare(
-                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
               ).run(email, toFolder, String(uid));
             } else {
               db.prepare(
-                `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+                `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
               ).run(toFolder, finalUid, email, toFolder, String(uid));
             }
             try {
               db.prepare(
-                `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`
+                `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
               ).run(toFolder, finalUid, email, fromFolder, String(uid));
             } catch {}
           } catch (mErr) {
@@ -1890,7 +1890,7 @@ app.whenReady().then(() => {
         } else if (res && !res.destUid) {
           try {
             getDb().prepare(
-              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             ).run(email, toFolder, String(uid));
           } catch {}
         }
@@ -1913,7 +1913,7 @@ app.whenReady().then(() => {
     try {
       const db = getDb();
       const stmt = db.prepare(
-        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
       );
       db.transaction((list) => {
         for (const uid of list) stmt.run(toFolder, email, fromFolder, String(uid));
@@ -1937,16 +1937,16 @@ app.whenReady().then(() => {
           try {
             const db = getDb();
             const updateStmt = db.prepare(
-              `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             );
             const deleteStmt = db.prepare(
-              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             );
             const checkStmt = db.prepare(
-              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             );
             const updateAttStmt = db.prepare(
-              `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`
+              `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
             );
 
             db.transaction((list) => {
@@ -1987,7 +1987,7 @@ app.whenReady().then(() => {
     markDeleted(email, folderPath, String(uid));
     try {
       getDb().prepare(
-        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
       ).run(targetArchive, email, folderPath, String(uid));
     } catch (e) {
       console.warn('[mail:archive] DB uyarısı:', e?.message);
@@ -2007,20 +2007,20 @@ app.whenReady().then(() => {
           try {
             const db = getDb();
             const existing = db.prepare(
-              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             ).get(email, targetArchive, finalUid);
             if (existing) {
               db.prepare(
-                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
               ).run(email, targetArchive, String(uid));
             } else {
               db.prepare(
-                `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+                `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
               ).run(targetArchive, finalUid, email, targetArchive, String(uid));
             }
             try {
               db.prepare(
-                `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`
+                `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
               ).run(targetArchive, finalUid, email, folderPath, String(uid));
             } catch {}
           } catch (aErr) {
@@ -2029,7 +2029,7 @@ app.whenReady().then(() => {
         } else if (res && !res.destUid) {
           try {
             getDb().prepare(
-              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             ).run(email, targetArchive, String(uid));
           } catch {}
         }
@@ -2053,7 +2053,7 @@ app.whenReady().then(() => {
     try {
       const db = getDb();
       const stmt = db.prepare(
-        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
       );
       db.transaction((list) => {
         for (const uid of list) stmt.run(targetArchive, email, folderPath, String(uid));
@@ -2077,16 +2077,16 @@ app.whenReady().then(() => {
           try {
             const db = getDb();
             const updateStmt = db.prepare(
-              `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             );
             const deleteStmt = db.prepare(
-              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             );
             const checkStmt = db.prepare(
-              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND uid=?`
+              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
             );
             const updateAttStmt = db.prepare(
-              `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=? AND msg_uid=?`
+              `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
             );
 
             db.transaction((list) => {
@@ -2343,9 +2343,9 @@ app.whenReady().then(() => {
     if (!acc) throw new Error('Hesap bulunamadı.');
 
     // 1. Yerel DB'deki ilgili hesaba ve çöp klasörüne ait mesajları ve ekleri temizle
-    getDb().prepare(`DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=?`).run(email, trashFolder);
+    getDb().prepare(`DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=?`).run(email, trashFolder);
     try {
-      getDb().prepare(`DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=?) AND folder_path=?`).run(email, trashFolder);
+      getDb().prepare(`DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=?`).run(email, trashFolder);
     } catch {}
 
     // 2. IMAP sunucusundaki mesajları kalıcı expunge et
