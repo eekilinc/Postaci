@@ -1149,8 +1149,13 @@ app.whenReady().then(() => {
     } catch (testErr) {
       console.warn(`[auth:start] ${profile.email} IMAP ilk bağlantı uyarısı:`, testErr?.message || testErr);
       if (isAuthFailed(testErr)) {
+        // Hatalı/erişilemeyen hesabın veritabanında hayalet kayıt bırakmasını önle
+        try {
+          const added = getAccountByEmail(profile.email);
+          if (added?.id) deleteAccount(added.id);
+        } catch {}
         throw new Error(
-          `Giriş yapıldı fakat ${provider === 'google' ? 'Gmail' : provider} IMAP erişimini reddetti. ` +
+          `Giriş yapıldı fakat ${provider === 'google' ? 'Gmail' : provider} IMAP erişimini reddetti.\n\n` +
           (provider === 'google'
             ? 'Lütfen giriş yaparken "Tüm e-postalarınızı okuma/yönetme" kutusunu işaretlediğinizden ve Gmail Ayarları → Yönlendirme ve POP/IMAP sekmesinde "IMAP\'i etkinleştir" seçeneğinin açık olduğundan emin olun.'
             : friendlySyncError(provider, testErr))
