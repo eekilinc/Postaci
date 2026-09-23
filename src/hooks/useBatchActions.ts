@@ -1,4 +1,3 @@
-// src/hooks/useBatchActions.ts — Toplu eylem ve çoklu seçim mantığı
 import { useState } from 'react';
 import type { Msg } from '../types';
 import { cleanIpcError } from '../utils/errors';
@@ -32,6 +31,15 @@ export function useBatchActions({
   const { t } = useTranslation();
   const [selectedUids, setSelectedUids] = useState<Set<string>>(new Set());
   const [lastSelectedUid, setLastSelectedUid] = useState<string | null>(null);
+
+  // Klasör, hesap veya birleşik görünüm değiştiğinde seçimleri anında sıfırla (React render-phase reset)
+  const [prevTargetKey, setPrevTargetKey] = useState<string>(`${activeAccount}|${activeFolder}|${isUnified}`);
+  const currentTargetKey = `${activeAccount}|${activeFolder}|${isUnified}`;
+  if (prevTargetKey !== currentTargetKey) {
+    setPrevTargetKey(currentTargetKey);
+    setSelectedUids(new Set());
+    setLastSelectedUid(null);
+  }
 
   const handleToggleSelectUid = (uid: string, shiftKey?: boolean) => {
     setSelectedUids((prev) => {

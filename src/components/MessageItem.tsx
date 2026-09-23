@@ -327,17 +327,28 @@ export const MessageItem = memo(
     );
   },
   (prev, next) => {
-    // Performans için özel eşitlik karşılaştırması (60 FPS akıcılık)
+    // Performans için özel eşitlik karşılaştırması (60 FPS akıcılık, klasör/hesap/veri izolasyonu)
     return (
       prev.msg.uid === next.msg.uid &&
+      prev.msg.folder_path === next.msg.folder_path &&
+      prev.msg.account_email === next.msg.account_email &&
+      prev.msg.subject === next.msg.subject &&
+      prev.msg.from_addr === next.msg.from_addr &&
+      prev.msg.date === next.msg.date &&
+      prev.msg.snippet === next.msg.snippet &&
       prev.msg.is_read === next.msg.is_read &&
       prev.msg.starred === next.msg.starred &&
+      prev.msg.has_att === next.msg.has_att &&
       prev.isSelected === next.isSelected &&
       prev.isChecked === next.isChecked &&
       prev.hasMultiSelection === next.hasMultiSelection &&
       prev.isUnified === next.isUnified &&
       prev.isTrash === next.isTrash &&
-      prev.accentSelClass === next.accentSelClass
+      prev.accentSelClass === next.accentSelClass &&
+      prev.density === next.density &&
+      prev.showAvatars === next.showAvatars &&
+      prev.snippetLines === next.snippetLines &&
+      prev.dateFormat === next.dateFormat
     );
   }
 );

@@ -488,7 +488,7 @@ export default function App() {
     const cancel = loadBody(selected, targetAccount, targetFolder, setMessages, setSelected);
     return cancel;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.uid, activeAccount, isUnified]);
+  }, [selected?.uid, selected?.folder_path, selected?.account_email, activeAccount, activeFolder, isUnified]);
 
   // E-posta bildirimine veya ekran içi kartına tıklandığında hedeflenen mesaja geçiş yap
   const navigateToMessage = useCallback(async (email: string, folderPath: string, uid?: string | null) => {
@@ -1014,7 +1014,9 @@ export default function App() {
   const handleSelectUnified = () => {
     setIsUnified(true);
     setMobileSidebarOpen(false);
+    targetSelectUidRef.current = null;
     setSelected(null);
+    resetBody();
     handleClearSelection();
     setActiveFilter('all');
     setSearchQuery('');
@@ -1026,12 +1028,14 @@ export default function App() {
   const handleSelectAccount = (email: string) => {
     setIsUnified(false);
     setMobileSidebarOpen(false);
+    targetSelectUidRef.current = null;
     handleClearSelection();
     if (email === activeAccount) return;
     setActiveAccount(email);
     setActiveFolder('INBOX');
     loadFolders(email);
     setSelected(null);
+    resetBody();
     setActiveFilter('all');
     setSearchQuery('');
     setNotice(null);
@@ -1041,6 +1045,7 @@ export default function App() {
   const handleSelectFolder = (path: string) => {
     setIsUnified(false);
     setMobileSidebarOpen(false);
+    targetSelectUidRef.current = null;
     handleClearSelection();
     if (path === activeFolder) return;
     setActiveFolder(path);
@@ -1117,6 +1122,7 @@ export default function App() {
 
   const renderReadingPane = (onBack?: () => void) => (
     <ReadingPane
+      key={`${selected?.account_email || ''}:${selected?.folder_path || ''}:${selected?.uid || 'none'}`}
       selected={selected}
       body={body}
       bodyLoading={bodyLoading}

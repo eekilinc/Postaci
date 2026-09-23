@@ -36,7 +36,7 @@ export function useMessages() {
   const activeFolderRef = useRef<string | null>(null);
   const activeAccountRef = useRef<string | null>(null);
   const isUnifiedRef = useRef<boolean>(false);
-  const [currentTarget, setCurrentTarget] = useState<{ folder: string; unified: boolean }>({ folder: 'INBOX', unified: false });
+  const [currentTarget, setCurrentTarget] = useState<{ folder: string; unified: boolean; account: string | null }>({ folder: 'INBOX', unified: false, account: null });
 
   const loadMessages = (
     email: string | null,
@@ -49,7 +49,7 @@ export function useMessages() {
       activeFolderRef.current = null;
       activeAccountRef.current = null;
       isUnifiedRef.current = false;
-      setCurrentTarget({ folder: 'INBOX', unified: false });
+      setCurrentTarget({ folder: 'INBOX', unified: false, account: null });
       return;
     }
     const currentReqId = ++reqIdRef.current;
@@ -61,7 +61,7 @@ export function useMessages() {
     activeFolderRef.current = folderPath;
     activeAccountRef.current = email;
     isUnifiedRef.current = isUnified;
-    setCurrentTarget({ folder: folderPath, unified: isUnified });
+    setCurrentTarget({ folder: folderPath, unified: isUnified, account: email });
 
     // Klasör değiştiğinde eski klasörün iletilerinin ekranda kalmaması veya yeni klasörün
     // listesine karışmaması için anında temizle. Yerel SQLite okuması <2ms sürer.
@@ -225,16 +225,20 @@ export function useMessages() {
     }
   };
 
-  // Katı klasör izolasyonlu mesaj filtresi:
-  // Birleşik gelen kutusu veya arama haricinde, aktif klasöre ait olmayan iletileri asla ekrana çıkarma!
+  // Katı klasör ve hesap izolasyonlu mesaj filtresi:
+  // Birleşik gelen kutusu veya arama haricinde, aktif klasöre ve aktif hesaba ait olmayan iletileri asla ekrana çıkarma!
   const filteredMessages = useMemo(() => {
     const targetFolder = (currentTarget.folder || 'INBOX').toLowerCase();
+    const targetAcc = (currentTarget.account || '').toLowerCase();
     const isSearchActive = !!searchQuery.trim();
 
     let list = messages;
     if (!currentTarget.unified && !isSearchActive && targetFolder) {
       const isDraftTarget = /draft|taslak/i.test(targetFolder);
       list = messages.filter((m) => {
+        if (targetAcc && m.account_email && m.account_email.toLowerCase() !== targetAcc) {
+          return false;
+        }
         if (!m.folder_path) return true;
         const mFolder = m.folder_path.toLowerCase();
         if (mFolder === targetFolder) return true;
@@ -260,12 +264,16 @@ export function useMessages() {
 
   const filterCounts = useMemo(() => {
     const targetFolder = (currentTarget.folder || 'INBOX').toLowerCase();
+    const targetAcc = (currentTarget.account || '').toLowerCase();
     const isSearchActive = !!searchQuery.trim();
 
     let list = messages;
     if (!currentTarget.unified && !isSearchActive && targetFolder) {
       const isDraftTarget = /draft|taslak/i.test(targetFolder);
       list = messages.filter((m) => {
+        if (targetAcc && m.account_email && m.account_email.toLowerCase() !== targetAcc) {
+          return false;
+        }
         if (!m.folder_path) return true;
         const mFolder = m.folder_path.toLowerCase();
         if (mFolder === targetFolder) return true;

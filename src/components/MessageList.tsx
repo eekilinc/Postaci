@@ -480,9 +480,14 @@ export function MessageList({
         ) : (
           displayedMessages.map((m) => (
             <MessageItem
-              key={m.uid}
+              key={`${m.account_email || activeAccount || ''}:${m.folder_path || activeFolder || ''}:${m.uid}`}
               msg={m}
-              isSelected={selected?.uid === m.uid}
+              isSelected={
+                !!selected &&
+                selected.uid === m.uid &&
+                (!selected.folder_path || !m.folder_path || selected.folder_path.toLowerCase() === m.folder_path.toLowerCase()) &&
+                (!selected.account_email || !m.account_email || selected.account_email.toLowerCase() === m.account_email.toLowerCase())
+              }
               isChecked={!!selectedUids?.has(m.uid)}
               isUnified={isUnified}
               isTrash={isTrash}
