@@ -112,9 +112,17 @@ export function SettingsModal({
   const [showUnreadBadge, setShowUnreadBadge] = useState(true);
   const [showTaskbarAlert, setShowTaskbarAlert] = useState(true);
   const [showTrackingAlert, setShowTrackingAlert] = useState(true);
+  const [showInAppAlerts, setShowInAppAlerts] = useState<boolean>(
+    () => localStorage.getItem('postaci_show_in_app_alerts') !== 'false',
+  );
   const [soundChoice, setSoundChoice] = useState(() => localStorage.getItem('postaci_sound_choice') || 'chirp');
   const [syncInterval, setSyncInterval] = useState(2);
   const [testNotice, setTestNotice] = useState<string | null>(null);
+
+  const handleToggleInAppAlerts = (checked: boolean) => {
+    setShowInAppAlerts(checked);
+    localStorage.setItem('postaci_show_in_app_alerts', String(checked));
+  };
 
   // 2. Görünüm: Okuma bölmesi & Klasörler
   const [showReadingPane, setShowReadingPane] = useState(true);
@@ -997,6 +1005,20 @@ export function SettingsModal({
                         className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
                       />
                       <span>{language === 'en' ? 'Show notification when tracked email is opened' : 'E-posta İzlemesi olan bir ileti açıldığında bildirim alanında göster'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showInAppAlerts}
+                        onChange={(e) => handleToggleInAppAlerts(e.target.checked)}
+                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
+                      />
+                      <span>
+                        {language === 'en'
+                          ? 'Show in-app floating notification card (top right)'
+                          : 'Uygulama açıkken sağ üstte canlı bildirim kartı gösterilsin'}
+                      </span>
                     </label>
 
                     <div className="pt-2 flex items-center justify-between">

@@ -560,26 +560,29 @@ export default function App() {
       playNotificationSound(soundPref);
 
       // Ekran içi zengin bildirim kartı (In-App floating notification)
-      if (messages && messages.length > 0) {
-        const first = messages[0];
-        setInAppAlert({
-          id: String(first.uid || Date.now()),
-          from: first.from || email,
-          email,
-          subject: first.subject || '(konusuz e-posta)',
-          folderPath: folderPath || 'INBOX',
-          uid: first.uid,
-          count,
-        });
-      } else if (count > 0) {
-        setInAppAlert({
-          id: Date.now().toString(),
-          from: email,
-          email,
-          subject: `${count} yeni e-posta alındı.`,
-          folderPath: folderPath || 'INBOX',
-          count,
-        });
+      const inAppEnabled = localStorage.getItem('postaci_show_in_app_alerts') !== 'false';
+      if (inAppEnabled) {
+        if (messages && messages.length > 0) {
+          const first = messages[0];
+          setInAppAlert({
+            id: String(first.uid || Date.now()),
+            from: first.from || email,
+            email,
+            subject: first.subject || '(konusuz e-posta)',
+            folderPath: folderPath || 'INBOX',
+            uid: first.uid,
+            count,
+          });
+        } else if (count > 0) {
+          setInAppAlert({
+            id: Date.now().toString(),
+            from: email,
+            email,
+            subject: `${count} yeni e-posta alındı.`,
+            folderPath: folderPath || 'INBOX',
+            count,
+          });
+        }
       }
     });
 
