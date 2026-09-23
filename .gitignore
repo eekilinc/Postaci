@@ -21,6 +21,10 @@ electron/oauth-config.json
 .env
 .env.*
 
+# Playwright E2E çıktıları
+test-results/
+playwright-report/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -2748,6 +2748,11 @@ app.whenReady().then(() => {
 
   createTray();
   createWindow();
+  try {
+    require('./electron/updater.cjs').initUpdater(() => mainWindow);
+  } catch (e) {
+    console.warn('[updater] başlatılamadı:', e?.message);
+  }
   updateBackgroundSyncSchedule();
   setTimeout(() => {
     runBackgroundSync().catch(() => {});

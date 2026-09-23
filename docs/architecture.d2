@@ -1,0 +1,62 @@
+# Postacı sistem mimarisi (D2)
+# Render: https://play.d2lang.com veya `d2 docs/architecture.d2 docs/architecture.svg`
+# Kaynak: README'deki Mermaid + docs/archify/postaci-mimari
+
+kullanici: Kullanıcı\nWindows masaüstü {
+  shape: person
+}
+
+renderer: Renderer UI\nReact 19 + Tailwind {
+  shape: rectangle
+}
+
+preload: Preload Köprüsü\ncontextBridge IPC {
+  shape: rectangle
+}
+
+main: Electron Main\npencere + IPC {
+  shape: rectangle
+}
+
+sqlite: Yerel SQLite\nbetter-sqlite3 WAL {
+  shape: cylinder
+}
+
+mail: Mail Motoru\nimapflow + nodemailer {
+  shape: rectangle
+}
+
+auth: Auth + Kasa\nOAuth2 + DPAPI {
+  shape: hexagon
+}
+
+saglayici: Sağlayıcılar\nGmail Outlook Yahoo IMAP {
+  shape: cloud
+}
+
+releases: GitHub Releases\nlatest.yml {
+  shape: cloud
+}
+
+kullanici -> renderer: tıkla + kısayol
+renderer -> preload: window.postaci {
+  style.stroke: red
+}
+preload -> main: IPC invoke {
+  style.stroke: red
+}
+main -> sqlite: SQL RW
+main -> auth: token al {
+  style.stroke: red
+}
+auth -> saglayici: OAuth2 refresh {
+  style.stroke: red
+}
+main -> mail: sync + send
+mail -> saglayici: IMAP SMTP TLS
+mail -> sqlite: kaydet {
+  style.stroke-dash: 3
+}
+main -> releases: güncelleme kontrolü {
+  style.stroke-dash: 3
+}

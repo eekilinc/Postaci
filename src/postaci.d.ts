@@ -233,6 +233,18 @@ declare global {
         setSpellcheck?: (enabled: boolean) => Promise<boolean>;
       };
       openExternal: (url: string) => Promise<boolean>;
+      updater: {
+        check: () => Promise<{ ok: boolean; version?: string | null; error?: string }>;
+        quitInstall: () => Promise<boolean>;
+        onStatus: (
+          callback: (data: {
+            state: 'checking' | 'available' | 'downloading' | 'downloaded' | 'none' | 'error';
+            version?: string | null;
+            percent?: number;
+            message?: string;
+          }) => void,
+        ) => () => void;
+      };
       setBadge: (count: number) => Promise<boolean>;
       openFileDialog: (opts?: {
         title?: string;

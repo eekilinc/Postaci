@@ -111,6 +111,15 @@ contextBridge.exposeInMainWorld('postaci', {
     save: (settings) => ipcRenderer.invoke('app:save-settings', settings),
     setSpellcheck: (enabled) => ipcRenderer.invoke('app:set-spellcheck', enabled),
   },
+  updater: {
+    check: () => ipcRenderer.invoke('updater:check'),
+    quitInstall: () => ipcRenderer.invoke('updater:quit-install'),
+    onStatus: (callback) => {
+      const listener = (_evt, data) => callback(data);
+      ipcRenderer.on('updater:status', listener);
+      return () => ipcRenderer.removeListener('updater:status', listener);
+    },
+  },
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   setBadge: (count) => ipcRenderer.invoke('app:set-badge', count),
   openFileDialog: (opts) => ipcRenderer.invoke('dialog:open-file', opts || {}),

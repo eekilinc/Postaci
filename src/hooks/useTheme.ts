@@ -1,35 +1,16 @@
-// src/hooks/useTheme.ts — tema, accent rengi ve OLED modu yönetimi
-import { useEffect, useState } from 'react';
-import type { AccentKey, ThemeKey } from '../types';
+// src/hooks/useTheme.ts — uyumluluk sarmalayıcı (store destekli)
+//
+// Gerçek durum artık src/stores/themeStore.ts'ta. Bu hook eski API'yi
+// birebir korur, o yüzden tüketiciler (App.tsx) değişmeden çalışır.
+// Yeni kod doğrudan useThemeStore() kullansın.
+import { useThemeStore } from '../stores/themeStore';
 
 export function useTheme() {
-  const [theme, setTheme] = useState<ThemeKey>(
-    () => (localStorage.getItem('postaci-theme') as ThemeKey) || 'system',
-  );
-  const [accent, setAccent] = useState<AccentKey>(
-    () => (localStorage.getItem('postaci-accent') as AccentKey) || 'blue',
-  );
-  const [oledMode, setOledMode] = useState<boolean>(
-    () => localStorage.getItem('postaci_oled_mode') === 'true',
-  );
-
-  useEffect(() => {
-    localStorage.setItem('postaci-theme', theme);
-    localStorage.setItem('postaci_oled_mode', String(oledMode));
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const apply = () => {
-      const isDark = theme === 'dark' || (theme === 'system' && mq.matches);
-      document.documentElement.classList.toggle('dark', isDark);
-      document.documentElement.classList.toggle('oled-black', isDark && oledMode);
-    };
-    apply();
-    mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
-  }, [theme, oledMode]);
-
-  useEffect(() => {
-    localStorage.setItem('postaci-accent', accent);
-  }, [accent]);
-
+  const theme = useThemeStore((s) => s.theme);
+  const accent = useThemeStore((s) => s.accent);
+  const oledMode = useThemeStore((s) => s.oledMode);
+  const setTheme = useThemeStore((s) => s.setTheme);
+  const setAccent = useThemeStore((s) => s.setAccent);
+  const setOledMode = useThemeStore((s) => s.setOledMode);
   return { theme, setTheme, accent, setAccent, oledMode, setOledMode };
 }

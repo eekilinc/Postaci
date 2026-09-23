@@ -126,6 +126,7 @@ graph TD
         CR_A["Pencere & Bildirim Yöneticisi"]
         CR_B["Arka Plan Senkronizasyonu"]
         CR_C["OAuth2 & Windows safeStorage (DPAPI)"]
+        CR_D["Otomatik Güncelleme (electron-updater)"]
     end
 
     subgraph Storage ["💾 Veri ve İletişim Katmanı"]
@@ -137,6 +138,7 @@ graph TD
     UI --> Bridge
     Bridge --> Core
     Core --> Storage
+    CR_D -.-> GH["GitHub Releases (latest.yml)"]
 ```
 
 ---

@@ -25,7 +25,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "lint:biome": "biome check .",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "preview": "vite preview",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
@@ -56,6 +58,13 @@
       "output": "release",
       "buildResources": "build"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "eekilinc",
+        "repo": "Postaci"
+      }
+    ],
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -109,9 +118,12 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-query": "^5.103.2",
     "better-sqlite3": "^13.0.3",
     "concurrently": "^10.0.5",
     "dompurify": "^3.4.15",
+    "drizzle-orm": "^0.45.3",
+    "electron-updater": "^6.8.9",
     "fast-xml-parser": "^5.11.1",
     "imapflow": "^2.0.0",
     "mailparser": "^3.9.23",
@@ -119,10 +131,13 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "selfsigned": "^5.5.0",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
     "@electron/rebuild": "^4.2.0",
+    "@playwright/test": "^1.63.0",
     "@rolldown/binding-wasm32-wasi": "^1.2.9",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^24.13.3",
@@ -130,6 +145,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
+    "drizzle-kit": "^0.31.11",
     "electron": "^44.3.0",
     "electron-builder": "^26.15.3",
     "oxlint": "^1.79.0",
