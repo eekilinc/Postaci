@@ -136,7 +136,7 @@ export function getFolderRole(f: { path: string; name?: string; flags?: string[]
  */
 export function organizeAndDeduplicateFolders(
   rawFolders: Folder[],
-  activeFolder?: string | null,
+  _activeFolder?: string | null,
   isGoogleAccount?: boolean,
   lang: 'tr' | 'en' = 'tr'
 ): {
@@ -182,12 +182,7 @@ export function organizeAndDeduplicateFolders(
       const n = (c.name || '').toLowerCase();
       const flags = (c.flags || []).map((x) => x.toLowerCase());
 
-      // 1. Kullanıcı şu an bu klasördeyse öncelik ver
-      if (activeFolder && c.path === activeFolder) {
-        score += 100;
-      }
-
-      // 2. Özel IMAP bayrağı taşıyorsa
+      // 1. Özel IMAP bayrağı taşıyorsa
       if (role === 'inbox' && flags.includes('\\inbox')) score += 50;
       if (role === 'starred' && flags.includes('\\flagged')) score += 50;
       if (role === 'sent' && flags.includes('\\sent')) score += 50;
@@ -196,10 +191,10 @@ export function organizeAndDeduplicateFolders(
       if (role === 'junk' && flags.includes('\\junk')) score += 50;
       if (role === 'archive' && (flags.includes('\\archive') || flags.includes('\\all'))) score += 50;
 
-      // 3. Gmail hesabıysa [Gmail]/ önekine öncelik ver
+      // 2. Gmail hesabıysa [Gmail]/ önekine öncelik ver
       if (isGoogleAccount && c.path.startsWith('[Gmail]/')) score += 40;
 
-      // 4. Standart sunucu adlandırma tercihleri
+      // 3. Standart sunucu adlandırma tercihleri
       if (role === 'drafts') {
         if (p === 'drafts' || n === 'drafts') score += 30;
         else if (p === 'taslaklar' || n === 'taslaklar') score += 20;

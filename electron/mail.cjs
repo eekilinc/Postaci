@@ -453,7 +453,7 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     upsertFolder.run(email, folderPath === 'INBOX' ? 'Gelen Kutusu' : folderPath, folderPath, unread);
 
     const checkExists = db.prepare(
-      `SELECT 1 FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`,
+      `SELECT 1 FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`,
     );
 
     const upsertMsg = db.prepare(
@@ -465,7 +465,7 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     );
 
     const updateFlags = db.prepare(
-      `UPDATE messages SET is_read=?, starred=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`,
+      `UPDATE messages SET is_read=?, starred=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`,
     );
 
     // ── Artımlı sync (IMAP UIDNEXT modeli) ─────────────────────────────────
@@ -473,7 +473,7 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     try {
       const r = db.prepare(
         `SELECT MAX(CAST(uid AS INTEGER)) AS m FROM messages
-         WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid GLOB '[0-9]*'`,
+         WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid GLOB '[0-9]*'`,
       ).get(email, folderPath);
       if (r && r.m) lastSeenUid = Number(r.m) || 0;
     } catch { /* ilk sync sayılır */ }
@@ -525,7 +525,7 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
       try {
         flagOnlyUids = db.prepare(
           `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
-           AND folder_path=? AND uid GLOB '[0-9]*' AND CAST(uid AS INTEGER) <= ?
+           AND folder_path=? COLLATE NOCASE AND uid GLOB '[0-9]*' AND CAST(uid AS INTEGER) <= ?
            ORDER BY CAST(uid AS INTEGER) DESC LIMIT 150`,
         ).all(email, folderPath, lastSeenUid).map((x) => String(x.uid));
       } catch { /* bayrak tazeleme atlanır, sync devam eder */ }
@@ -584,7 +584,7 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     if (!beforeUid && !skipPrune) {
       try {
         const localRows = db.prepare(
-          `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=?
+          `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE
            AND uid GLOB '[0-9]*' ORDER BY CAST(uid AS INTEGER) DESC LIMIT 200`,
         ).all(email, folderPath);
 
@@ -598,10 +598,10 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
             } else {
               const serverUidSet = new Set(existingOnServer.map(String));
               const deleteLocal = db.prepare(
-                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`,
+                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`,
               );
               const deleteAtt = db.prepare(
-                `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`,
+                `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`,
               );
 
               for (const uidStr of localUidsToCheck) {

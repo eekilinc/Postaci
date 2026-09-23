@@ -36,25 +36,7 @@ export function useMessages() {
   const activeFolderRef = useRef<string | null>(null);
   const activeAccountRef = useRef<string | null>(null);
   const isUnifiedRef = useRef<boolean>(false);
-
-  // Klasör bazlı bellek önbelleği: key = accountEmail:folderPath (veya __unified__)
-  // Daha önce ziyaret edilmiş bir klasöre dönüldüğünde mesajlar 0 ms'de anında ekrana gelir
-  const folderCacheRef = useRef<Map<string, { list: Msg[]; total: number }>>(new Map());
-
-  const getCacheKey = (email: string | null, folderPath: string, unified: boolean) => {
-    if (unified) return '__unified__';
-    return `${(email || '').toLowerCase().trim()}:${(folderPath || 'INBOX').toLowerCase().trim()}`;
-  };
-
-  const setMessagesAndCache: React.Dispatch<React.SetStateAction<Msg[]>> = (valOrFn) => {
-    setMessages((prev) => {
-      const nextVal = typeof valOrFn === 'function' ? (valOrFn as (p: Msg[]) => Msg[])(prev) : valOrFn;
-      const cacheKey = getCacheKey(activeAccountRef.current, activeFolderRef.current || 'INBOX', isUnifiedRef.current);
-      const existing = folderCacheRef.current.get(cacheKey);
-      folderCacheRef.current.set(cacheKey, { list: nextVal, total: existing?.total ?? nextVal.length });
-      return nextVal;
-    });
-  };
+  const [currentTarget, setCurrentTarget] = useState<{ folder: string; unified: boolean }>({ folder: 'INBOX', unified: false });
 
   const loadMessages = (
     email: string | null,
@@ -67,6 +49,7 @@ export function useMessages() {
       activeFolderRef.current = null;
       activeAccountRef.current = null;
       isUnifiedRef.current = false;
+      setCurrentTarget({ folder: 'INBOX', unified: false });
       return;
     }
     const currentReqId = ++reqIdRef.current;
@@ -78,21 +61,13 @@ export function useMessages() {
     activeFolderRef.current = folderPath;
     activeAccountRef.current = email;
     isUnifiedRef.current = isUnified;
+    setCurrentTarget({ folder: folderPath, unified: isUnified });
 
-    const cacheKey = getCacheKey(email, folderPath, isUnified);
-
-    // Klasör değiştiğinde:
-    // Eğer önbellekte bu klasöre ait kayıt varsa hemen 0 ms'de ekrana ver
-    // Yoksa eski klasörün mesajlarının ekranda kalmaması için anında temizle!
+    // Klasör değiştiğinde eski klasörün iletilerinin ekranda kalmaması veya yeni klasörün
+    // listesine karışmaması için anında temizle. Yerel SQLite okuması <2ms sürer.
     if (isTargetChanged) {
-      const cached = folderCacheRef.current.get(cacheKey);
-      if (cached) {
-        setMessages(cached.list);
-        setTotalDbCount(cached.total);
-      } else {
-        setMessages([]);
-        setTotalDbCount(0);
-      }
+      setMessages([]);
+      setTotalDbCount(0);
       setServerTotal(0);
     }
 
@@ -112,7 +87,6 @@ export function useMessages() {
           if (reqIdRef.current !== currentReqId) return;
           if (!isUnifiedRef.current) return;
           setMessages(list);
-          folderCacheRef.current.set(cacheKey, { list, total: list.length });
         })
         .catch(() => {});
       return;
@@ -123,12 +97,14 @@ export function useMessages() {
       .count(email!, folderPath)
       .then((counts) => {
         if (reqIdRef.current !== currentReqId) return;
-        if (activeFolderRef.current !== folderPath || activeAccountRef.current !== email || isUnifiedRef.current) return;
-        setTotalDbCount(counts.total);
-        const existing = folderCacheRef.current.get(cacheKey);
-        if (existing) {
-          folderCacheRef.current.set(cacheKey, { ...existing, total: counts.total });
+        if (
+          (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
+          activeAccountRef.current !== email ||
+          isUnifiedRef.current
+        ) {
+          return;
         }
+        setTotalDbCount(counts.total);
       })
       .catch(() => {});
 
@@ -137,9 +113,14 @@ export function useMessages() {
       .list(email!, folderPath, PAGE_SIZE, 0)
       .then((list) => {
         if (reqIdRef.current !== currentReqId) return;
-        if (activeFolderRef.current !== folderPath || activeAccountRef.current !== email || isUnifiedRef.current) return;
+        if (
+          (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
+          activeAccountRef.current !== email ||
+          isUnifiedRef.current
+        ) {
+          return;
+        }
         setMessages(list);
-        folderCacheRef.current.set(cacheKey, { list, total: list.length });
       })
       .catch(() => {});
   };
@@ -147,7 +128,6 @@ export function useMessages() {
   // Yerel DB'den sonraki 50 mesajı yükle
   const loadMore = async (email: string | null, folderPath: string, isUnified: boolean = false) => {
     if ((!email && !isUnified) || !window.postaci || loadingMore || searchQuery.trim()) return;
-    // Klasör yeni değişiyorsa veya henüz ilk sayfa yüklenmemişse loadMore asla tetiklenmemeli
     if (messages.length === 0 || messages.length >= totalDbCount) return;
     if (activeFolderRef.current !== folderPath || activeAccountRef.current !== email || isUnifiedRef.current !== isUnified) return;
 
@@ -162,12 +142,20 @@ export function useMessages() {
 
       if (nextBatch.length > 0) {
         setMessages((prev) => {
-          const existingUids = new Set(prev.map((m) => m.uid));
+          const targetNorm = (folderPath || 'INBOX').toLowerCase();
+          const isDraft = /draft|taslak/i.test(targetNorm);
+          // prev içindeki mesajların gerçekten bu klasöre ait olduğundan emin ol (asla yabancı klasör ekleme!)
+          const validPrev = isUnified
+            ? prev
+            : prev.filter((m) => {
+                if (!m.folder_path) return true;
+                const mNorm = m.folder_path.toLowerCase();
+                return mNorm === targetNorm || (isDraft && (/draft|taslak/i.test(mNorm) || String(m.uid).startsWith('draft-')));
+              });
+
+          const existingUids = new Set(validPrev.map((m) => m.uid));
           const additions = nextBatch.filter((m) => !existingUids.has(m.uid));
-          const updated = [...prev, ...additions];
-          const cacheKey = getCacheKey(email, folderPath, isUnified);
-          folderCacheRef.current.set(cacheKey, { list: updated, total: totalDbCount });
-          return updated;
+          return [...validPrev, ...additions];
         });
       }
     } finally {
@@ -194,6 +182,13 @@ export function useMessages() {
       const beforeUid = oldestMsg?.uid;
       const res = await window.postaci.mail.syncMore(email, folderPath, beforeUid, PAGE_SIZE);
       if (reqIdRef.current !== currentReqId) return;
+      if (
+        (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
+        activeAccountRef.current !== email ||
+        isUnifiedRef.current
+      ) {
+        return;
+      }
       setNotice(
         `Sunucudan ${res.synced} eski e-posta daha çekildi (toplam kutuda: ${res.total}).`,
       );
@@ -201,9 +196,23 @@ export function useMessages() {
       // DB'deki sayıyı güncelle ve listeyi tazele
       const counts = await window.postaci.mail.count(email, folderPath);
       if (reqIdRef.current !== currentReqId) return;
+      if (
+        (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
+        activeAccountRef.current !== email ||
+        isUnifiedRef.current
+      ) {
+        return;
+      }
       setTotalDbCount(counts.total);
       const updatedList = await window.postaci.mail.list(email, folderPath, messages.length + PAGE_SIZE, 0);
       if (reqIdRef.current !== currentReqId) return;
+      if (
+        (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
+        activeAccountRef.current !== email ||
+        isUnifiedRef.current
+      ) {
+        return;
+      }
       setMessages(updatedList);
     } catch (e) {
       if (reqIdRef.current === currentReqId) {
@@ -216,26 +225,64 @@ export function useMessages() {
     }
   };
 
+  // Katı klasör izolasyonlu mesaj filtresi:
+  // Birleşik gelen kutusu veya arama haricinde, aktif klasöre ait olmayan iletileri asla ekrana çıkarma!
   const filteredMessages = useMemo(() => {
+    const targetFolder = (currentTarget.folder || 'INBOX').toLowerCase();
+    const isSearchActive = !!searchQuery.trim();
+
+    let list = messages;
+    if (!currentTarget.unified && !isSearchActive && targetFolder) {
+      const isDraftTarget = /draft|taslak/i.test(targetFolder);
+      list = messages.filter((m) => {
+        if (!m.folder_path) return true;
+        const mFolder = m.folder_path.toLowerCase();
+        if (mFolder === targetFolder) return true;
+        if (isDraftTarget && (/draft|taslak/i.test(mFolder) || (m.uid && String(m.uid).startsWith('draft-')))) {
+          return true;
+        }
+        return false;
+      });
+    }
+
     switch (activeFilter) {
       case 'unread':
-        return messages.filter((m) => !m.is_read);
+        return list.filter((m) => !m.is_read);
       case 'starred':
-        return messages.filter((m) => !!m.starred);
+        return list.filter((m) => !!m.starred);
       case 'attachment':
-        return messages.filter((m) => !!m.has_att);
+        return list.filter((m) => !!m.has_att);
       case 'all':
       default:
-        return messages;
+        return list;
     }
-  }, [messages, activeFilter]);
+  }, [messages, activeFilter, searchQuery, currentTarget]);
 
-  const filterCounts = useMemo(() => ({
-    all: messages.length,
-    unread: messages.filter((m) => !m.is_read).length,
-    starred: messages.filter((m) => !!m.starred).length,
-    attachment: messages.filter((m) => !!m.has_att).length,
-  }), [messages]);
+  const filterCounts = useMemo(() => {
+    const targetFolder = (currentTarget.folder || 'INBOX').toLowerCase();
+    const isSearchActive = !!searchQuery.trim();
+
+    let list = messages;
+    if (!currentTarget.unified && !isSearchActive && targetFolder) {
+      const isDraftTarget = /draft|taslak/i.test(targetFolder);
+      list = messages.filter((m) => {
+        if (!m.folder_path) return true;
+        const mFolder = m.folder_path.toLowerCase();
+        if (mFolder === targetFolder) return true;
+        if (isDraftTarget && (/draft|taslak/i.test(mFolder) || (m.uid && String(m.uid).startsWith('draft-')))) {
+          return true;
+        }
+        return false;
+      });
+    }
+
+    return {
+      all: list.length,
+      unread: list.filter((m) => !m.is_read).length,
+      starred: list.filter((m) => !!m.starred).length,
+      attachment: list.filter((m) => !!m.has_att).length,
+    };
+  }, [messages, searchQuery, currentTarget]);
 
   const hasMoreDb = !searchQuery.trim() && messages.length < totalDbCount;
   const hasMoreServer = !searchQuery.trim() && serverTotal > totalDbCount;
@@ -282,6 +329,13 @@ export function useMessages() {
         setNotice(formatSyncNotice(folderPath, r));
       }
       if (reqIdRef.current !== currentReqId) return;
+      if (
+        (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
+        activeAccountRef.current !== email ||
+        isUnifiedRef.current
+      ) {
+        return;
+      }
       loadMessages(email, folderPath, false);
       window.postaci.db.stats().catch(() => {});
     } catch (e) {
@@ -297,7 +351,7 @@ export function useMessages() {
 
   return {
     messages,
-    setMessages: setMessagesAndCache,
+    setMessages,
     filteredMessages,
     totalDbCount,
     serverTotal,

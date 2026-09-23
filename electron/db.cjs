@@ -474,12 +474,13 @@ function toggleStarDb(email, folderPath, uid) {
 
 function saveSentMessage(email, { to, subject, text, html }) {
   const uid = `local-${Date.now()}`;
+  const folderPath = getSentFolder(email);
   getDb()
     .prepare(
       `INSERT INTO messages (account_id, folder_path, uid, subject, from_addr, to_addr, date, snippet, body_text, body_html, is_read)
-       VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), 'SENT', ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+       VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     )
-    .run(email, uid, subject || '(konusuz)', email, to, new Date().toISOString(), (text || '').slice(0, 200), text || null, html || null);
+    .run(email, folderPath, uid, subject || '(konusuz)', email, to, new Date().toISOString(), (text || '').slice(0, 200), text || null, html || null);
   return uid;
 }
 
@@ -729,6 +730,27 @@ function batchToggleStarDb(email, folderPath, uids, starred = 1) {
   trans(uids);
 }
 
+function getSentFolder(email) {
+  const acc = getAccountByEmail(email);
+  if (acc?.provider === 'google') return '[Gmail]/Sent Mail';
+  const db = getDb();
+  try {
+    const rows = db.prepare(
+      `SELECT path FROM folders 
+       WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) 
+         AND (lower(path) LIKE '%sent%' OR lower(path) LIKE '%gönder%')`
+    ).all(email);
+    if (rows && rows.length > 0) {
+      const found =
+        rows.find((r) => /^(\[gmail\]\/)?sent( mail)?$/i.test(r.path)) ||
+        rows.find((r) => /^(\[gmail\]\/)?gönderilen(ler| postalar)?$/i.test(r.path)) ||
+        rows[0];
+      return found.path;
+    }
+  } catch {}
+  return 'Sent';
+}
+
 function getDraftFolder(email) {
   const acc = getAccountByEmail(email);
   if (acc?.provider === 'google') return '[Gmail]/Taslaklar';
@@ -801,6 +823,8 @@ function getAllUnreadCounts() {
     for (const r of folderRows) {
       if (r.email && r.folder_path) {
         byFolder[`${r.email}:${r.folder_path}`] = r.unread || 0;
+        // Küçük harfe normalize edilmiş anahtar (büyük/küçük harf uyumsuzluğunu önler)
+        byFolder[`${r.email.toLowerCase()}:${r.folder_path.toLowerCase()}`] = r.unread || 0;
       }
     }
 
@@ -815,4 +839,4 @@ function getAllUnreadCounts() {
   }
 }
 
-module.exports = { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, listContacts, upsertContact, deleteContact, saveSentMessage, saveDraftMessage, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts };
+module.exports = { initDb, getDb, getStats, getDbPath, vacuumDb, listAccounts, getAccountById, getAccountByEmail, updateAccount, deleteAccount, updateTokens, addAccount, listMessages, countFolderMessages, listUnifiedMessages, countUnifiedMessages, searchUnifiedMessages, searchMessages, getThreadMessages, getMessageMeta, getMessageBody, saveMessageBody, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, searchContacts, listContacts, upsertContact, deleteContact, saveSentMessage, saveDraftMessage, getSentFolder, getDraftFolder, listAttachments, saveAttachments, getSetting, setSetting, getAllUnreadCounts };

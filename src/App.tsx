@@ -184,9 +184,10 @@ export default function App() {
   // Aktif hesaba göre klasör listesini en güncel okunmamış sayılarıyla eşle
   const displayFolders = useMemo(() => {
     if (!activeAccount) return folders;
+    const accLower = activeAccount.toLowerCase();
     return folders.map((f) => {
-      const key = `${activeAccount}:${f.path}`;
-      const unread = unreadCounts.byFolder[key];
+      const key = `${accLower}:${(f.path || '').toLowerCase()}`;
+      const unread = unreadCounts.byFolder[key] ?? unreadCounts.byFolder[`${activeAccount}:${f.path}`];
       return typeof unread === 'number' ? { ...f, unread_count: unread } : f;
     });
   }, [folders, activeAccount, unreadCounts.byFolder]);
@@ -451,6 +452,7 @@ export default function App() {
     return () => {
       cancelled = true;
       clearTimeout(syncTimer);
+      setSyncing(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFolder, activeAccount, isUnified]);
@@ -512,18 +514,21 @@ export default function App() {
         }
       }
       if (list && list.length > 0) {
-        setMessages(list);
-        if (found) {
-          setSelected(found);
-          targetSelectUidRef.current = null;
-        } else if (!targetUid) {
-          setSelected(list[0]);
+        // Yalnızca hedeflenen klasör hâlâ aktifse listeyi güncelle (klasör karışmasını önler)
+        if ((activeFolder || 'INBOX').toLowerCase() === targetFolder.toLowerCase()) {
+          setMessages(list);
+          if (found) {
+            setSelected(found);
+            targetSelectUidRef.current = null;
+          } else if (!targetUid) {
+            setSelected(list[0]);
+          }
         }
       }
     } catch (err) {
       console.error('[navigateToMessage] Mesaj açılamadı:', err);
     }
-  }, [activeAccount, setActiveAccount, setActiveFolder, setMessages, setSelected]);
+  }, [activeAccount, activeFolder, setActiveAccount, setActiveFolder, setMessages, setSelected]);
 
   const handleViewInAppMail = useCallback((alertData: IncomingMailData) => {
     setInAppAlert(null);
@@ -544,7 +549,7 @@ export default function App() {
       if (email === activeAccount) {
         loadFolders(email);
         const currentFolder = activeFolder || 'INBOX';
-        if ((folderPath || 'INBOX') === currentFolder) {
+        if ((folderPath || 'INBOX').toLowerCase() === currentFolder.toLowerCase()) {
           loadMessages(email, currentFolder);
         }
       }
@@ -583,7 +588,7 @@ export default function App() {
       if (email === activeAccount) {
         loadFolders(email);
         const currentFolder = activeFolder || 'INBOX';
-        if ((folderPath || 'INBOX') === currentFolder) {
+        if ((folderPath || 'INBOX').toLowerCase() === currentFolder.toLowerCase()) {
           loadMessages(email, currentFolder);
         }
       }
