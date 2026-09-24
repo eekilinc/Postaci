@@ -61,12 +61,29 @@ function setupDevElectron() {
       main: 'index.js'
     }, null, 2), 'utf8');
 
-    // index.js: Proje kökündeki main.cjs dosyasını çağırır
+    // index.js: Proje kökündeki main.cjs dosyasını çağırır.
+    // Kök, '..' sayarak DEĞİL, name='postaci' olan package.json yukarı doğru
+    // aranarak bulunur (taşınma/derinlik değişimine dayanıklı).
     const indexContent = `// Windows bildirimine tıklandığında electron.exe argümansız çağrılırsa bu dosya çalışır.
 // Projenin ana main.cjs dosyasını yükler; Single Instance Lock sayesinde
 // açık olan Postacı penceresi öne gelir, yeni/boş pencere açılmaz.
+const fs = require('fs');
 const path = require('path');
-const rootDir = path.resolve(__dirname, '../../../../');
+function findRoot(start) {
+  let dir = start;
+  for (let i = 0; i < 10; i++) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+      if (pkg && pkg.name === 'postaci' && fs.existsSync(path.join(dir, 'main.cjs'))) return dir;
+    } catch {}
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+const rootDir = findRoot(__dirname);
+if (!rootDir) throw new Error('[postaci-dev-redirect] proje koku bulunamadi: ' + __dirname);
 try {
   process.chdir(rootDir);
 } catch {}
