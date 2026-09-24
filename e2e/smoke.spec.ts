@@ -19,6 +19,15 @@ test('uygulama açılır ve ana ekran render olur', async () => {
     env: { ...process.env, ELECTRON_DISABLE_GPU: '1' },
   });
   const window = await app.firstWindow();
+  window.on('console', (msg) => {
+    if (msg.type() === 'error' || msg.type() === 'warning') {
+      console.log(`[renderer:${msg.type()}]`, msg.text().slice(0, 300));
+    }
+  });
+  window.on('pageerror', (err) => {
+    console.log('[pageerror]', String(err).slice(0, 500));
+  });
+  window.on('close', () => console.log('[pencere-kapandi]'));
   await window.waitForSelector('#root', { timeout: 30_000 });
   await expect(window).toHaveTitle(/Postac/i);
   await app.close();
