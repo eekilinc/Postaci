@@ -1,14 +1,46 @@
 // src/hooks/useMessages.ts — mesaj listesi, filtreleme, sayfalama ve sync
+//
+// TanStack Query destekli. DIŞ API ESKİSİYLE BİREBİR AYNI (dönüş nesnesindeki
+// tüm alanlar + fonksiyon imzaları). App.tsx ve useBatchActions değişmeden çalışır.
+//
+// Farklar:
+// - Liste/sayı, hedef anahtarlı ([hesap, klasör, birleşik]) sorgu önbelleğinde
+//   tutulur. Klasör değişiminde eski liste yeni hedefe karışamaz (anahtar
+//   izolasyonu, eski reqId sayaçlarının yerini alır).
+// - setMessages hem doğrudan değer hem fonksiyonel güncelleyici kabul eder;
+//   yazımlar o anki hedefin önbelleğine uygulanır (iyimser UI aynen korunur).
+// - loadMessages hedefi değiştirir, veri akışı sorgudan gelir; sync ve
+//   loadMoreFromServer aynı akışla çalışır, bitiminde ilgili anahtar tazelenir.
+
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useRef, useState } from 'react';
+import { mailKeys } from '../query/mailKeys';
 import type { FilterKey, Msg } from '../types';
 import { cleanIpcError } from '../utils/errors';
 
 const PAGE_SIZE = 50;
 
+export interface MessageTarget {
+  email: string | null;
+  folder: string;
+  unified: boolean;
+}
+
+const EMPTY_TARGET: MessageTarget = {
+  email: null,
+  folder: 'INBOX',
+  unified: false,
+};
+
 // Eşitle sonucunu tek cümlede özetler; sessiz başarısızlıkları görünür kılar
 function formatSyncNotice(
   folderPath: string | null,
-  r: { total: number; synced: number; failed?: number; firstError?: string | null },
+  r: {
+    total: number;
+    synced: number;
+    failed?: number;
+    firstError?: string | null;
+  },
 ): string {
   const where = folderPath ? ` ${folderPath}` : '';
   let s = `Eşitlendi${where}: kutuda ${r.total}, çekilen ${r.synced}`;
@@ -21,9 +53,24 @@ function formatSyncNotice(
   return s + '.';
 }
 
+async function fetchPage(t: MessageTarget, offset: number): Promise<Msg[]> {
+  if (t.unified) return window.postaci!.mail.listUnified(PAGE_SIZE, offset);
+  return window.postaci!.mail.list(t.email!, t.folder, PAGE_SIZE, offset);
+}
+
+async function fetchCount(t: MessageTarget): Promise<number> {
+  if (t.unified) return (await window.postaci!.mail.countUnified()).total;
+  return (await window.postaci!.mail.count(t.email!, t.folder)).total;
+}
+
+function ipcReady(t: MessageTarget): boolean {
+  if (typeof window === 'undefined' || !window.postaci) return false;
+  return t.unified || !!t.email;
+}
+
 export function useMessages() {
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [totalDbCount, setTotalDbCount] = useState(0);
+  const queryClient = useQueryClient();
+  const [target, setTarget] = useState<MessageTarget>(EMPTY_TARGET);
   const [serverTotal, setServerTotal] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -31,127 +78,131 @@ export function useMessages() {
   const [searchAll, setSearchAll] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
 
-  // Her klasör / hesap sorgusu için artan sayaç (yarış durumlarını / zıplamaları önler)
-  const reqIdRef = useRef(0);
-  const activeFolderRef = useRef<string | null>(null);
-  const activeAccountRef = useRef<string | null>(null);
-  const isUnifiedRef = useRef<boolean>(false);
-  const [currentTarget, setCurrentTarget] = useState<{ folder: string; unified: boolean; account: string | null }>({ folder: 'INBOX', unified: false, account: null });
+  // Hedef değişimini yakalamak için ayna (yarış durumu bekçisi)
+  const targetRef = useRef(target);
+  targetRef.current = target;
+  const syncingRef = useRef(false);
+
+  const listKey = mailKeys.messageList(target);
+  const listQuery = useQuery({
+    queryKey: listKey,
+    queryFn: () => fetchPage(target, 0),
+    enabled: ipcReady(target),
+    staleTime: 15_000,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+  const countQuery = useQuery({
+    queryKey: mailKeys.messageCount(target),
+    queryFn: () => fetchCount(target),
+    enabled: ipcReady(target),
+    staleTime: 15_000,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
+  const messages: Msg[] = listQuery.data ?? [];
+  const totalDbCount: number = countQuery.data ?? 0;
+
+  const setMessages: React.Dispatch<React.SetStateAction<Msg[]>> = (action) => {
+    queryClient.setQueryData<Msg[]>(listKey, (old) => {
+      const prev = old ?? [];
+      return typeof action === 'function'
+        ? (action as (p: Msg[]) => Msg[])(prev)
+        : action;
+    });
+  };
+
+  const currentTarget = useMemo(
+    () => ({ folder: target.folder, unified: target.unified, account: target.email }),
+    [target],
+  );
 
   const loadMessages = (
     email: string | null,
     folderPath: string,
     isUnified: boolean = false,
   ) => {
-    if ((!email && !isUnified) || !window.postaci) {
-      setMessages([]);
-      setTotalDbCount(0);
-      activeFolderRef.current = null;
-      activeAccountRef.current = null;
-      isUnifiedRef.current = false;
-      setCurrentTarget({ folder: 'INBOX', unified: false, account: null });
+    if (
+      (!email && !isUnified) ||
+      typeof window === 'undefined' ||
+      !window.postaci
+    ) {
+      setTarget(EMPTY_TARGET);
       return;
     }
-    const currentReqId = ++reqIdRef.current;
-    const isTargetChanged =
-      activeFolderRef.current !== folderPath ||
-      activeAccountRef.current !== email ||
-      isUnifiedRef.current !== isUnified;
-
-    activeFolderRef.current = folderPath;
-    activeAccountRef.current = email;
-    isUnifiedRef.current = isUnified;
-    setCurrentTarget({ folder: folderPath, unified: isUnified, account: email });
-
-    // Klasör değiştiğinde eski klasörün iletilerinin ekranda kalmaması veya yeni klasörün
-    // listesine karışmaması için anında temizle. Yerel SQLite okuması <2ms sürer.
-    if (isTargetChanged) {
-      setMessages([]);
-      setTotalDbCount(0);
-      setServerTotal(0);
-    }
-
-    if (isUnified) {
-      window.postaci.mail
-        .countUnified()
-        .then((counts) => {
-          if (reqIdRef.current !== currentReqId) return;
-          if (!isUnifiedRef.current) return;
-          setTotalDbCount(counts.total);
-        })
-        .catch(() => {});
-
-      window.postaci.mail
-        .listUnified(PAGE_SIZE, 0)
-        .then((list) => {
-          if (reqIdRef.current !== currentReqId) return;
-          if (!isUnifiedRef.current) return;
-          setMessages(list);
-        })
-        .catch(() => {});
-      return;
-    }
-
-    // Klasörün toplam sayısını al
-    window.postaci.mail
-      .count(email!, folderPath)
-      .then((counts) => {
-        if (reqIdRef.current !== currentReqId) return;
-        if (
-          (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
-          activeAccountRef.current !== email ||
-          isUnifiedRef.current
-        ) {
-          return;
-        }
-        setTotalDbCount(counts.total);
-      })
-      .catch(() => {});
-
-    // İlk sayfayı (50 mesaj) yükle
-    window.postaci.mail
-      .list(email!, folderPath, PAGE_SIZE, 0)
-      .then((list) => {
-        if (reqIdRef.current !== currentReqId) return;
-        if (
-          (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
-          activeAccountRef.current !== email ||
-          isUnifiedRef.current
-        ) {
-          return;
-        }
-        setMessages(list);
-      })
-      .catch(() => {});
+    setTarget({ email, folder: folderPath, unified: isUnified });
   };
 
   // Yerel DB'den sonraki 50 mesajı yükle
-  const loadMore = async (email: string | null, folderPath: string, isUnified: boolean = false) => {
-    if ((!email && !isUnified) || !window.postaci || loadingMore || searchQuery.trim()) return;
-    if (messages.length === 0 || messages.length >= totalDbCount) return;
-    if (activeFolderRef.current !== folderPath || activeAccountRef.current !== email || isUnifiedRef.current !== isUnified) return;
+  const loadMore = async (
+    email: string | null,
+    folderPath: string,
+    isUnified: boolean = false,
+  ) => {
+    if (
+      (!email && !isUnified) ||
+      !window.postaci ||
+      loadingMore ||
+      searchQuery.trim()
+    )
+      return;
+    const key = mailKeys.messageList({
+      email,
+      folder: folderPath,
+      unified: isUnified,
+    });
+    const cached = queryClient.getQueryData<Msg[]>(key) ?? [];
+    const count =
+      queryClient.getQueryData<number>(
+        mailKeys.messageCount({
+          email,
+          folder: folderPath,
+          unified: isUnified,
+        }),
+      ) ?? 0;
+    if (cached.length === 0 || cached.length >= count) return;
+    if (
+      targetRef.current.email !== email ||
+      targetRef.current.folder !== folderPath ||
+      targetRef.current.unified !== isUnified
+    )
+      return;
 
-    const currentReqId = reqIdRef.current;
+    const snap = targetRef.current;
     setLoadingMore(true);
     try {
       const nextBatch = isUnified
-        ? await window.postaci.mail.listUnified(PAGE_SIZE, messages.length)
-        : await window.postaci.mail.list(email!, folderPath, PAGE_SIZE, messages.length);
-      if (reqIdRef.current !== currentReqId) return;
-      if (activeFolderRef.current !== folderPath || activeAccountRef.current !== email || isUnifiedRef.current !== isUnified) return;
+        ? await window.postaci.mail.listUnified(PAGE_SIZE, cached.length)
+        : await window.postaci.mail.list(
+            email!,
+            folderPath,
+            PAGE_SIZE,
+            cached.length,
+          );
+      if (targetRef.current !== snap) return;
+      if (
+        targetRef.current.email !== email ||
+        targetRef.current.folder !== folderPath ||
+        targetRef.current.unified !== isUnified
+      )
+        return;
 
       if (nextBatch.length > 0) {
-        setMessages((prev) => {
-          const targetNorm = (folderPath || 'INBOX').toLowerCase();
-          const isDraft = /draft|taslak/i.test(targetNorm);
-          // prev içindeki mesajların gerçekten bu klasöre ait olduğundan emin ol (asla yabancı klasör ekleme!)
-          const validPrev = isUnified
-            ? prev
-            : prev.filter((m) => {
-                if (!m.folder_path) return true;
-                const mNorm = m.folder_path.toLowerCase();
-                return mNorm === targetNorm || (isDraft && (/draft|taslak/i.test(mNorm) || String(m.uid).startsWith('draft-')));
-              });
+        queryClient.setQueryData<Msg[]>(key, (prev) => {
+          const validPrev = (prev ?? []).filter((m) => {
+            if (isUnified) return true;
+            if (!m.folder_path) return true;
+            const targetNorm = (folderPath || 'INBOX').toLowerCase();
+            const mNorm = m.folder_path.toLowerCase();
+            const isDraft = /draft|taslak/i.test(targetNorm);
+            return (
+              mNorm === targetNorm ||
+              (isDraft &&
+                (/draft|taslak/i.test(mNorm) ||
+                  String(m.uid).startsWith('draft-')))
+            );
+          });
 
           const existingUids = new Set(validPrev.map((m) => m.uid));
           const additions = nextBatch.filter((m) => !existingUids.has(m.uid));
@@ -159,7 +210,7 @@ export function useMessages() {
         });
       }
     } finally {
-      if (reqIdRef.current === currentReqId) {
+      if (targetRef.current === snap) {
         setLoadingMore(false);
       }
     }
@@ -172,20 +223,30 @@ export function useMessages() {
     setError: (e: string | null) => void,
     setNotice: (n: string | null) => void,
   ) => {
-    if (!email || !window.postaci || loadingMore || syncing) return;
-    const currentReqId = reqIdRef.current;
+    if (!email || !window.postaci || loadingMore || syncingRef.current) return;
+    const snap = targetRef.current;
     setLoadingMore(true);
     setError(null);
     setNotice(null);
     try {
-      const oldestMsg = messages[messages.length - 1];
+      const cached =
+        queryClient.getQueryData<Msg[]>(
+          mailKeys.messageList({ email, folder: folderPath, unified: false }),
+        ) ?? [];
+      const oldestMsg = cached[cached.length - 1];
       const beforeUid = oldestMsg?.uid;
-      const res = await window.postaci.mail.syncMore(email, folderPath, beforeUid, PAGE_SIZE);
-      if (reqIdRef.current !== currentReqId) return;
+      const res = await window.postaci.mail.syncMore(
+        email,
+        folderPath,
+        beforeUid,
+        PAGE_SIZE,
+      );
+      if (targetRef.current !== snap) return;
       if (
-        (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
-        activeAccountRef.current !== email ||
-        isUnifiedRef.current
+        (targetRef.current.folder || 'INBOX').toLowerCase() !==
+          (folderPath || 'INBOX').toLowerCase() ||
+        targetRef.current.email !== email ||
+        targetRef.current.unified
       ) {
         return;
       }
@@ -193,33 +254,51 @@ export function useMessages() {
         `Sunucudan ${res.synced} eski e-posta daha çekildi (toplam kutuda: ${res.total}).`,
       );
       setServerTotal(res.total);
-      // DB'deki sayıyı güncelle ve listeyi tazele
-      const counts = await window.postaci.mail.count(email, folderPath);
-      if (reqIdRef.current !== currentReqId) return;
-      if (
-        (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
-        activeAccountRef.current !== email ||
-        isUnifiedRef.current
-      ) {
-        return;
+      const listKey = mailKeys.messageList({
+        email,
+        folder: folderPath,
+        unified: false,
+      });
+      const countKey = mailKeys.messageCount({
+        email,
+        folder: folderPath,
+        unified: false,
+      });
+      const prevLen = cached.length;
+      await queryClient.invalidateQueries({ queryKey: countKey });
+      // Önceki sayfa derinliğini koru: ilk sayfa invalidate ile gelir,
+      // devamını ek sayfalarla tamamla (dedupe'lı ekleme)
+      let offset = PAGE_SIZE;
+      while (offset < prevLen) {
+        const pageMsgs = await window.postaci.mail.list(
+          email,
+          folderPath,
+          PAGE_SIZE,
+          offset,
+        );
+        if (targetRef.current !== snap) return;
+        if (pageMsgs.length === 0) break;
+        const fresh = pageMsgs.filter(
+          (m) =>
+            !(queryClient.getQueryData<Msg[]>(listKey) ?? []).some(
+              (x) => x.uid === m.uid,
+            ),
+        );
+        if (fresh.length > 0) {
+          queryClient.setQueryData<Msg[]>(listKey, (prev) => [
+            ...(prev ?? []),
+            ...fresh,
+          ]);
+        }
+        if (pageMsgs.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
       }
-      setTotalDbCount(counts.total);
-      const updatedList = await window.postaci.mail.list(email, folderPath, messages.length + PAGE_SIZE, 0);
-      if (reqIdRef.current !== currentReqId) return;
-      if (
-        (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
-        activeAccountRef.current !== email ||
-        isUnifiedRef.current
-      ) {
-        return;
-      }
-      setMessages(updatedList);
     } catch (e) {
-      if (reqIdRef.current === currentReqId) {
+      if (targetRef.current === snap) {
         setError(cleanIpcError(e));
       }
     } finally {
-      if (reqIdRef.current === currentReqId) {
+      if (targetRef.current === snap) {
         setLoadingMore(false);
       }
     }
@@ -236,13 +315,21 @@ export function useMessages() {
     if (!currentTarget.unified && !isSearchActive && targetFolder) {
       const isDraftTarget = /draft|taslak/i.test(targetFolder);
       list = messages.filter((m) => {
-        if (targetAcc && m.account_email && m.account_email.toLowerCase() !== targetAcc) {
+        if (
+          targetAcc &&
+          m.account_email &&
+          m.account_email.toLowerCase() !== targetAcc
+        ) {
           return false;
         }
         if (!m.folder_path) return true;
         const mFolder = m.folder_path.toLowerCase();
         if (mFolder === targetFolder) return true;
-        if (isDraftTarget && (/draft|taslak/i.test(mFolder) || (m.uid && String(m.uid).startsWith('draft-')))) {
+        if (
+          isDraftTarget &&
+          (/draft|taslak/i.test(mFolder) ||
+            (m.uid && String(m.uid).startsWith('draft-')))
+        ) {
           return true;
         }
         return false;
@@ -260,6 +347,7 @@ export function useMessages() {
       default:
         return list;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, activeFilter, searchQuery, currentTarget]);
 
   const filterCounts = useMemo(() => {
@@ -271,13 +359,21 @@ export function useMessages() {
     if (!currentTarget.unified && !isSearchActive && targetFolder) {
       const isDraftTarget = /draft|taslak/i.test(targetFolder);
       list = messages.filter((m) => {
-        if (targetAcc && m.account_email && m.account_email.toLowerCase() !== targetAcc) {
+        if (
+          targetAcc &&
+          m.account_email &&
+          m.account_email.toLowerCase() !== targetAcc
+        ) {
           return false;
         }
         if (!m.folder_path) return true;
         const mFolder = m.folder_path.toLowerCase();
         if (mFolder === targetFolder) return true;
-        if (isDraftTarget && (/draft|taslak/i.test(mFolder) || (m.uid && String(m.uid).startsWith('draft-')))) {
+        if (
+          isDraftTarget &&
+          (/draft|taslak/i.test(mFolder) ||
+            (m.uid && String(m.uid).startsWith('draft-')))
+        ) {
           return true;
         }
         return false;
@@ -290,6 +386,7 @@ export function useMessages() {
       starred: list.filter((m) => !!m.starred).length,
       attachment: list.filter((m) => !!m.has_att).length,
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, searchQuery, currentTarget]);
 
   const hasMoreDb = !searchQuery.trim() && messages.length < totalDbCount;
@@ -302,56 +399,94 @@ export function useMessages() {
     setNotice: (n: string | null) => void,
     isUnified: boolean = false,
   ) => {
-    if ((!email && !isUnified) || !window.postaci || syncing) return;
-    const currentReqId = reqIdRef.current;
+    if ((!email && !isUnified) || !window.postaci || syncingRef.current) return;
+    const snap = targetRef.current;
+    syncingRef.current = true;
     setSyncing(true);
     setError(null);
     setNotice(null);
     try {
       if (isUnified) {
         const results = await window.postaci.mail.syncAllInboxes();
-        if (reqIdRef.current !== currentReqId) return;
-        const totalSynced = results.reduce((sum, r) => sum + (r.synced || 0), 0);
+        if (targetRef.current !== snap) return;
+        const totalSynced = results.reduce(
+          (sum, r) => sum + (r.synced || 0),
+          0,
+        );
         const errs = results.filter((r) => r.error);
         if (errs.length > 0) {
           setError(
             `${errs.length} hesapta eşitlenemedi: ` +
-            errs.map((r) => `${r.email} (${String(r.error).slice(0, 160)})`).join(' • ')
+              errs
+                .map((r) => `${r.email} (${String(r.error).slice(0, 160)})`)
+                .join(' • '),
           );
         }
-        setNotice(`Tüm gelen kutuları eşitlendi (${totalSynced} yeni ileti çekildi).`);
+        setNotice(
+          `Tüm gelen kutuları eşitlendi (${totalSynced} yeni ileti çekildi).`,
+        );
         setTimeout(() => setNotice(null), 3000);
         loadMessages(null, 'INBOX', true);
+        await queryClient.invalidateQueries({
+          queryKey: mailKeys.messageList({
+            email: null,
+            folder: 'INBOX',
+            unified: true,
+          }),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: mailKeys.messageCount({
+            email: null,
+            folder: 'INBOX',
+            unified: true,
+          }),
+        });
         window.postaci.db.stats().catch(() => {});
         return;
       }
       if (folderPath === 'INBOX') {
         const r = await window.postaci.mail.sync(email!);
-        if (reqIdRef.current !== currentReqId) return;
+        if (targetRef.current !== snap) return;
         setServerTotal(r.total);
         setNotice(formatSyncNotice(null, r));
       } else {
         const r = await window.postaci.mail.syncFolder(email!, folderPath);
-        if (reqIdRef.current !== currentReqId) return;
+        if (targetRef.current !== snap) return;
         setServerTotal(r.total);
         setNotice(formatSyncNotice(folderPath, r));
       }
-      if (reqIdRef.current !== currentReqId) return;
+      if (targetRef.current !== snap) return;
       if (
-        (activeFolderRef.current || 'INBOX').toLowerCase() !== (folderPath || 'INBOX').toLowerCase() ||
-        activeAccountRef.current !== email ||
-        isUnifiedRef.current
+        (targetRef.current.folder || 'INBOX').toLowerCase() !==
+          (folderPath || 'INBOX').toLowerCase() ||
+        targetRef.current.email !== email ||
+        targetRef.current.unified
       ) {
         return;
       }
       loadMessages(email, folderPath, false);
+      await queryClient.invalidateQueries({
+        queryKey: mailKeys.messageList({
+          email,
+          folder: folderPath,
+          unified: false,
+        }),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: mailKeys.messageCount({
+          email,
+          folder: folderPath,
+          unified: false,
+        }),
+      });
       window.postaci.db.stats().catch(() => {});
     } catch (e) {
-      if (reqIdRef.current === currentReqId) {
+      if (targetRef.current === snap) {
         setError(cleanIpcError(e));
       }
     } finally {
-      if (reqIdRef.current === currentReqId) {
+      if (targetRef.current === snap) {
+        syncingRef.current = false;
         setSyncing(false);
       }
     }

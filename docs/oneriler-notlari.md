@@ -32,7 +32,7 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 
 - [x] **13. Biome (değerlendirme + karar)** — Ölçüm: tüm repoda 952 hata + 3001 uyarı. Tam geçiş = 96 dosyalık churn, release öncesi/kısa vadede risk. KARAR: oxlint `lint` olarak kalır, Biome yeni kod için `lint:biome` ile bekler.
 - [ ] **14. release-please/changesets** — ERTELENDİ (karar senin): mevcut tag akışı çalışıyor ve sana uygun; bot'a geçmek alışkanlık değiştirir, kazanç düşük.
-- [ ] **useMessages → Query** — ERTELENDİ (sıralama gereği): App.tsx ameliyatı ister, güvenlik ağı Playwright yeşil koşumu (madde 2) önce gelir.
+- [x] **useMessages → Query** — `src/hooks/useMessages.ts` API birebir korunarak taşındı: liste/sayı hedef anahtarlı önbellekte, `setMessages` çift formlu (iyimser UI aynen), sayfa derinliği korunarak tazeleme, reqId sayaçları yerine anahtar izolasyonu + hedef aynası. Biome'un gerçek bulgusu (`currentTarget` memo) düzeltildi; `!` kullanımları proje standardı olduğu için korundu.
 - [ ] Harici (kurulum gerektirmez): Hoppscotch/HTTPie, ripgrep/fd/bat/zoxide/btop.
 
 ## Atlanan

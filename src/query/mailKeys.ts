@@ -8,4 +8,26 @@ export const mailKeys = {
   counts: (email: string | null, folder: string) =>
     ['mail', 'counts', email ?? 'none', folder] as const,
   unread: () => ['mail', 'unread'] as const,
+  messageList: (t: {
+    email: string | null;
+    folder: string;
+    unified: boolean;
+  }) =>
+    [
+      'mail',
+      'list',
+      t.unified ? 'unified' : (t.email ?? 'none'),
+      t.unified ? 'all' : t.folder,
+    ] as const,
+  messageCount: (t: {
+    email: string | null;
+    folder: string;
+    unified: boolean;
+  }) =>
+    [
+      'mail',
+      'count',
+      t.unified ? 'unified' : (t.email ?? 'none'),
+      t.unified ? 'all' : t.folder,
+    ] as const,
 };
