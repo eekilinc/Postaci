@@ -233,6 +233,10 @@ declare global {
         setSpellcheck?: (enabled: boolean) => Promise<boolean>;
       };
       openExternal: (url: string) => Promise<boolean>;
+      logs: {
+        getPath: () => Promise<string | null>;
+        openFolder: () => Promise<{ ok: boolean; error: string | null }>;
+      };
       updater: {
         check: () => Promise<{ ok: boolean; version?: string | null; error?: string }>;
         quitInstall: () => Promise<boolean>;

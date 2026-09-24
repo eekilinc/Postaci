@@ -17,9 +17,11 @@ if (!gotTheLock) {
 // 3. Beklenmedik Hata ve Promise Korumaları (Production Crash Prevention)
 process.on('uncaughtException', (err) => {
   console.error('[process] Yakalanmamış İstisna (Uncaught Exception):', err);
+  try { require('./electron/logger.cjs').log.error('[uncaughtException]', err); } catch {}
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[process] İşlenmemiş Promise Reddi (Unhandled Rejection):', reason);
+  try { require('./electron/logger.cjs').log.error('[unhandledRejection]', reason); } catch {}
 });
 
 // 4. Windows Görev Çubuğu ve Bildirim Eşleşmesi (AUMID)
@@ -1081,6 +1083,9 @@ function createWindow() {
 
 app.whenReady().then(() => {
   initDb(app.getPath('userData'));
+  const { initLogger } = require('./electron/logger.cjs');
+  const applog = initLogger(app.getPath('userData'));
+  applog.info(`[start] Postacı v${app.getVersion()} açıldı`);
   ipcMain.handle('db:stats', () => getStats());
 
   // Sistem Bilgisi: RAM, DB boyutu, Electron/Node/Chrome versiyonları
@@ -1116,6 +1121,25 @@ app.whenReady().then(() => {
   ipcMain.handle('db:vacuum', () => {
     vacuumDb();
     return true;
+  });
+  // Tanı logları: yolu ver + klasörü aç (Ayarlar > Gelişmiş)
+  ipcMain.handle('logs:get-path', () => {
+    try {
+      return require('./electron/logger.cjs').logPath(app.getPath('userData'));
+    } catch {
+      return null;
+    }
+  });
+  ipcMain.handle('logs:open-folder', async () => {
+    try {
+      const p = require('./electron/logger.cjs').logPath(app.getPath('userData'));
+      const dir = path.dirname(p);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const err = await shell.openPath(dir);
+      return { ok: !err, error: err || null };
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) };
+    }
   });
   ipcMain.handle('accounts:list', () => listAccounts());
   ipcMain.handle('auth:start', async (_evt, provider) => {

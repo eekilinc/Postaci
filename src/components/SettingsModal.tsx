@@ -5,6 +5,7 @@ import { ACCENTS } from '../constants';
 import { getAccountSignature, saveAccountSignature } from '../utils/signatures';
 import { playNotificationSound } from '../utils/sound';
 import { useTranslation } from '../i18n';
+import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 import { CloseIcon, SnippetIcon, TrashIcon } from './icons';
 import { PostaciLogo } from './PostaciLogo';
 import appIcon from '../assets/icon.png';
@@ -73,6 +74,10 @@ export function SettingsModal({
   const handleLayoutMode = onLayoutModeChange || setLayoutMode;
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [updateCheckStatus, setUpdateCheckStatus] = useState<string | null>(null);
+  const updaterStatus = useUpdaterStatus();
+  const handleUpdaterRestart = () => {
+    window.postaci?.updater?.quitInstall().catch(() => {});
+  };
 
   // 1. Genel: Uygulama Davranışı
   const [launchOnStartup, setLaunchOnStartup] = useState(() => localStorage.getItem('postaci_startup') === 'true');
@@ -526,6 +531,25 @@ export function SettingsModal({
 
   const handleCheckUpdate = async () => {
     setUpdateCheckStatus('checking');
+    // Önce gerçek otomatik güncelleyici (latest.yml); yoksa GitHub API yedeği
+    try {
+      const updater = window.postaci?.updater;
+      if (updater?.check) {
+        const r = await updater.check();
+        if (r?.ok) {
+          const tag = (r.version || '').replace(/^v/, '');
+          const cur = (currentVersion || '').replace(/^v/, '');
+          const hasUpdate = Boolean(tag && tag !== cur);
+          setLatestReleaseInfo({
+            version: tag || undefined,
+            hasUpdate,
+            url: 'https://github.com/eekilinc/Postaci/releases/latest',
+          });
+          setUpdateCheckStatus(hasUpdate ? 'available' : 'latest');
+          return;
+        }
+      }
+    } catch {}
     try {
       const res = await fetch('https://api.github.com/repos/eekilinc/Postaci/releases/latest');
       if (res.ok) {
@@ -2612,6 +2636,13 @@ export function SettingsModal({
                       {language === 'en' ? 'Keyboard Shortcuts Map' : 'Klavye Kısayolları Haritası'}
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => window.postaci?.logs?.openFolder().catch(() => {})}
+                    className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                  >
+                    {language === 'en' ? 'Open Log Folder' : 'Log Klasörünü Aç'}
+                  </button>
                 </div>
               </div>
             )}
@@ -2700,15 +2731,29 @@ export function SettingsModal({
                           <span>{language === 'en' ? 'Check for Updates' : 'Güncellemeleri Denetle'}</span>
                         )}
                       </button>
-                      {updateCheckStatus === 'available' && latestReleaseInfo?.url && (
+                      {updaterStatus.state === 'downloaded' ? (
                         <button
                           type="button"
-                          onClick={() => openUrl(latestReleaseInfo.url!)}
+                          onClick={handleUpdaterRestart}
                           className="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition active:scale-95 inline-flex items-center gap-1"
                         >
-                          <span>{language === 'en' ? `Download v${latestReleaseInfo.version}` : `v${latestReleaseInfo.version} İndir`}</span>
-                          <span>↗</span>
+                          <span>{language === 'en' ? 'Restart & Install' : 'Yeniden Başlat ve Kur'}</span>
                         </button>
+                      ) : updaterStatus.state === 'downloading' ? (
+                        <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                          {language === 'en' ? `Downloading %{updaterStatus.percent}` : `İndiriliyor %{updaterStatus.percent}`}
+                        </span>
+                      ) : (
+                        updateCheckStatus === 'available' && latestReleaseInfo?.url && (
+                          <button
+                            type="button"
+                            onClick={() => openUrl(latestReleaseInfo.url!)}
+                            className="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition active:scale-95 inline-flex items-center gap-1"
+                          >
+                            <span>{language === 'en' ? `Download v${latestReleaseInfo.version}` : `v${latestReleaseInfo.version} İndir`}</span>
+                            <span>↗</span>
+                          </button>
+                        )
                       )}
                     </div>
                   </div>

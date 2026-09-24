@@ -30,8 +30,9 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 
 ## Alet çantası
 
-- [x] **13. Biome (değerlendirme)** — `@biomejs/biome 2.5.14` devDep + `biome.json` (proje stiline ayarlı: 2 boşluk, tek tırnak). Yeni dosyalar `biome check` temiz. `lint:biome` eklendi; CI'daki `lint` (oxlint) değişmedi. Karar: tam geçiş release SONRASINA (tüm repoyu reformat eder, şimdi risk).
-- [ ] **14. release-please/changesets** — BİLİNÇLİ ERTELEME (release sonrasına). Gerekçe: release hattını release'ten saatler önce yeniden kablolamak risk; mevcut tag akışı çalışıyor. `latest.yml` zaten yayınlanıyor, updater hazır.
+- [x] **13. Biome (değerlendirme + karar)** — Ölçüm: tüm repoda 952 hata + 3001 uyarı. Tam geçiş = 96 dosyalık churn, release öncesi/kısa vadede risk. KARAR: oxlint `lint` olarak kalır, Biome yeni kod için `lint:biome` ile bekler.
+- [ ] **14. release-please/changesets** — ERTELENDİ (karar senin): mevcut tag akışı çalışıyor ve sana uygun; bot'a geçmek alışkanlık değiştirir, kazanç düşük.
+- [ ] **useMessages → Query** — ERTELENDİ (sıralama gereği): App.tsx ameliyatı ister, güvenlik ağı Playwright yeşil koşumu (madde 2) önce gelir.
 - [ ] Harici (kurulum gerektirmez): Hoppscotch/HTTPie, ripgrep/fd/bat/zoxide/btop.
 
 ## Atlanan

@@ -32,6 +32,8 @@ import { AttachmentPreviewModal } from './components/AttachmentPreviewModal';
 import { CommandPaletteModal } from './components/CommandPaletteModal';
 import { ShortcutsHelpModal } from './components/ShortcutsHelpModal';
 import { UndoSendBar } from './components/UndoSendBar';
+import { UpdateBanner } from './components/UpdateBanner';
+import { useUpdaterStatus } from './hooks/useUpdaterStatus';
 import type { LayoutMode } from './components/LayoutSwitcher';
 import { PostaciLogo } from './components/PostaciLogo';
 import { InAppNotification, type IncomingMailData } from './components/InAppNotification';
@@ -48,8 +50,15 @@ const ACCENT_COLORS: Record<string, string> = {
 };
 
 export default function App() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const inElectron = !!(window.postaci || (typeof navigator !== 'undefined' && /electron/i.test(navigator.userAgent)));
+
+  // ── Otomatik güncelleme durumu (banner + yeniden başlat) ──────────────────
+  const updaterStatus = useUpdaterStatus();
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  const handleUpdaterRestart = () => {
+    window.postaci?.updater?.quitInstall().catch(() => {});
+  };
 
   // ── Tema & accent ────────────────────────────────────────────────────────
   const { theme, setTheme, accent, setAccent, oledMode, setOledMode } = useTheme();
@@ -1415,6 +1424,17 @@ export default function App() {
           onSendImmediately={handleSendImmediately}
         />
       )}
+
+      {/* Güncelleme şeridi (indirildi / indiriliyor) */}
+      {!updateDismissed &&
+        (updaterStatus.state === 'downloaded' || updaterStatus.state === 'downloading') && (
+          <UpdateBanner
+            status={updaterStatus}
+            language={language === 'en' ? 'en' : 'tr'}
+            onRestart={handleUpdaterRestart}
+            onDismiss={() => setUpdateDismissed(true)}
+          />
+        )}
 
       {/* Global toast bildirimleri (notice + hata) */}
       {notice && !showCompose && (

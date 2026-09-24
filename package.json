@@ -123,6 +123,7 @@
     "concurrently": "^10.0.5",
     "dompurify": "^3.4.15",
     "drizzle-orm": "^0.45.3",
+    "electron-log": "^5.4.4",
     "electron-updater": "^6.8.9",
     "fast-xml-parser": "^5.11.1",
     "imapflow": "^2.0.0",

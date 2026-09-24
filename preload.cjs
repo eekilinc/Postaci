@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('postaci', {
     systemInfo: () => ipcRenderer.invoke('db:system-info'),
     vacuum: () => ipcRenderer.invoke('db:vacuum'),
   },
+  logs: {
+    getPath: () => ipcRenderer.invoke('logs:get-path'),
+    openFolder: () => ipcRenderer.invoke('logs:open-folder'),
+  },
   accounts: {
     list: () => ipcRenderer.invoke('accounts:list'),
     add: (acc) => ipcRenderer.invoke('accounts:add', acc),

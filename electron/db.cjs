@@ -515,14 +515,11 @@ function addAccount({ provider, email, displayName, refreshTokenEnc, accessToken
 }
 
 function getSetting(key, defaultValue = null) {
-  const row = getDb().prepare('SELECT value FROM settings WHERE key=?').get(key);
-  if (!row) return defaultValue;
-  try { return JSON.parse(row.value); } catch { return row.value; }
+  return require('./db-drizzle.cjs').settingGet(getDb(), key, defaultValue);
 }
 
 function setSetting(key, value) {
-  const str = typeof value === 'string' ? value : JSON.stringify(value);
-  getDb().prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(key, str);
+  require('./db-drizzle.cjs').settingSet(getDb(), key, value);
 }
 
 function syncContactsFromMessages() {
