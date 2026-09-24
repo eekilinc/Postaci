@@ -9,7 +9,7 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 - [x] **3. Zustand (Faz 1)** — `src/stores/themeStore.ts` (persist + eski anahtar devralma). `useTheme` API birebir korunuyor, App.tsx değişmedi. Sıradaki: hesap/seçim store'ları.
 - [ ] **4. electron-vite** — BİLİNÇLİ ERTELEME. Gerekçe: `main.cjs` (2797 satır CJS) + preload + builder + release hattı toptan değişir, `npm run dist` kırılma riski yüksek; kazanç (main HMR) şu an kritik değil. Karar senin onayına bırakıldı.
 - [x] **5. electron-updater (6.8.9)** — `electron/updater.cjs` + main hook + preload köprüsü + `publish` yapılandırması. Release hattı zaten `latest.yml` yüklüyor, ek CI değişikliği gerekmedi. Arayüz bildirimi Faz 2'de.
-- [x] **6. Playwright E2E (altyapı)** — `playwright.config.ts` + `e2e/smoke.spec.ts` + `test:e2e` scripti. Bu ortamda çalıştırılamadı: WSL'de display yok VE `node_modules/electron` Windows binary'si. Windows makinende / CI'da çalışır. İlk gerçek koşum orada yapılacak.
+- [x] **6. Playwright E2E** — `e2e/smoke.spec.ts` Windows'ta **1 passed**. Ara düzeltmeler: giriş dosyası + cwd sabitleme, `resources/app` yönlendirmesinin dinamik kök bulması (`brand-dev.cjs`).
 
 ## Diyagram / görselleştirme
 
