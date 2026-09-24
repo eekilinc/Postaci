@@ -16,8 +16,11 @@
     <a href="https://github.com/eekilinc/Postaci/actions/workflows/release.yml">
       <img src="https://img.shields.io/github/actions/workflow/status/eekilinc/Postaci/release.yml?style=for-the-badge&label=Derleme%20%26%20Release" alt="Build Status" />
     </a>
-    <a href="https://github.com/eekilinc/Postaci/releases/download/v1.0.8/Postaci.Setup.1.0.8.exe">
+    <a href="https://github.com/eekilinc/Postaci/releases/latest">
       <img src="https://img.shields.io/badge/Windows-Setup%20%C4%B0ndir-10b981?style=for-the-badge&logo=windows&logoColor=white" alt="Download Windows" />
+    </a>
+    <a href="https://github.com/eekilinc/Postaci/releases/latest">
+      <img src="https://img.shields.io/github/downloads/eekilinc/Postaci/total?style=for-the-badge&color=7c3aed&label=%C4%B0ndirme" alt="Total Downloads" />
     </a>
     <a href="https://github.com/eekilinc/Postaci/blob/main/LICENSE">
       <img src="https://img.shields.io/badge/Lisans-MIT-success?style=for-the-badge" alt="License MIT" />
@@ -50,16 +53,16 @@
 <a id="indir"></a>
 ## 📥 Hızlı İndirme (Windows x64)
 
-Son sürüm olan **v1.0.8** kurulum paketlerini tek tıkla indirebilirsiniz:
+Güncel sürümü **[GitHub Releases](https://github.com/eekilinc/Postaci/releases/latest)** sayfasından tek tıkla indirebilirsiniz:
 
-| Paket Türü | Dosya | Boyut | Açıklama |
-| :--- | :--- | :--- | :--- |
-| 🚀 **Kurulum Sihirbazı (Önerilen)** | [**Postaci.Setup.1.0.8.exe**](https://github.com/eekilinc/Postaci/releases/download/v1.0.8/Postaci.Setup.1.0.8.exe) | ~127 MB | Masaüstü ve Başlat menüsüne simgeli kısayol ekler, otomatik güncellenir. |
-| 💼 **Taşınabilir Sürüm (Portable)** | [**Postaci-1.0.8-portable.exe**](https://github.com/eekilinc/Postaci/releases/download/v1.0.8/Postaci-1.0.8-portable.exe) | ~127 MB | Kurulum gerektirmez; USB bellekten veya istediğiniz klasörden doğrudan çalışır. |
-| 🔐 **SHA-256 Doğrulama** | [**checksums.txt**](https://github.com/eekilinc/Postaci/releases/download/v1.0.8/checksums.txt) | 187 B | İndirilen dosyaların bütünlük ve güvenlik doğrulama özetleri. |
+| Paket Türü | Dosya Adı | Açıklama |
+| :--- | :--- | :--- |
+| 🚀 **Kurulum Sihirbazı (Önerilen)** | `Postaci-Setup-{sürüm}.exe` | Masaüstü ve Başlat menüsüne simgeli kısayol ekler. |
+| 💼 **Taşınabilir Sürüm (Portable)** | `Postaci-Portable-{sürüm}.exe` | Kurulum gerektirmez; USB bellekten veya istediğiniz klasörden doğrudan çalışır. |
+| 🔐 **SHA-256 Doğrulama** | `checksums.txt` | İndirilen dosyaların bütünlük ve güvenlik doğrulama özetleri. |
 
 > [!TIP]
-> Tüm geçmiş sürümler ve sürüm notları için **[GitHub Releases](https://github.com/eekilinc/Postaci/releases)** sayfasını ziyaret edebilirsiniz.
+> Kurulumdan sonra güncellemeleri indirmenize gerek yok: Postacı yeni sürümleri **otomatik indirir**, Ayarlar'daki bildirimden tek tıkla kurarsınız. Tüm geçmiş sürümler için **[GitHub Releases](https://github.com/eekilinc/Postaci/releases)** sayfasını ziyaret edebilirsiniz.
 
 ---
 
@@ -78,6 +81,12 @@ Son sürüm olan **v1.0.8** kurulum paketlerini tek tıkla indirebilirsiniz:
 ### 🎨 Kusursuz Aydınlık ve Karanlık Tema
 - Gözü yormayan modern cam efektleri (glassmorphism), özel renk kontrastları ve net tipografi.
 - Koyu ve açık temalar arasında tek tıkla veya kısayolla akıcı geçiş.
+- **Türkçe ve İngilizce** tam arayüz desteği.
+
+### 🔄 Otomatik Güncelleme
+- Yeni sürümler arka planda sessizce indirilir; hazır olduğunda ekranın altında bir şerit belirir.
+- Tek tıkla yeniden başlatıp kurarsınız — bir daha kurulum dosyası indirmeniz gerekmez.
+- Dilerseniz Ayarlar > Postacı Hakkında bölümünden güncellemeleri elle de denetleyebilirsiniz.
 
 ### ⌨️ Superhuman Hızında Komut Paleti (`Ctrl + K`)
 - Klavyeden elinizi kaldırmadan tüm uygulamayı yönetin:
@@ -191,17 +200,24 @@ Vite HMR dev sunucusunu ve Electron masaüstü uygulamasını eşzamanlı olarak
 npm start
 ```
 
-### 4. Kod Kalite ve Derleme Testi
+### 4. Kod Kalite ve Testler
 ```bash
 # Ultra hızlı Oxlint statik analizi
 npm run lint
 
-# TypeScript tip denetimi ve Vite üretim paketi
-npm run build
+# Birim testleri (Vitest)
+npm test
+
+# Uçtan uca test (Playwright + Electron, Windows'ta çalışır)
+npm run test:e2e
 ```
 
-### 5. Kurulum Paketini (.exe) Yerel Olarak Üretin
+### 5. Üretim Derlemesi ve Kurulum Paketi
 ```bash
+# TypeScript tip denetimi ve Vite üretim paketi
+npm run build
+
+# Kurulum paketini (.exe) yerel olarak üretin
 npm run dist
 ```
 *Derlenen NSIS kurulum ve Portable dosyaları `release/` klasöründe oluşur.*
