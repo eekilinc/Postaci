@@ -11,9 +11,11 @@ const electronPath = require('electron') as string;
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 test('uygulama açılır ve ana ekran render olur', async () => {
+  const root = path.join(here, '..');
   const app = await _electron.launch({
     executablePath: electronPath,
-    args: [path.join(here, '..')],
+    args: [path.join(root, 'main.cjs')],
+    cwd: root,
     env: { ...process.env, ELECTRON_DISABLE_GPU: '1' },
   });
   const window = await app.firstWindow();
