@@ -25,7 +25,6 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "lint:biome": "biome check .",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "preview": "vite preview",
@@ -136,7 +135,6 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.14",
     "@electron/rebuild": "^4.2.0",
     "@playwright/test": "^1.63.0",
     "@rolldown/binding-wasm32-wasi": "^1.2.9",
