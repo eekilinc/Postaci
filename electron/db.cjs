@@ -364,92 +364,31 @@ function getMessageMeta(email, folderPath, uid) {
 }
 
 function getMessageBody(email, folderPath, uid) {
-  let row = getDb()
-    .prepare(
-      `SELECT m.body_html, m.body_text, m.message_id, m.refs FROM messages m JOIN accounts a ON a.id = m.account_id
-       WHERE a.email=? COLLATE NOCASE AND m.folder_path=? AND m.uid=?`,
-    )
-    .get(email, folderPath, String(uid));
-  if (!row) {
-    row = getDb()
-      .prepare(
-        `SELECT m.body_html, m.body_text, m.message_id, m.refs FROM messages m JOIN accounts a ON a.id = m.account_id
-         WHERE a.email=? COLLATE NOCASE AND m.uid=?`,
-      )
-      .get(email, String(uid));
-  }
-  if (!row) return row;
-  return { ...row, references: row.refs ? row.refs.split(' ') : [] };
+  return require('./db-drizzle.cjs').getMessageBody(getDb(), email, folderPath, uid);
 }
 
 function saveMessageBody(email, folderPath, uid, { html, text, messageId, references }) {
-  getDb()
-    .prepare(
-      `UPDATE messages SET body_html=?, body_text=?,
-         message_id=COALESCE(?, message_id), refs=COALESCE(?, refs)
-       WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
-       AND folder_path=? AND uid=?`,
-    )
-    .run(html || null, text || null, messageId || null,
-      references?.length ? references.join(' ') : null,
-      email, folderPath, String(uid));
+  return require('./db-drizzle.cjs').saveMessageBody(getDb(), email, folderPath, uid, { html, text, messageId, references });
 }
 
 function listAttachments(email, folderPath, uid) {
-  return getDb()
-    .prepare(
-      `SELECT t.idx, t.filename, t.content_type, t.size FROM attachments t
-       JOIN accounts a ON a.id = t.account_id
-       WHERE a.email=? COLLATE NOCASE AND t.folder_path=? AND t.msg_uid=? ORDER BY t.idx`,
-    )
-    .all(email, folderPath, String(uid));
+  return require('./db-drizzle.cjs').listAttachments(getDb(), email, folderPath, uid);
 }
 
 function saveAttachments(email, folderPath, uid, list) {
-  const d = getDb();
-  const del = d.prepare(
-    `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`,
-  );
-  const ins = d.prepare(
-    `INSERT INTO attachments (account_id, folder_path, msg_uid, idx, filename, content_type, size)
-     VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), ?, ?, ?, ?, ?, ?)`,
-  );
-  const txn = d.transaction((items) => {
-    del.run(email, folderPath, String(uid));
-    items.forEach((a, i) => ins.run(email, folderPath, String(uid), i, a.filename, a.contentType || null, a.size || 0));
-    if (items && items.length > 0) {
-      try {
-        d.prepare(`UPDATE messages SET has_att=1 WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`).run(email, folderPath, String(uid));
-      } catch {}
-    }
-  });
-  txn(list || []);
+  return require('./db-drizzle.cjs').saveAttachments(getDb(), email, folderPath, uid, list);
 }
 
 function markReadDb(email, folderPath, uid) {
-  getDb()
-    .prepare(
-      `UPDATE messages SET is_read=1 WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
-       AND folder_path=? AND uid=?`,
-    )
-    .run(email, folderPath, String(uid));
+  return require('./db-drizzle.cjs').markReadDb(getDb(), email, folderPath, uid);
 }
 
 function markUnreadDb(email, folderPath, uid) {
-  getDb()
-    .prepare(
-      `UPDATE messages SET is_read=0 WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
-       AND folder_path=? AND uid=?`,
-    )
-    .run(email, folderPath, String(uid));
+  return require('./db-drizzle.cjs').markUnreadDb(getDb(), email, folderPath, uid);
 }
 
 function toggleStarDb(email, folderPath, uid) {
-  const db = getDb();
-  const row = db.prepare(`SELECT starred FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`).get(email, folderPath, String(uid));
-  const next = row && row.starred ? 0 : 1;
-  db.prepare(`UPDATE messages SET starred=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`).run(next, email, folderPath, String(uid));
-  return next;
+  return require('./db-drizzle.cjs').toggleStarDb(getDb(), email, folderPath, uid);
 }
 
 function saveSentMessage(email, { to, subject, text, html }) {
@@ -517,168 +456,34 @@ function syncContactsFromMessages() {
 }
 
 function listContacts(query = '') {
-  const db = getDb();
   try {
-    // İlk açılışta veya tablo boşken e-postalardan otomatik keşfet
+    const db = getDb();
     const count = db.prepare('SELECT count(*) as count FROM contacts').get()?.count || 0;
     if (count === 0) {
       syncContactsFromMessages();
     }
-    if (query && query.trim()) {
-      const q = `%${query.trim().toLowerCase()}%`;
-      return db.prepare(`
-        SELECT * FROM contacts 
-        WHERE lower(coalesce(name, '')) LIKE ? OR lower(email) LIKE ? OR lower(coalesce(company, '')) LIKE ?
-        ORDER BY is_manual DESC, updated_at DESC, coalesce(name, email) ASC
-        LIMIT 150
-      `).all(q, q, q);
-    }
-    return db.prepare(`
-      SELECT * FROM contacts 
-      ORDER BY is_manual DESC, updated_at DESC, coalesce(name, email) ASC
-      LIMIT 250
-    `).all();
-  } catch (err) {
-    console.error('[db:listContacts] Hata:', err);
-    return [];
-  }
+  } catch {}
+  return require('./db-drizzle.cjs').listContacts(getDb(), query);
 }
 
-function upsertContact({ id, email, name, phone, company, notes }) {
-  const db = getDb();
-  const cleanEmail = (email || '').trim().toLowerCase();
-  if (!cleanEmail || !cleanEmail.includes('@')) throw new Error('Geçerli bir e-posta adresi zorunludur.');
-  const cleanName = (name || '').trim();
-  const cleanPhone = (phone || '').trim();
-  const cleanCompany = (company || '').trim();
-  const cleanNotes = (notes || '').trim();
-
-  if (id) {
-    db.prepare(`
-      UPDATE contacts 
-      SET email = ?, name = ?, phone = ?, company = ?, notes = ?, is_manual = 1, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(cleanEmail, cleanName || null, cleanPhone || null, cleanCompany || null, cleanNotes || null, Number(id));
-    return db.prepare('SELECT * FROM contacts WHERE id = ?').get(Number(id));
-  } else {
-    const res = db.prepare(`
-      INSERT INTO contacts (email, name, phone, company, notes, is_manual, updated_at)
-      VALUES (?, ?, ?, ?, ?, 1, datetime('now'))
-      ON CONFLICT(email) DO UPDATE SET 
-        name = excluded.name, 
-        phone = excluded.phone, 
-        company = excluded.company, 
-        notes = excluded.notes, 
-        is_manual = 1, 
-        updated_at = datetime('now')
-    `).run(cleanEmail, cleanName || null, cleanPhone || null, cleanCompany || null, cleanNotes || null);
-    return db.prepare('SELECT * FROM contacts WHERE id = ?').get(res.lastInsertRowid) || db.prepare('SELECT * FROM contacts WHERE email = ?').get(cleanEmail);
-  }
+function upsertContact(c) {
+  return require('./db-drizzle.cjs').upsertContact(getDb(), c);
 }
 
 function deleteContact(id) {
-  const db = getDb();
-  try {
-    db.prepare('DELETE FROM contacts WHERE id = ?').run(Number(id));
-    return true;
-  } catch (err) {
-    console.error('[db:deleteContact] Hata:', err);
-    return false;
-  }
+  return require('./db-drizzle.cjs').deleteContact(getDb(), id);
 }
 
 function searchContacts(query, limit = 8) {
-  if (!query || typeof query !== 'string' || !query.trim()) return [];
-  const q = query.trim().toLowerCase();
-  const db = getDb();
-  const results = [];
-  const seen = new Set();
-
-  // 1. Öncelik: Kullanıcının düzenlediği ve rehbere kayıtlı kişiler
-  try {
-    const contactRows = db.prepare(`
-      SELECT id, email, name, phone, company FROM contacts
-      WHERE lower(coalesce(name, '')) LIKE ? OR lower(email) LIKE ?
-      ORDER BY is_manual DESC, updated_at DESC
-      LIMIT ?
-    `).all(`%${q}%`, `%${q}%`, limit);
-    for (const c of contactRows) {
-      if (!c.email) continue;
-      const lowerEmail = c.email.toLowerCase();
-      seen.add(lowerEmail);
-      results.push({ id: c.id, name: c.name || c.email.split('@')[0], email: c.email });
-      if (results.length >= limit) return results;
-    }
-  } catch {}
-
-  // 2. İkinci Öncelik: Gelen/giden iletilerdeki dinamik adresler
-  try {
-    const rows = db.prepare(`
-      SELECT DISTINCT from_addr, to_addr 
-      FROM messages 
-      WHERE (from_addr LIKE ? OR to_addr LIKE ?) 
-      ORDER BY id DESC
-      LIMIT 60
-    `).all(`%${q}%`, `%${q}%`);
-
-    function addContact(raw) {
-      if (!raw) return false;
-      const parts = raw.split(/[,;]/);
-      for (const part of parts) {
-        const clean = part.trim();
-        if (!clean) continue;
-        const match = clean.match(/^(?:"?([^"<]*)"?\s*)?<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>?$/);
-        let name = '';
-        let email = '';
-        if (match) {
-          name = (match[1] || '').trim();
-          email = (match[2] || '').trim().toLowerCase();
-        } else if (clean.includes('@')) {
-          email = clean.toLowerCase();
-        }
-        if (!email || seen.has(email)) continue;
-        if (email.includes(q) || name.toLowerCase().includes(q)) {
-          seen.add(email);
-          results.push({ name: name || email.split('@')[0], email });
-          if (results.length >= limit) return true;
-        }
-      }
-      return false;
-    }
-
-    for (const r of rows) {
-      if (addContact(r.from_addr)) break;
-      if (addContact(r.to_addr)) break;
-    }
-  } catch {}
-
-  return results;
+  return require('./db-drizzle.cjs').searchContacts(getDb(), query, limit);
 }
 
 function batchMarkReadDb(email, folderPath, uids, isRead = 1) {
-  const db = getDb();
-  const stmt = db.prepare(
-    `UPDATE messages SET is_read=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-  );
-  const trans = db.transaction((list) => {
-    for (const uid of list) {
-      stmt.run(isRead ? 1 : 0, email, folderPath, String(uid));
-    }
-  });
-  trans(uids);
+  return require('./db-drizzle.cjs').batchMarkReadDb(getDb(), email, folderPath, uids, isRead);
 }
 
 function batchToggleStarDb(email, folderPath, uids, starred = 1) {
-  const db = getDb();
-  const stmt = db.prepare(
-    `UPDATE messages SET starred=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-  );
-  const trans = db.transaction((list) => {
-    for (const uid of list) {
-      stmt.run(starred ? 1 : 0, email, folderPath, String(uid));
-    }
-  });
-  trans(uids);
+  return require('./db-drizzle.cjs').batchToggleStarDb(getDb(), email, folderPath, uids, starred);
 }
 
 function getSentFolder(email) {

@@ -32,12 +32,53 @@ const accounts = sqliteTable('accounts', {
   password_enc: text('password_enc'),
 });
 
+const messages = sqliteTable('messages', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  account_id: integer('account_id').notNull(),
+  folder_path: text('folder_path').notNull(),
+  uid: text('uid').notNull(),
+  subject: text('subject'),
+  from_addr: text('from_addr'),
+  to_addr: text('to_addr'),
+  date: text('date'),
+  snippet: text('snippet'),
+  body_html: text('body_html'),
+  body_text: text('body_text'),
+  is_read: integer('is_read').notNull().default(0),
+  message_id: text('message_id'),
+  refs: text('refs'),
+  starred: integer('starred').notNull().default(0),
+  has_att: integer('has_att').notNull().default(0),
+});
+
+const attachments = sqliteTable('attachments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  account_id: integer('account_id').notNull(),
+  folder_path: text('folder_path').notNull(),
+  msg_uid: text('msg_uid').notNull(),
+  idx: integer('idx').notNull(),
+  filename: text('filename').notNull(),
+  content_type: text('content_type'),
+  size: integer('size').notNull().default(0),
+});
+
+const contacts = sqliteTable('contacts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  email: text('email').notNull().unique(),
+  name: text('name'),
+  phone: text('phone'),
+  company: text('company'),
+  notes: text('notes'),
+  is_manual: integer('is_manual').notNull().default(0),
+  updated_at: text('updated_at').notNull(),
+});
+
 const clients = new WeakMap();
 
 function client(db) {
   let dz = clients.get(db);
   if (!dz) {
-    dz = drizzle(db, { schema: { settings, accounts } });
+    dz = drizzle(db, { schema: { settings, accounts, messages, attachments, contacts } });
     clients.set(db, dz);
   }
   return dz;
@@ -166,4 +207,223 @@ function updateTokens(db, email, { refreshTokenEnc, accessTokenEnc, tokenExpiry 
     .run();
 }
 
-module.exports = { settingGet, settingSet, listAccounts, getAccountById, getAccountByEmail, addAccount, updateAccount, deleteAccount, updateTokens };
+
+// --- messages & attachments (Faz 2) ---
+
+function _accountIdByEmail(db, email) {
+  return client(db).select({ id: accounts.id }).from(accounts).where(sql`${accounts.email} = ${email} COLLATE NOCASE`).get();
+}
+
+function markReadDb(db, email, folderPath, uid) {
+  client(db).update(messages).set({ is_read: 1 })
+    .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+    .run();
+}
+
+function markUnreadDb(db, email, folderPath, uid) {
+  client(db).update(messages).set({ is_read: 0 })
+    .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+    .run();
+}
+
+function toggleStarDb(db, email, folderPath, uid) {
+  const row = client(db).select({ starred: messages.starred }).from(messages)
+    .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+    .get();
+  const next = row && row.starred ? 0 : 1;
+  client(db).update(messages).set({ starred: next })
+    .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+    .run();
+  return next;
+}
+
+function batchMarkReadDb(db, email, folderPath, uids, isRead = 1) {
+  const trans = db.transaction((list) => {
+    for (const uid of list || []) {
+    client(db).update(messages).set({ is_read: isRead ? 1 : 0 })
+      .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+      .run();
+    }
+  });
+  trans(uids);
+}
+
+function batchToggleStarDb(db, email, folderPath, uids, starred = 1) {
+  const trans = db.transaction((list) => {
+    for (const uid of list || []) {
+    client(db).update(messages).set({ starred: starred ? 1 : 0 })
+      .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+      .run();
+    }
+  });
+  trans(uids);
+}
+
+function getMessageBody(db, email, folderPath, uid) {
+  let row = client(db)
+    .select({ body_html: messages.body_html, body_text: messages.body_text, message_id: messages.message_id, refs: messages.refs })
+    .from(messages)
+    .innerJoin(accounts, eq(messages.account_id, accounts.id))
+    .where(sql`${accounts.email}=${email} COLLATE NOCASE AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+    .get();
+  if (!row) {
+    row = client(db)
+      .select({ body_html: messages.body_html, body_text: messages.body_text, message_id: messages.message_id, refs: messages.refs })
+      .from(messages)
+      .innerJoin(accounts, eq(messages.account_id, accounts.id))
+      .where(sql`${accounts.email}=${email} COLLATE NOCASE AND ${messages.uid}=${String(uid)}`)
+      .get();
+  }
+  if (!row) return row;
+  return { ...row, references: row.refs ? row.refs.split(' ') : [] };
+}
+
+function saveMessageBody(db, email, folderPath, uid, { html, text, messageId, references }) {
+  client(db).update(messages)
+    .set({
+      body_html: html || null,
+      body_text: text || null,
+      message_id: sql`coalesce(${messageId || null}, ${messages.message_id})`,
+      refs: sql`coalesce(${references?.length ? references.join(' ') : null}, ${messages.refs})`,
+    })
+    .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+    .run();
+}
+
+function listAttachments(db, email, folderPath, uid) {
+  return client(db)
+    .select({ idx: attachments.idx, filename: attachments.filename, content_type: attachments.content_type, size: attachments.size })
+    .from(attachments)
+    .innerJoin(accounts, eq(attachments.account_id, accounts.id))
+    .where(sql`${accounts.email}=${email} COLLATE NOCASE AND ${attachments.folder_path}=${folderPath} AND ${attachments.msg_uid}=${String(uid)}`)
+    .orderBy(attachments.idx)
+    .all();
+}
+
+function saveAttachments(db, email, folderPath, uid, list) {
+  client(db).delete(attachments)
+    .where(sql`${attachments.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${attachments.folder_path}=${folderPath} AND ${attachments.msg_uid}=${String(uid)}`)
+    .run();
+  const accRow = _accountIdByEmail(db, email);
+  if (!accRow) return;
+  const txn = db.transaction(() => {
+    const rows = (list || []).map((a, i) => ({ account_id: accRow.id, folder_path: folderPath, msg_uid: String(uid), idx: i, filename: a.filename, content_type: a.contentType || null, size: a.size || 0 }));
+    for (const r of rows) client(db).insert(attachments).values(r).run();
+    if (rows.length > 0) {
+      try {
+        client(db).update(messages).set({ has_att: 1 })
+          .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+          .run();
+      } catch {}
+    }
+  });
+  txn();
+}
+
+// --- contacts (Faz 2) ---
+
+function listContacts(db, query = '') {
+  try {
+    if (query && query.trim()) {
+      const q = `%${query.trim().toLowerCase()}%`;
+      return client(db).select().from(contacts)
+        .where(sql`lower(coalesce(${contacts.name}, '')) LIKE ${q} OR lower(${contacts.email}) LIKE ${q} OR lower(coalesce(${contacts.company}, '')) LIKE ${q}`)
+        .orderBy(sql`${contacts.is_manual} DESC, ${contacts.updated_at} DESC, coalesce(${contacts.name}, ${contacts.email}) ASC`)
+        .limit(150).all();
+    }
+    return client(db).select().from(contacts)
+      .orderBy(sql`${contacts.is_manual} DESC, ${contacts.updated_at} DESC, coalesce(${contacts.name}, ${contacts.email}) ASC`)
+      .limit(250).all();
+  } catch (err) {
+    console.error('[db:listContacts] Hata:', err);
+    return [];
+  }
+}
+
+function upsertContact(db, { id, email, name, phone, company, notes }) {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) throw new Error('Geçerli bir e-posta adresi zorunludur.');
+  const cleanName = (name || '').trim();
+  const cleanPhone = (phone || '').trim();
+  const cleanCompany = (company || '').trim();
+  const cleanNotes = (notes || '').trim();
+  if (id) {
+    client(db).update(contacts)
+      .set({ email: cleanEmail, name: cleanName || null, phone: cleanPhone || null, company: cleanCompany || null, notes: cleanNotes || null, is_manual: 1, updated_at: sql`datetime('now')` })
+      .where(eq(contacts.id, Number(id))).run();
+    return client(db).select().from(contacts).where(eq(contacts.id, Number(id))).get();
+  }
+  const res = client(db).insert(contacts)
+    .values({ email: cleanEmail, name: cleanName || null, phone: cleanPhone || null, company: cleanCompany || null, notes: cleanNotes || null, is_manual: 1, updated_at: sql`datetime('now')` })
+    .onConflictDoUpdate({ target: contacts.email, set: { name: sql`excluded.name`, phone: sql`excluded.phone`, company: sql`excluded.company`, notes: sql`excluded.notes`, is_manual: 1, updated_at: sql`datetime('now')` } })
+    .run();
+  return client(db).select().from(contacts).where(eq(contacts.id, Number(res.lastInsertRowid))).get()
+    || client(db).select().from(contacts).where(eq(contacts.email, cleanEmail)).get();
+}
+
+function deleteContact(db, id) {
+  try {
+    client(db).delete(contacts).where(eq(contacts.id, Number(id))).run();
+    return true;
+  } catch (err) {
+    console.error('[db:deleteContact] Hata:', err);
+    return false;
+  }
+}
+
+function searchContacts(db, query, limit = 8) {
+  if (!query || typeof query !== 'string' || !query.trim()) return [];
+  const q = query.trim().toLowerCase();
+  const results = [];
+  const seen = new Set();
+  try {
+    const contactRows = client(db).select({ id: contacts.id, email: contacts.email, name: contacts.name, phone: contacts.phone, company: contacts.company })
+      .from(contacts)
+      .where(sql`lower(coalesce(${contacts.name}, '')) LIKE ${'%' + q + '%'} OR lower(${contacts.email}) LIKE ${'%' + q + '%'}`)
+      .orderBy(sql`${contacts.is_manual} DESC, ${contacts.updated_at} DESC`)
+      .limit(limit).all();
+    for (const c of contactRows) {
+      if (!c.email) continue;
+      seen.add(c.email.toLowerCase());
+      results.push({ id: c.id, name: c.name || c.email.split('@')[0], email: c.email });
+      if (results.length >= limit) return results;
+    }
+  } catch {}
+  try {
+    const rows = db.prepare(`
+      SELECT DISTINCT from_addr, to_addr
+      FROM messages
+      WHERE (from_addr LIKE ? OR to_addr LIKE ?)
+      ORDER BY id DESC
+      LIMIT 60
+    `).all(`%${q}%`, `%${q}%`);
+    function addContact(raw) {
+      if (!raw) return false;
+      const parts = raw.split(/[,;]/);
+      for (const part of parts) {
+        const clean = part.trim();
+        if (!clean) continue;
+        const match = clean.match(/^(?:"?([^"<]*)"?\s*)?<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>?$/);
+        let name = '';
+        let email = '';
+        if (match) { name = (match[1] || '').trim(); email = (match[2] || '').trim().toLowerCase(); }
+        else if (clean.includes('@')) { email = clean.toLowerCase(); }
+        if (!email || seen.has(email)) continue;
+        if (email.includes(q) || name.toLowerCase().includes(q)) {
+          seen.add(email);
+          results.push({ name: name || email.split('@')[0], email });
+          if (results.length >= limit) return true;
+        }
+      }
+      return false;
+    }
+    for (const r of rows) {
+      if (addContact(r.from_addr)) break;
+      if (addContact(r.to_addr)) break;
+    }
+  } catch {}
+  return results;
+}
+
+
+module.exports = { settingGet, settingSet, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, getMessageBody, saveMessageBody, listAttachments, saveAttachments, listContacts, upsertContact, deleteContact, searchContacts, listAccounts, getAccountById, getAccountByEmail, addAccount, updateAccount, deleteAccount, updateTokens };
