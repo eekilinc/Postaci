@@ -172,47 +172,27 @@ function vacuumDb() {
 }
 
 function listAccounts() {
-  return getDb().prepare('SELECT id, provider, email, display_name, auth_type, imap_host, imap_port, smtp_host, smtp_port, smtp_secure, created_at FROM accounts ORDER BY id').all();
+  return require('./db-drizzle.cjs').listAccounts(getDb());
 }
 
 function getAccountById(id) {
-  return getDb().prepare('SELECT * FROM accounts WHERE id=?').get(id);
+  return require('./db-drizzle.cjs').getAccountById(getDb(), id);
 }
 
 function getAccountByEmail(email) {
-  if (!email) return null;
-  const trimmed = String(email).trim();
-  return getDb().prepare('SELECT * FROM accounts WHERE email=? COLLATE NOCASE').get(trimmed)
-    || getDb().prepare('SELECT * FROM accounts WHERE email=?').get(trimmed);
+  return require('./db-drizzle.cjs').getAccountByEmail(getDb(), email);
 }
 
-function updateAccount(id, { displayName, imapHost, imapPort, smtpHost, smtpPort, smtpSecure, passwordEnc }) {
-  const d = getDb();
-  const sets = [];
-  const args = [];
-  if (displayName !== undefined) { sets.push('display_name=?'); args.push(displayName || null); }
-  if (imapHost !== undefined) { sets.push('imap_host=?'); args.push(imapHost || null); }
-  if (imapPort !== undefined) { sets.push('imap_port=?'); args.push(imapPort ? Number(imapPort) : null); }
-  if (smtpHost !== undefined) { sets.push('smtp_host=?'); args.push(smtpHost || null); }
-  if (smtpPort !== undefined) { sets.push('smtp_port=?'); args.push(smtpPort ? Number(smtpPort) : null); }
-  if (smtpSecure !== undefined) { sets.push('smtp_secure=?'); args.push(smtpSecure ? 1 : 0); }
-  if (passwordEnc !== undefined) { sets.push('password_enc=?'); args.push(passwordEnc); }
-  if (sets.length === 0) return true;
-  args.push(id);
-  d.prepare(`UPDATE accounts SET ${sets.join(', ')} WHERE id=?`).run(...args);
-  return true;
+function updateAccount(id, updates) {
+  return require('./db-drizzle.cjs').updateAccount(getDb(), id, updates);
 }
 
 function deleteAccount(id) {
-  const d = getDb();
-  d.prepare('DELETE FROM accounts WHERE id=?').run(id);
-  return true;
+  return require('./db-drizzle.cjs').deleteAccount(getDb(), id);
 }
 
-function updateTokens(email, { refreshTokenEnc, accessTokenEnc, tokenExpiry }) {
-  getDb()
-    .prepare('UPDATE accounts SET refresh_token_enc=?, access_token_enc=?, token_expiry=? WHERE email=? COLLATE NOCASE')
-    .run(refreshTokenEnc, accessTokenEnc, tokenExpiry, (email || '').trim());
+function updateTokens(email, tokens) {
+  return require('./db-drizzle.cjs').updateTokens(getDb(), email, tokens);
 }
 
 function isDraftFolder(folderPath) {
@@ -484,34 +464,8 @@ function saveSentMessage(email, { to, subject, text, html }) {
   return uid;
 }
 
-function addAccount({ provider, email, displayName, refreshTokenEnc, accessTokenEnc, tokenExpiry, authType, imapHost, imapPort, smtpHost, smtpPort, smtpSecure, passwordEnc }) {
-  const d = getDb();
-  const cleanEmail = (email || '').trim().toLowerCase();
-  const existing = getAccountByEmail(cleanEmail);
-  const targetEmail = existing ? existing.email : cleanEmail;
-  const row = d
-    .prepare(
-      `INSERT INTO accounts (provider, email, display_name, refresh_token_enc, access_token_enc, token_expiry,
-         auth_type, imap_host, imap_port, smtp_host, smtp_port, smtp_secure, password_enc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(email) DO UPDATE SET
-         provider=coalesce(excluded.provider, accounts.provider),
-         display_name=coalesce(excluded.display_name, accounts.display_name),
-         refresh_token_enc=coalesce(excluded.refresh_token_enc, accounts.refresh_token_enc),
-         access_token_enc=coalesce(excluded.access_token_enc, accounts.access_token_enc),
-         token_expiry=coalesce(excluded.token_expiry, accounts.token_expiry),
-         auth_type=coalesce(excluded.auth_type, accounts.auth_type),
-         imap_host=coalesce(excluded.imap_host, accounts.imap_host),
-         imap_port=coalesce(excluded.imap_port, accounts.imap_port),
-         smtp_host=coalesce(excluded.smtp_host, accounts.smtp_host),
-         smtp_port=coalesce(excluded.smtp_port, accounts.smtp_port),
-         smtp_secure=coalesce(excluded.smtp_secure, accounts.smtp_secure),
-         password_enc=coalesce(excluded.password_enc, accounts.password_enc)`,
-    )
-    .run(provider, targetEmail, displayName || null, refreshTokenEnc || null, accessTokenEnc || null, tokenExpiry || null,
-      authType || 'oauth', imapHost || null, imapPort || null, smtpHost || null, smtpPort || null,
-      smtpSecure == null ? null : (smtpSecure ? 1 : 0), passwordEnc || null);
-  return row.lastInsertRowid;
+function addAccount(acc) {
+  return require('./db-drizzle.cjs').addAccount(getDb(), acc);
 }
 
 function getSetting(key, defaultValue = null) {

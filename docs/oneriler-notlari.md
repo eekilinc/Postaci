@@ -4,7 +4,7 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 
 ## Postacı'ya doğrudan
 
-- [>] **1. Drizzle ORM (+SQLite)** — `db.cjs`'teki çiğ SQL yerine tip-güvenli sorgular. Faz 1: şema dosyası + parlama testi (sıfır risk). Faz 2: fonksiyonları tek tek taşıma.
+- [>] **1. Drizzle ORM (+SQLite)** — Faz 1 bitti, Faz 2 başladı: settings + accounts grubu (list/get/add/update/delete/updateTokens) taşındı, db.cjs aynı API ile delege ediyor. Kalan: messages, attachments, contacts, folders, unified sayfa/arama sorguları.
 - [x] **2. TanStack Query (Faz 1)** — altyapı + `useFolders` taşındı. `src/query/client.ts`, `src/query/mailKeys.ts`, provider `main.tsx`'te. Hook API birebir aynı, 10+ çağrı noktası değişmedi. Sıradaki: `useMessages` (büyük iş, ayrı faz).
 - [x] **3. Zustand (Faz 1)** — `src/stores/themeStore.ts` (persist + eski anahtar devralma). `useTheme` API birebir korunuyor, App.tsx değişmedi. Sıradaki: hesap/seçim store'ları.
 - [ ] **4. electron-vite** — BİLİNÇLİ ERTELEME. Gerekçe: `main.cjs` (2797 satır CJS) + preload + builder + release hattı toptan değişir, `npm run dist` kırılma riski yüksek; kazanç (main HMR) şu an kritik değil. Karar senin onayına bırakıldı.
