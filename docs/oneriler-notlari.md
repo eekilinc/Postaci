@@ -35,6 +35,14 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 - [x] **useMessages → Query** — `src/hooks/useMessages.ts` API birebir korunarak taşındı: liste/sayı hedef anahtarlı önbellekte, `setMessages` çift formlu (iyimser UI aynen), sayfa derinliği korunarak tazeleme, reqId sayaçları yerine anahtar izolasyonu + hedef aynası. Biome'un gerçek bulgusu (`currentTarget` memo) düzeltildi; `!` kullanımları proje standardı olduğu için korundu.
 - [ ] Harici (kurulum gerektirmez): Hoppscotch/HTTPie, ripgrep/fd/bat/zoxide/btop.
 
+## Tamamlananlar (2026-10-08)
+
+- [x] **Lint birleştirme** — Biome tamamen kaldırıldı; tek standart oxlint (CI ile aynı).
+- [x] **Test kapsamı** — db.test.ts, compose.test.ts, providers.test.ts eklendi: 22 -> 43 test.
+- [x] **Drizzle Faz 2 (kısmi)** — settings + accounts grubu db-drizzle'a taşındı, db.cjs delege ediyor. Kalan: messages/contacts/folders.
+- [x] **main.cjs modülerleştirme (Faz 1)** — 2826 -> 2098 satır; token-auth, imap-queue, shell-integration, notifications, background-sync ayrışıldı. Kalan: IPC işleyicilerinin ayrı modüllere taşınması.
+- [x] Gizli hata düzeltmeleri: `_activeNotifications` tanımsızdı, `mainWindow` örtük globaldi.
+
 ## Atlanan
 
 - **Tauri** — kullanıcı isteğiyle pas geçildi. Gerekçe: geçiş yeniden yazım demek.
