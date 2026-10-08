@@ -207,10 +207,18 @@ function registerIpc(ctx) {
       SELECT f.name, f.path, f.flags,
              COALESCE((SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END)
                        FROM messages m
-                       WHERE m.account_id = f.account_id AND m.folder_path = f.path), 0) AS unread_count
+                       WHERE m.account_id = f.account_id AND lower(m.folder_path) = lower(f.path)), 0) AS unread_count
       FROM folders f
       WHERE f.account_id = (SELECT id FROM accounts WHERE email = ? COLLATE NOCASE)
     `).all(email);
+    try {
+      const updStmt = db.prepare(
+        `UPDATE folders SET unread_count=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND path=?`
+      );
+      for (const f of cached) {
+        updStmt.run(f.unread_count || 0, email, f.path);
+      }
+    } catch {}
     return (cached || []).map((f) => {
       let flags = [];
       try { if (f.flags) flags = JSON.parse(f.flags); } catch {}
@@ -574,6 +582,21 @@ function registerIpc(ctx) {
     return 'Trash';
   }
 
+  function getSpamFolder(email) {
+    try {
+      const row = getDb().prepare(
+        `SELECT path FROM folders
+         WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
+           AND (lower(path) LIKE '%spam%' OR lower(path) LIKE '%junk%' OR lower(path) LIKE '%gereksiz%' OR lower(name) LIKE '%spam%' OR lower(name) LIKE '%junk%')
+         ORDER BY id ASC LIMIT 1`
+      ).get(email);
+      if (row?.path) return row.path;
+    } catch {}
+    const acc = getAccountByEmail(email);
+    if (acc?.provider === 'google') return '[Gmail]/Spam';
+    return 'Junk';
+  }
+
   function getArchiveFolder(email) {
     try {
       const row = getDb().prepare(
@@ -613,10 +636,10 @@ function registerIpc(ctx) {
     let localAtts = [];
     try {
       localMsg = getDb().prepare(
-        `SELECT * FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+        `SELECT * FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
       ).get(email, folderPath, String(uid));
       localAtts = getDb().prepare(
-        `SELECT * FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
+        `SELECT * FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`
       ).all(email, folderPath, String(uid));
     } catch {}
 
@@ -625,11 +648,11 @@ function registerIpc(ctx) {
       // UYARI: Çöp kutusuna eski INBOX UID'si ile geçici kayıt eklemiyoruz!
       // Bu geçersiz UID çöpten silinmeye çalışıldığında bulunamaz ve hortlamaya yol açar.
       getDb().prepare(
-        `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+        `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
       ).run(email, folderPath, String(uid));
       try {
         getDb().prepare(
-          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
+          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`
         ).run(email, folderPath, String(uid));
       } catch {}
     } catch (dbErr) {
@@ -638,6 +661,7 @@ function registerIpc(ctx) {
 
     // 2. Ardından sunucu tarafı IMAP işlemini yürüt
     try {
+      let moveDestFolder = null;
       const acc = getAccountByEmail(email);
       if (acc) {
         const creds = await freshCredentials(acc);
@@ -661,14 +685,15 @@ function registerIpc(ctx) {
             markDeleted(email, folderPath, res.realUid);
             try {
               getDb().prepare(
-                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
               ).run(email, folderPath, res.realUid);
               getDb().prepare(
-                `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
+                `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`
               ).run(email, folderPath, res.realUid);
             } catch {}
           }
         } else if (res.dest && res.destUid && localMsg) {
+          moveDestFolder = res.dest;
           // Normal klasörden çöpe taşındıysa ve sunucu yeni UID döndürdüyse (COPYUID):
           // Çöp kutusuna GERÇEK UID ile ekle! Asla eski/geçersiz INBOX UID'si kullanılmaz.
           const finalDest = res.dest;
@@ -676,10 +701,11 @@ function registerIpc(ctx) {
           try {
             const db = getDb();
             const existing = db.prepare(
-              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
             ).get(email, finalDest, finalUid);
 
             if (!existing) {
+              // Çöpe atılan iletiler çöpte okunmuş (is_read=1) sayılır, çöp rozetini şişirmez
               db.prepare(`
                 INSERT INTO messages (account_id, folder_path, uid, subject, from_addr, to_addr, date, snippet, body_html, body_text, is_read, message_id, refs, starred)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -694,7 +720,7 @@ function registerIpc(ctx) {
                 localMsg.snippet,
                 localMsg.body_html,
                 localMsg.body_text,
-                localMsg.is_read,
+                1,
                 localMsg.message_id,
                 localMsg.refs,
                 localMsg.starred || 0
@@ -715,6 +741,22 @@ function registerIpc(ctx) {
           }
         }
       }
+
+      // 3. Etkilenen klasörlerin unread_count sayaçlarını yerel DB'de anında güncelle
+      try {
+        const db = getDb();
+        const updFolder = db.prepare(`
+          UPDATE folders SET unread_count = (
+            SELECT COALESCE(SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END), 0)
+            FROM messages m
+            WHERE m.account_id = folders.account_id AND lower(m.folder_path) = lower(folders.path)
+          )
+          WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
+            AND (lower(path) = lower(?) OR lower(path) = lower(?))
+        `);
+        updFolder.run(email, folderPath, moveDestFolder || folderPath);
+      } catch {}
+
       return true;
     } catch (e) {
       console.error('[mail:delete] error:', e);
@@ -750,24 +792,25 @@ function registerIpc(ctx) {
     // 1. Sunucu mesajlarının yerel DB durumunu anında güncelle (0ms tepki)
     let localMsgs = [];
     let localAtts = [];
+    let moveDestFolder = null;
     if (serverUids.length > 0) {
       try {
         const db = getDb();
         if (!isTrash) {
           const placeholders = serverUids.map(() => '?').join(',');
           localMsgs = db.prepare(
-            `SELECT * FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid IN (${placeholders})`
+            `SELECT * FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid IN (${placeholders})`
           ).all(email, folderPath, ...serverUids.map(String));
           localAtts = db.prepare(
-            `SELECT * FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid IN (${placeholders})`
+            `SELECT * FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid IN (${placeholders})`
           ).all(email, folderPath, ...serverUids.map(String));
         }
 
         const stmt = db.prepare(
-          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
         );
         const attStmt = db.prepare(
-          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
+          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`
         );
         db.transaction((list) => {
           for (const uid of list) {
@@ -790,12 +833,13 @@ function registerIpc(ctx) {
             batchMoveToTrash({ provider: acc.provider, email: acc.email, folderPath, uids: serverUids, ...creds })
           );
           if (!isTrash && res?.dest && res?.uidMap && localMsgs.length > 0) {
+            moveDestFolder = res.dest;
             const finalDest = res.dest;
             const uidMap = res.uidMap || {};
             try {
               const db = getDb();
               const checkStmt = db.prepare(
-                `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+                `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
               );
               const insMsg = db.prepare(`
                 INSERT INTO messages (account_id, folder_path, uid, subject, from_addr, to_addr, date, snippet, body_html, body_text, is_read, message_id, refs, starred)
@@ -823,7 +867,7 @@ function registerIpc(ctx) {
                         m.snippet,
                         m.body_html,
                         m.body_text,
-                        m.is_read,
+                        1,
                         m.message_id,
                         m.refs,
                         m.starred || 0
@@ -841,6 +885,22 @@ function registerIpc(ctx) {
             }
           }
         }
+
+        // 3. Etkilenen klasörlerin unread_count sayaçlarını yerel DB'de anında güncelle
+        try {
+          const db = getDb();
+          const updFolder = db.prepare(`
+            UPDATE folders SET unread_count = (
+              SELECT COALESCE(SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END), 0)
+              FROM messages m
+              WHERE m.account_id = folders.account_id AND lower(m.folder_path) = lower(folders.path)
+            )
+            WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
+              AND (lower(path) = lower(?) OR lower(path) = lower(?))
+          `);
+          updFolder.run(email, folderPath, moveDestFolder || folderPath);
+        } catch {}
+
         return true;
       } catch (e) {
         console.error('[mail:batch-delete] error:', e);
@@ -1353,9 +1413,19 @@ function registerIpc(ctx) {
     if (!acc) throw new Error('Hesap bulunamadı.');
 
     // 1. Yerel DB'deki ilgili hesaba ve çöp klasörüne ait mesajları ve ekleri temizle
-    getDb().prepare(`DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=?`).run(email, trashFolder);
+    getDb().prepare(
+      `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(folder_path)=lower(?) OR lower(folder_path) LIKE '%çöp%' OR lower(folder_path) LIKE '%trash%' OR lower(folder_path) LIKE '%deleted%')`
+    ).run(email, trashFolder);
     try {
-      getDb().prepare(`DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=?`).run(email, trashFolder);
+      getDb().prepare(
+        `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(folder_path)=lower(?) OR lower(folder_path) LIKE '%çöp%' OR lower(folder_path) LIKE '%trash%' OR lower(folder_path) LIKE '%deleted%')`
+      ).run(email, trashFolder);
+    } catch {}
+
+    try {
+      getDb().prepare(
+        `UPDATE folders SET unread_count=0 WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(path)=lower(?) OR lower(path) LIKE '%çöp%' OR lower(path) LIKE '%trash%' OR lower(path) LIKE '%deleted%')`
+      ).run(email, trashFolder);
     } catch {}
 
     // 2. IMAP sunucusundaki mesajları kalıcı expunge et
@@ -1379,6 +1449,52 @@ function registerIpc(ctx) {
       return true;
     } catch (e) {
       console.error('[empty-trash] hata:', e);
+      return false;
+    }
+  });
+
+  ipcMain.handle('mail:empty-spam', async (_evt, email) => {
+    const spamFolder = getSpamFolder(email);
+    const acc = getAccountByEmail(email);
+    if (!acc) throw new Error('Hesap bulunamadı.');
+
+    // 1. Yerel DB'deki ilgili hesaba ve spam klasörüne ait mesajları ve ekleri temizle
+    getDb().prepare(
+      `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(folder_path)=lower(?) OR lower(folder_path) LIKE '%spam%' OR lower(folder_path) LIKE '%junk%' OR lower(folder_path) LIKE '%gereksiz%')`
+    ).run(email, spamFolder);
+    try {
+      getDb().prepare(
+        `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(folder_path)=lower(?) OR lower(folder_path) LIKE '%spam%' OR lower(folder_path) LIKE '%junk%' OR lower(folder_path) LIKE '%gereksiz%')`
+      ).run(email, spamFolder);
+    } catch {}
+
+    try {
+      getDb().prepare(
+        `UPDATE folders SET unread_count=0 WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(path)=lower(?) OR lower(path) LIKE '%spam%' OR lower(path) LIKE '%junk%' OR lower(path) LIKE '%gereksiz%')`
+      ).run(email, spamFolder);
+    } catch {}
+
+    // 2. IMAP sunucusundaki mesajları kalıcı expunge et
+    try {
+      const creds = await freshCredentials(acc);
+      await imapLock(email, async () => {
+        return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
+          await client.mailboxOpen(spamFolder, { readOnly: false });
+          const all = await client.search({ all: true }, { uid: true });
+          if (all && all.length > 0) {
+            for (const u of all) {
+              markDeleted(email, spamFolder, String(u));
+            }
+            await client.messageFlagsAdd(all.join(','), ['\\Deleted'], { uid: true });
+            try { await client.messageDelete(all.join(','), { uid: true }); } catch {}
+            try { await client.run('EXPUNGE'); } catch {}
+          }
+          try { await client.mailboxClose(); } catch {}
+        });
+      });
+      return true;
+    } catch (e) {
+      console.error('[empty-spam] hata:', e);
       return false;
     }
   });

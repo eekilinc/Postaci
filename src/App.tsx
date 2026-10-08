@@ -354,6 +354,7 @@ export default function App() {
     setSelected,
     loadFolders,
     updateUnifiedCount,
+    refreshUnreadCounts,
     setNotice,
     setError,
   });
@@ -440,6 +441,7 @@ export default function App() {
           loadMessages(activeAccount, targetFolder, false);
           loadFolders(activeAccount);
           updateUnifiedCount();
+          refreshUnreadCounts();
         }
       } catch (err) {
         if (!cancelled) {
@@ -623,13 +625,17 @@ export default function App() {
 
   const handleSync = () => {
     if (isUnified) {
-      sync(null, 'INBOX', setError, setNotice, true).then(() => updateUnifiedCount());
+      sync(null, 'INBOX', setError, setNotice, true).then(() => {
+        updateUnifiedCount();
+        refreshUnreadCounts();
+      });
       return;
     }
     if (!activeAccount || !activeFolder) return;
     sync(activeAccount, activeFolder, setError, setNotice, false).then(() => {
       window.postaci?.db.stats().catch(() => {});
       updateUnifiedCount();
+      refreshUnreadCounts();
     });
   };
 
@@ -654,6 +660,35 @@ export default function App() {
     setMessages((prev) => prev.filter((x) => x.uid !== m.uid));
     setSelected((s) => (s?.uid === m.uid ? null : s));
     setError(null);
+
+    // Optimistik unread badge güncellemesi (silinen mesaj okunmamışsa)
+    if (!m.is_read) {
+      setUnreadCounts((prev) => {
+        const accLower = fromAccount.toLowerCase();
+        const folderLower = fromFolder.toLowerCase();
+        const key = `${accLower}:${folderLower}`;
+        const curFolder = prev.byFolder[key] ?? prev.byFolder[`${fromAccount}:${fromFolder}`] ?? 0;
+        const curAcc = prev.byAccount[fromAccount] ?? prev.byAccount[accLower] ?? 0;
+        const nextFolder = Math.max(0, curFolder - 1);
+        const nextAcc = Math.max(0, curAcc - 1);
+        return {
+          ...prev,
+          byFolder: {
+            ...prev.byFolder,
+            [key]: nextFolder,
+            [`${fromAccount}:${fromFolder}`]: nextFolder,
+          },
+          byAccount: {
+            ...prev.byAccount,
+            [fromAccount]: nextAcc,
+            [accLower]: nextAcc,
+          },
+          unified: Math.max(0, (prev.unified || 0) - 1),
+        };
+      });
+      setUnifiedUnreadCount((c) => Math.max(0, c - 1));
+    }
+
     try {
       await window.postaci.mail.delete(fromAccount, fromFolder, m.uid);
       // Kullanıcı başka klasöre veya hesaba geçtiyse eski klasörün bildirimini gösterme
@@ -665,12 +700,14 @@ export default function App() {
       }
       loadFolders(fromAccount); // okunmadı sayısını güncelle
       updateUnifiedCount();
+      await refreshUnreadCounts();
     } catch (e) {
       if (isUnified || (activeFolder === fromFolder && activeAccount === fromAccount)) {
         loadMessages(fromAccount, fromFolder, isUnified);
         setError(cleanIpcError(e));
         setTimeout(() => setError((prev) => (prev ? null : null)), 4000);
       }
+      await refreshUnreadCounts();
     }
   };
 
@@ -696,12 +733,14 @@ export default function App() {
       await window.postaci.mail.archive(fromAccount, fromFolder, target.uid);
       loadFolders(fromAccount);
       updateUnifiedCount();
+      await refreshUnreadCounts();
     } catch (e) {
       if (isUnified || (activeFolder === fromFolder && activeAccount === fromAccount)) {
         loadMessages(fromAccount, fromFolder, isUnified);
         setError(cleanIpcError(e));
         setTimeout(() => setError((prev) => (prev ? null : null)), 4000);
       }
+      await refreshUnreadCounts();
     }
   };
 
@@ -728,12 +767,14 @@ export default function App() {
       await window.postaci.mail.moveToFolder(fromAccount, fromFolder, toFolder, target.uid);
       loadFolders(fromAccount);
       updateUnifiedCount();
+      await refreshUnreadCounts();
     } catch (e) {
       if (isUnified || (activeFolder === fromFolder && activeAccount === fromAccount)) {
         loadMessages(fromAccount, fromFolder, isUnified);
         setError(cleanIpcError(e));
         setTimeout(() => setError((prev) => (prev ? null : null)), 4000);
       }
+      await refreshUnreadCounts();
     }
   };
 
@@ -748,6 +789,7 @@ export default function App() {
       await window.postaci.mail.markRead(targetAccount, targetFolder, m.uid);
       loadFolders(targetAccount);
       updateUnifiedCount();
+      await refreshUnreadCounts();
     } catch { /* best-effort */ }
   };
 
@@ -762,6 +804,7 @@ export default function App() {
       await window.postaci.mail.markUnread(targetAccount, targetFolder, m.uid);
       loadFolders(targetAccount);
       updateUnifiedCount();
+      await refreshUnreadCounts();
     } catch { /* best-effort */ }
   };
 
@@ -939,9 +982,31 @@ export default function App() {
       loadMessages(activeAccount, activeFolder || 'INBOX', isUnified);
       loadFolders(activeAccount);
       updateUnifiedCount();
+      await refreshUnreadCounts();
     } catch (e) {
       setNoticeLoading(false);
       setError(cleanIpcError(e));
+      await refreshUnreadCounts();
+    }
+  };
+
+  const handleEmptySpam = async () => {
+    if (!activeAccount || !window.postaci) return;
+    try {
+      setNoticeLoading(true);
+      setNotice(t('notice.spamEmptying'));
+      await window.postaci.mail.emptySpam(activeAccount);
+      setNoticeLoading(false);
+      setNotice(t('notice.spamEmptied'));
+      setTimeout(() => setNotice(null), 3000);
+      loadMessages(activeAccount, activeFolder || 'INBOX', isUnified);
+      loadFolders(activeAccount);
+      updateUnifiedCount();
+      await refreshUnreadCounts();
+    } catch (e) {
+      setNoticeLoading(false);
+      setError(cleanIpcError(e));
+      await refreshUnreadCounts();
     }
   };
 
@@ -1118,6 +1183,7 @@ export default function App() {
       onArchive={handleArchiveMessage}
       isUnified={isUnified}
       onEmptyTrash={handleEmptyTrash}
+      onEmptySpam={handleEmptySpam}
       selectedUids={selectedUids}
       onToggleSelectUid={handleToggleSelectUid}
       onSelectAll={handleSelectAll}

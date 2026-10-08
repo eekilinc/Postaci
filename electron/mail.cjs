@@ -583,31 +583,45 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     // Yalnızca YERELDE kayıtlı bulunan son iletilerin sunucuda hâlâ bulunup bulunmadığı sorgulanır.
     if (!beforeUid && !skipPrune) {
       try {
-        const localRows = db.prepare(
-          `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE
-           AND uid GLOB '[0-9]*' ORDER BY CAST(uid AS INTEGER) DESC LIMIT 200`,
-        ).all(email, folderPath);
+        if (total === 0) {
+          // Sunucuda posta kutusu tamamen boşsa (örn. Çöp/Spam boşaltılmışsa) yerel kayıtları temizle
+          db.prepare(
+            `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE`
+          ).run(email, folderPath);
+          try {
+            db.prepare(
+              `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE`
+            ).run(email, folderPath);
+          } catch {}
+        } else {
+          const localRows = db.prepare(
+            `SELECT uid FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE
+             AND uid GLOB '[0-9]*' ORDER BY CAST(uid AS INTEGER) DESC LIMIT 200`,
+          ).all(email, folderPath);
 
-        const localUidsToCheck = localRows.map((r) => String(r.uid));
-        if (localUidsToCheck.length > 0) {
-          const existingOnServer = await client.search({ uid: localUidsToCheck.join(',') }, { uid: true });
-          if (Array.isArray(existingOnServer)) {
-            // Eğer kutuda total > 0 iken sorgu şüpheli şekilde 0 döndüyse, bu sunucu budamasıdır — SİLME!
-            if (existingOnServer.length === 0 && total > 0) {
-              console.warn(`[sync] ${email} [${folderPath}] temizlik atlandı: sunucu yanıtı şüpheli boş döndü (kutuda=${total}).`);
-            } else {
-              const serverUidSet = new Set(existingOnServer.map(String));
-              const deleteLocal = db.prepare(
-                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`,
-              );
-              const deleteAtt = db.prepare(
-                `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`,
-              );
+          const localUidsToCheck = localRows.map((r) => String(r.uid));
+          if (localUidsToCheck.length > 0) {
+            const existingOnServer = await client.search({ uid: localUidsToCheck.join(',') }, { uid: true });
+            if (Array.isArray(existingOnServer)) {
+              // Yalnızca aranan UID sayısı çok fazlayken (>50) ve sunucudaki toplam ileti sayısı yerel kayıtları aşıyorken 0 dönmesi şüpheli bir geçici arama anomalisi olabilir.
+              // Normal şartlarda (özellikle Spam/Çöp gibi silinen kutularda) aranan UID'lerin 0 dönmesi o iletilerin sunucudan silindiğini gösterir.
+              const isSuspicious = existingOnServer.length === 0 && localUidsToCheck.length > 50 && total >= localUidsToCheck.length;
+              if (isSuspicious) {
+                console.warn(`[sync] ${email} [${folderPath}] temizlik atlandı: sunucu yanıtı şüpheli boş döndü (kutuda=${total}, yerel=${localUidsToCheck.length}).`);
+              } else {
+                const serverUidSet = new Set(existingOnServer.map(String));
+                const deleteLocal = db.prepare(
+                  `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`,
+                );
+                const deleteAtt = db.prepare(
+                  `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`,
+                );
 
-              for (const uidStr of localUidsToCheck) {
-                if (!serverUidSet.has(uidStr)) {
-                  deleteLocal.run(email, folderPath, uidStr);
-                  try { deleteAtt.run(email, folderPath, uidStr); } catch {}
+                for (const uidStr of localUidsToCheck) {
+                  if (!serverUidSet.has(uidStr)) {
+                    deleteLocal.run(email, folderPath, uidStr);
+                    try { deleteAtt.run(email, folderPath, uidStr); } catch {}
+                  }
                 }
               }
             }

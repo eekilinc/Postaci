@@ -53,6 +53,7 @@ interface MessageListProps {
   onArchive?: (m: Msg) => void;
   isUnified?: boolean;
   onEmptyTrash?: () => void;
+  onEmptySpam?: () => void;
   selectedUids?: Set<string>;
   onToggleSelectUid?: (uid: string, shiftKey?: boolean) => void;
   onSelectAll?: () => void;
@@ -100,6 +101,7 @@ export function MessageList({
   onArchive,
   isUnified,
   onEmptyTrash,
+  onEmptySpam,
   selectedUids,
   onToggleSelectUid,
   onSelectAll,
@@ -124,9 +126,11 @@ export function MessageList({
   const effectiveSnippetLines = snippetLines !== undefined ? snippetLines : (Number(localStorage.getItem('postaci_snippet_lines') ?? 1) as SnippetLines);
   const effectiveDateFormat = dateFormat || (localStorage.getItem('postaci_date_format') as DateFormatPreference) || 'smart';
   const isTrash = !isUnified && /trash|çöp|deleted|bin/i.test(activeFolder || '');
+  const isSpam = !isUnified && /junk|spam|gereksiz/i.test(activeFolder || '');
   const [showBatchMove, setShowBatchMove] = useState(false);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [showEmptyTrashConfirm, setShowEmptyTrashConfirm] = useState(false);
+  const [showEmptySpamConfirm, setShowEmptySpamConfirm] = useState(false);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const batchMoveRef = useRef<HTMLDivElement>(null);
 
@@ -266,6 +270,19 @@ export function MessageList({
             disabled={syncing || messages.length === 0}
             className="shrink-0 h-7.5 px-2 rounded-xl border border-red-200 bg-red-50/80 text-xs font-semibold text-red-600 shadow-2xs transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/50 flex items-center gap-1"
             title={t('list.emptyTrash')}
+          >
+            <TrashIcon size={13} />
+            <span className="hidden sm:inline text-[11px]">{language === 'en' ? 'Empty' : 'Boşalt'}</span>
+          </button>
+        )}
+
+        {/* Spam Klasörünü Boşalt Butonu */}
+        {isSpam && onEmptySpam && (
+          <button
+            onClick={() => setShowEmptySpamConfirm(true)}
+            disabled={syncing || messages.length === 0}
+            className="shrink-0 h-7.5 px-2 rounded-xl border border-amber-200 bg-amber-50/80 text-xs font-semibold text-amber-600 shadow-2xs transition hover:bg-amber-100 disabled:opacity-50 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-900/50 flex items-center gap-1"
+            title={t('list.emptySpam')}
           >
             <TrashIcon size={13} />
             <span className="hidden sm:inline text-[11px]">{language === 'en' ? 'Empty' : 'Boşalt'}</span>
@@ -585,6 +602,48 @@ export function MessageList({
               >
                 <TrashIcon size={12} />
                 {t('dialog.emptyTrashBtn')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Spam Klasörünü Boşalt — Fixed Overlay Modal */}
+      {showEmptySpamConfirm && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn"
+          onClick={() => setShowEmptySpamConfirm(false)}
+        >
+          <div
+            className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl p-6 max-w-sm w-full mx-4 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-950/50 flex items-center justify-center shrink-0">
+                <TrashIcon size={18} className="text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{t('dialog.emptySpamTitle')}</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                  {t('dialog.emptySpamMessage')}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowEmptySpamConfirm(false)}
+                className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-4 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowEmptySpamConfirm(false); onEmptySpam?.(); }}
+                className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-4 py-1.5 text-xs font-semibold transition active:scale-95 flex items-center gap-1.5"
+              >
+                <TrashIcon size={12} />
+                {t('dialog.emptySpamBtn')}
               </button>
             </div>
           </div>

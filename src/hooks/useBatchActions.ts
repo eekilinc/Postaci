@@ -12,6 +12,7 @@ interface UseBatchActionsProps {
   setSelected: React.Dispatch<React.SetStateAction<Msg | null>>;
   loadFolders: (email: string) => void;
   updateUnifiedCount: () => void;
+  refreshUnreadCounts?: () => Promise<void> | void;
   setNotice: (n: string | null) => void;
   setError: (e: string | null) => void;
 }
@@ -25,6 +26,7 @@ export function useBatchActions({
   setSelected,
   loadFolders,
   updateUnifiedCount,
+  refreshUnreadCounts,
   setNotice,
   setError,
 }: UseBatchActionsProps) {
@@ -117,6 +119,7 @@ export function useBatchActions({
       setTimeout(() => setNotice(null), 2500);
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();
+      await refreshUnreadCounts?.();
     } catch (e) {
       setError(cleanIpcError(e));
     }
@@ -151,6 +154,7 @@ export function useBatchActions({
       }
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();
+      await refreshUnreadCounts?.();
     } catch (e) {
       setError(cleanIpcError(e));
     }
@@ -219,6 +223,7 @@ export function useBatchActions({
       setTimeout(() => setNotice(null), 2500);
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();
+      await refreshUnreadCounts?.();
     } catch (e) {
       setError(cleanIpcError(e));
     }
@@ -255,6 +260,7 @@ export function useBatchActions({
       setTimeout(() => setNotice(null), 2500);
       if (activeAccount) loadFolders(activeAccount);
       updateUnifiedCount();
+      await refreshUnreadCounts?.();
     } catch (e) {
       setError(cleanIpcError(e));
     }

@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('postaci', {
     syncAllInboxes: () => ipcRenderer.invoke('mail:sync-all-inboxes'),
     exportEml: (email, folderPath, uid) => ipcRenderer.invoke('mail:export-eml', email, folderPath, uid),
     emptyTrash: (email) => ipcRenderer.invoke('mail:empty-trash', email),
+    emptySpam: (email) => ipcRenderer.invoke('mail:empty-spam', email),
     syncMore: (email, folderPath, beforeUid, limit) => ipcRenderer.invoke('mail:sync-more', email, folderPath, beforeUid, limit),
     diagnose: (email) => ipcRenderer.invoke('mail:diagnose', email),
     search: (email, folderPath, query) => ipcRenderer.invoke('mail:search', email, folderPath, query),

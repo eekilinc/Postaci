@@ -128,6 +128,7 @@ declare global {
         syncAllInboxes: () => Promise<{ email: string; total?: number; synced?: number; error?: string }[]>;
         exportEml: (email: string, folderPath: string, uid: string) => Promise<{ saved: boolean; path?: string }>;
         emptyTrash: (email: string) => Promise<boolean>;
+        emptySpam: (email: string) => Promise<boolean>;
         syncMore: (email: string, folderPath: string, beforeUid?: string, limit?: number) => Promise<{ total: number; synced: number; failed?: number; firstError?: string | null }>;
         diagnose: (email: string) => Promise<{
           email: string;

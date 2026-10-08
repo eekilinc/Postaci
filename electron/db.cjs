@@ -547,25 +547,38 @@ function getAllUnreadCounts() {
     // 1. Hesap bazında gelen kutusu okunmamış sayıları (AccountRail için)
     const accountRows = db.prepare(`
       SELECT a.email,
-             SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END) as unread
-      FROM messages m
-      JOIN accounts a ON a.id = m.account_id
-      WHERE upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%'
+             COALESCE(SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END), 0) as unread
+      FROM accounts a
+      LEFT JOIN messages m ON m.account_id = a.id AND (upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%')
       GROUP BY a.email
     `).all();
 
     // 2. Her hesabın her klasöründeki okunmamış sayısı (FolderNav için)
+    // Tüm kayıtlı klasörleri baz al — böylece içi boş veya okunmamış iletisi kalmayan klasörler de kesinlikle 0 döner!
     const folderRows = db.prepare(`
+      SELECT a.email, f.path AS folder_path,
+             COALESCE((
+               SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END)
+               FROM messages m
+               WHERE m.account_id = f.account_id AND lower(m.folder_path) = lower(f.path)
+             ), 0) AS unread
+      FROM folders f
+      JOIN accounts a ON a.id = f.account_id
+    `).all();
+
+    // folders tablosunda henüz kaydı bulunmayan ancak messages tablosunda yer alan klasörleri de kapsa
+    const extraFolderRows = db.prepare(`
       SELECT a.email, m.folder_path,
-             SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END) as unread
+             COALESCE(SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END), 0) as unread
       FROM messages m
       JOIN accounts a ON a.id = m.account_id
+      WHERE lower(m.folder_path) NOT IN (SELECT lower(path) FROM folders WHERE account_id = m.account_id)
       GROUP BY a.email, m.folder_path
     `).all();
 
     // 3. Birleşik gelen kutusu okunmamış sayısı
     const unifiedRow = db.prepare(`
-      SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END) as unread
+      SELECT COALESCE(SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END), 0) as unread
       FROM messages m
       WHERE upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%'
     `).get();
@@ -576,7 +589,7 @@ function getAllUnreadCounts() {
     }
 
     const byFolder = {};
-    for (const r of folderRows) {
+    for (const r of [...folderRows, ...extraFolderRows]) {
       if (r.email && r.folder_path) {
         byFolder[`${r.email}:${r.folder_path}`] = r.unread || 0;
         // Küçük harfe normalize edilmiş anahtar (büyük/küçük harf uyumsuzluğunu önler)

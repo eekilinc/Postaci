@@ -194,7 +194,10 @@ export function organizeAndDeduplicateFolders(
       // 2. Gmail hesabıysa [Gmail]/ önekine öncelik ver
       if (isGoogleAccount && c.path.startsWith('[Gmail]/')) score += 40;
 
-      // 3. Standart sunucu adlandırma tercihleri
+      // 3. İçinde okunmamış ileti olan klasöre öncelik ver (boş alias yerine dolu olanı seç)
+      if ((c.unread_count || 0) > 0) score += 15;
+
+      // 4. Standart sunucu adlandırma tercihleri
       if (role === 'drafts') {
         if (p === 'drafts' || n === 'drafts') score += 30;
         else if (p === 'taslaklar' || n === 'taslaklar') score += 20;
@@ -217,8 +220,12 @@ export function organizeAndDeduplicateFolders(
     const winner = scored[0].folder;
     const info = ROLE_INFO[role];
 
+    // Tekilleştirilen klasörlerin toplam okunmamış sayısını birleştir
+    const totalUnread = candidates.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+
     systemFolders.push({
       ...winner,
+      unread_count: totalUnread,
       displayName: getRoleName(role, lang),
       icon: info.icon,
       role,
