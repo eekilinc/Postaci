@@ -13,7 +13,7 @@
 //   loadMoreFromServer aynı akışla çalışır, bitiminde ilgili anahtar tazelenir.
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { mailKeys } from '../query/mailKeys';
 import type { FilterKey, Msg } from '../types';
 import { cleanIpcError } from '../utils/errors';
@@ -83,6 +83,15 @@ export function useMessages() {
   targetRef.current = target;
   const syncingRef = useRef(false);
 
+  // Hedef (hesap/klasör/birleşik) değiştiğinde sunucu toplamını sıfırla.
+  // Önceden hiç sıfırlanmıyordu: hesap A'nın INBOX'ı için öğrenilen 5000 değeri,
+  // 3 ilitilik hesap B klasörüne geçilince de "Toplam 5000 ileti" yazıyordu;
+  // ayrıca uygulama açılışında 0 olduğu için buton hiç render edilmiyordu
+  // (kullanıcı o klasörü elle Eşitlemeden "eski iletileri getir"e erişemiyordu).
+  useEffect(() => {
+    setServerTotal(0);
+  }, [target.email, target.folder, target.unified]);
+
   const listKey = mailKeys.messageList(target);
   const listQuery = useQuery({
     queryKey: listKey,
@@ -132,6 +141,28 @@ export function useMessages() {
       return;
     }
     setTarget({ email, folder: folderPath, unified: isUnified });
+
+    // Anahtar DEĞİŞMİYORSA (aynı hedefe yeniden yükleme) sorguyu geçersiz kıl.
+    // Düzenleme yapılmış durumda: main process DB'yi güncelliyor ama React Query
+    // cache'i 15 sn staleTime boyunca bayat kalıyor ve refetchOnWindowFocus
+    // kapalı. Sonuç: "Çöp kutusu boşaltıldı" / "ileti silindi" mesajı çıkıyor,
+    // kenardaki rozet düşüyor (folders sorgusu geçersiz kılınıyor) ama LİSTE hâlâ
+    // dolu görünüyor — kullanıcı "siliyor ama silmiyor" diye raporluyordu.
+    // loadMessages her mutasyondan sonra (sil/taşı/arşivle/boşalt) çağrıldığı
+    // için burada geçersiz kılmak tüm bu yolları tek yerden düzeltir.
+    const sameTarget =
+      targetRef.current.email === email &&
+      (targetRef.current.folder || 'INBOX').toLowerCase() ===
+        (folderPath || 'INBOX').toLowerCase() &&
+      targetRef.current.unified === isUnified;
+    if (sameTarget) {
+      queryClient.invalidateQueries({
+        queryKey: mailKeys.messageList({ email, folder: folderPath, unified: isUnified }),
+      });
+      queryClient.invalidateQueries({
+        queryKey: mailKeys.messageCount({ email, folder: folderPath, unified: isUnified }),
+      });
+    }
   };
 
   // Yerel DB'den sonraki 50 mesajı yükle
@@ -229,18 +260,25 @@ export function useMessages() {
     setError(null);
     setNotice(null);
     try {
-      const cached =
-        queryClient.getQueryData<Msg[]>(
-          mailKeys.messageList({ email, folder: folderPath, unified: false }),
-        ) ?? [];
-      const oldestMsg = cached[cached.length - 1];
-      const beforeUid = oldestMsg?.uid;
-      const res = await window.postaci.mail.syncMore(
-        email,
-        folderPath,
-        beforeUid,
-        PAGE_SIZE,
+      const listKey = mailKeys.messageList({ email, folder: folderPath, unified: false });
+      const countKey = mailKeys.messageCount({ email, folder: folderPath, unified: false });
+      const cached = queryClient.getQueryData<Msg[]>(listKey) ?? [];
+
+      // En eski GERÇEK IMAP iletisini seç. Taslaklar (draft-…) ve gönderim
+      // kuyruğu (local-…) yerel üretilmiş UID'lerdir; sunucuda karşılıkları
+      // yoktur. `Number('draft-…')` -> NaN olduğu için main process'teki
+      // beforeUid dalına giremiyor ve "0 eski e-posta çekildi" dönüyordu.
+      const serverMsgs = cached.filter(
+        (m) => m.uid && !String(m.uid).startsWith('draft-') && !String(m.uid).startsWith('local-'),
       );
+      if (serverMsgs.length === 0) {
+        setError('Bu klasörde sunucudan çekilecek ek ileti yok.');
+        return;
+      }
+      const oldestMsg = serverMsgs[serverMsgs.length - 1];
+      const beforeUid = oldestMsg.uid;
+
+      const res = await window.postaci.mail.syncMore(email, folderPath, beforeUid, PAGE_SIZE);
       if (targetRef.current !== snap) return;
       if (
         (targetRef.current.folder || 'INBOX').toLowerCase() !==
@@ -250,57 +288,31 @@ export function useMessages() {
       ) {
         return;
       }
-      setNotice(
-        `Sunucudan ${res.synced} eski e-posta daha çekildi (toplam kutuda: ${res.total}).`,
-      );
+
       setServerTotal(res.total);
-      const listKey = mailKeys.messageList({
-        email,
-        folder: folderPath,
-        unified: false,
-      });
-      const countKey = mailKeys.messageCount({
-        email,
-        folder: folderPath,
-        unified: false,
-      });
-      const prevLen = cached.length;
+      if (!res.synced) {
+        // Sunucuda bu noktadan eski ileti yok — kullanıcıya dürüstçe söyle,
+        // "50 çekildi" gibi yanlış bir mesaj gösterme.
+        setNotice(
+          `Sunucuda bu noktadan daha eski ileti bulunamadı (kutuda toplam ${res.total} ileti var).`,
+        );
+        setTimeout(() => setNotice(null), 4000);
+        return;
+      }
+      setNotice(`Sunucudan ${res.synced} eski e-posta daha çekildi (toplam kutuda: ${res.total}).`);
+
+      // LİSTE sorgusunu da invalidate et. Önceden yalnızca countKey geçersiz
+      // kılınıyordu; DB'ye yazılan iletiler React Query cache'ine hiç girmiyor,
+      // kullanıcı "çekildi" mesajını görüp listede hiçbir değişiklik görmüyordu.
       await queryClient.invalidateQueries({ queryKey: countKey });
-      // Önceki sayfa derinliğini koru: ilk sayfa invalidate ile gelir,
-      // devamını ek sayfalarla tamamla (dedupe'lı ekleme)
-      let offset = PAGE_SIZE;
-      while (offset < prevLen) {
-        const pageMsgs = await window.postaci.mail.list(
-          email,
-          folderPath,
-          PAGE_SIZE,
-          offset,
-        );
-        if (targetRef.current !== snap) return;
-        if (pageMsgs.length === 0) break;
-        const fresh = pageMsgs.filter(
-          (m) =>
-            !(queryClient.getQueryData<Msg[]>(listKey) ?? []).some(
-              (x) => x.uid === m.uid,
-            ),
-        );
-        if (fresh.length > 0) {
-          queryClient.setQueryData<Msg[]>(listKey, (prev) => [
-            ...(prev ?? []),
-            ...fresh,
-          ]);
-        }
-        if (pageMsgs.length < PAGE_SIZE) break;
-        offset += PAGE_SIZE;
-      }
+      await queryClient.invalidateQueries({ queryKey: listKey });
     } catch (e) {
-      if (targetRef.current === snap) {
-        setError(cleanIpcError(e));
-      }
+      setError(cleanIpcError(e));
     } finally {
-      if (targetRef.current === snap) {
-        setLoadingMore(false);
-      }
+      // Hedef değişmiş olsa bile kilidi BIRAK: önceden hedef değişince
+      // setLoadingMore(false) atlanıyor, loadingMore kalıcı true kalıyor ve
+      // "daha fazla" butonları sessizce ölüyordu.
+      setLoadingMore(false);
     }
   };
 
@@ -390,7 +402,10 @@ export function useMessages() {
   }, [messages, searchQuery, currentTarget]);
 
   const hasMoreDb = !searchQuery.trim() && messages.length < totalDbCount;
-  const hasMoreServer = !searchQuery.trim() && serverTotal > totalDbCount;
+  // Birleşik gelen kutusunda sayfalama hesap bazlıdır (beforeUid tek UID'dir),
+  // bu yüzden sunucudan "daha eski ileti getir" orada anlamsızdır.
+  const hasMoreServer =
+    !searchQuery.trim() && !currentTarget.unified && serverTotal > totalDbCount;
 
   const sync = async (
     email: string | null,
@@ -513,6 +528,7 @@ export function useMessages() {
     loadMessages,
     loadMore,
     loadMoreFromServer,
+    setServerTotal,
     sync,
   };
 }

@@ -9,6 +9,7 @@ const { detectSettings } = require('./providers.cjs');
 const { splitAddresses, buildReply, buildReplyAll, buildForward } = require('./compose.cjs');
 const { enc, dec, freshCredentials, withAuthRetry, _tokenRefreshPromises } = require('./token-auth.cjs');
 const { markDeleted, isDeleted, clearDeleted, _lastSyncTime, _imapQueues, _lastImapOpTime, _activeFolderPerAccount, imapLock, SYNC_CONCURRENCY, syncOneInboxWithTimeout, isTimeoutError, runWithConcurrency } = require('./imap-queue.cjs');
+const { adjustFolderUnread } = require('./db-drizzle.cjs');
 const { notifyNewMessages, showDesktopNotification, flushAllPendingToasts, DEFAULT_NOTIFICATION_SETTINGS } = require('./notifications.cjs');
 const { updateBackgroundSyncSchedule } = require('./background-sync.cjs');
 const { syncStartupSettings } = require('./shell-integration.cjs');
@@ -213,7 +214,38 @@ function registerIpc(ctx) {
     return Promise.race([promise, timeout]).finally(() => { if (t) clearTimeout(t); });
   }
 
-  // Klasör önbelleğini tek yerden oku.
+  // Okunmamış sayacını yerel işlemler için delta ile güncelle.
+// DİKKAT: `UPDATE folders SET unread_count = (SELECT SUM(...) FROM messages ...)`
+// yazımı sunucudan gelen gerçek değeri yerel alt kümenin sayısıyla eziyordu
+// (900 okunmamışlık klasör, 50 ileti senkronlandığı için 50'ye düşüyordu).
+// Doğrusu: sunucu STATUS değerini yazar, yerel işlemler delta uygular.
+function adjustUnread(email, folderPath, delta) {
+  if (!delta || !folderPath) return;
+  try {
+    adjustFolderUnread(getDb(), email, folderPath, delta);
+  } catch (e) {
+    console.warn('[unread] sayaç güncellenemedi:', e?.message);
+  }
+}
+
+// Verilen iletilerden kaç tanesi okunmamış? (silme/taşıma sonrası delta için)
+function countUnread(email, folderPath, uids) {
+  try {
+    if (!Array.isArray(uids) || uids.length === 0) return 0;
+    const ph = uids.map(() => '?').join(',');
+    const row = getDb().prepare(
+      `SELECT COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) AS n
+       FROM messages
+       WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
+         AND folder_path=? COLLATE NOCASE AND uid IN (${ph})`
+    ).get(email, folderPath, ...uids.map(String));
+    return row?.n || 0;
+  } catch {
+    return 0;
+  }
+}
+
+// Klasör önbelleğini tek yerden oku.
 // unread_count kaynağı: DB'deki folders tablosunda SAKLANAN değer.
 // Bu değeri sunucudan IMAP STATUS ile dolduran iki yol var:
 //   - syncFolder (mail.cjs) → aktif klasör her senkronlanınca
@@ -619,53 +651,58 @@ function readFolderCache(email) {
   });
 
   function isTrashFolder(folderPath) {
-    return /trash|çöp|deleted|bin/i.test(folderPath || '');
+    return /trash|çöp|deleted|bin|silinmiş|recycl|ilk kutusu/i.test(folderPath || '');
+  }
+
+  // Özel klasör (çöp/spam/arşiv) çözümlemesi — NOTLAR:
+  //  - SQLite'un lower()'ı ASCII-only: lower('[Gmail]/Çöp kutusu') -> '[gmail]/Çöp kutusu'
+  //    (Ç küçülmez), dolayısıyla `lower(path) LIKE '%çöp%'` Türkçe adlarda HİÇ eşleşmez.
+  //    Unicode-duyarlı `ltr()` kullanılıyor (db.cjs'te kayıtlı).
+  //  - "Silinmiş Öğeler" (TR Outlook), "Çöp" (TR Yahoo), "Zil/Köp" gibi isimler de eklendi.
+  //  - ORDER BY id DESC: yeniden adlandırılan/taşınan klasörün BAYAT satırı seçiliyordu.
+  function findSpecialFolder(email, patterns, fallbacks) {
+    try {
+      const where = patterns.map(() => '(ltr(path) LIKE ? OR ltr(name) LIKE ?)').join(' OR ');
+      const params = [];
+      for (const p of patterns) params.push(`%${p}%`, `%${p}%`);
+      const row = getDb().prepare(
+        `SELECT path FROM folders
+         WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
+           AND (${where})
+         ORDER BY id DESC LIMIT 1`
+      ).get(email, ...params);
+      if (row?.path) return row.path;
+    } catch (e) {
+      console.warn('[folders] özel klasör araması uyarısı:', e?.message);
+    }
+    const acc = getAccountByEmail(email);
+    if (acc?.provider === 'google') return fallbacks.google;
+    if (acc?.provider === 'microsoft') return fallbacks.microsoft;
+    return fallbacks.other;
   }
 
   function getTrashFolder(email) {
-    try {
-      const row = getDb().prepare(
-        `SELECT path FROM folders
-         WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
-           AND (lower(path) LIKE '%çöp%' OR lower(path) LIKE '%trash%' OR lower(path) LIKE '%deleted%' OR lower(name) LIKE '%çöp%' OR lower(name) LIKE '%trash%')
-         ORDER BY id ASC LIMIT 1`
-      ).get(email);
-      if (row?.path) return row.path;
-    } catch {}
-    const acc = getAccountByEmail(email);
-    if (acc?.provider === 'google') return '[Gmail]/Çöp kutusu';
-    if (acc?.provider === 'microsoft') return 'Deleted Items';
-    return 'Trash';
+    return findSpecialFolder(
+      email,
+      ['çöp', 'trash', 'deleted', 'bin', 'silinmiş', 'recycl'],
+      { google: '[Gmail]/Çöp kutusu', microsoft: 'Deleted Items', other: 'Trash' },
+    );
   }
 
   function getSpamFolder(email) {
-    try {
-      const row = getDb().prepare(
-        `SELECT path FROM folders
-         WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
-           AND (lower(path) LIKE '%spam%' OR lower(path) LIKE '%junk%' OR lower(path) LIKE '%gereksiz%' OR lower(name) LIKE '%spam%' OR lower(name) LIKE '%junk%')
-         ORDER BY id ASC LIMIT 1`
-      ).get(email);
-      if (row?.path) return row.path;
-    } catch {}
-    const acc = getAccountByEmail(email);
-    if (acc?.provider === 'google') return '[Gmail]/Spam';
-    return 'Junk';
+    return findSpecialFolder(
+      email,
+      ['spam', 'junk', 'gereksiz', 'istenmeyen', 'önemsiz'],
+      { google: '[Gmail]/Spam', microsoft: 'Junk Email', other: 'Junk' },
+    );
   }
 
   function getArchiveFolder(email) {
-    try {
-      const row = getDb().prepare(
-        `SELECT path FROM folders
-         WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
-           AND (lower(path) LIKE '%archive%' OR lower(path) LIKE '%arşiv%' OR lower(path) LIKE '%tüm postalar%' OR lower(path) LIKE '%all mail%')
-         ORDER BY id ASC LIMIT 1`
-      ).get(email);
-      if (row?.path) return row.path;
-    } catch {}
-    const acc = getAccountByEmail(email);
-    if (acc?.provider === 'google') return '[Gmail]/Tüm Postalar';
-    return 'Archive';
+    return findSpecialFolder(
+      email,
+      ['archive', 'arşiv', 'tüm postalar', 'all mail'],
+      { google: '[Gmail]/Tüm Postalar', microsoft: 'Archive', other: 'Archive' },
+    );
   }
 
   ipcMain.handle('mail:delete', async (_evt, email, folderPath, uid) => {
@@ -705,7 +742,6 @@ function readFolderCache(email) {
       // TTL'i (5 dk) dolduğunda ileti bir sonraki senkronda geri yüklenir ve kullanıcı
       // "sildim, geri geldi" diye raporlar. Başarısızlıkta renderer'a fırlatıp
       // iyimser (optimistic) silmeyi geri aldırıyoruz.
-      let moveDestFolder = null;
       let res = null;
       const acc = getAccountByEmail(email);
       if (acc) {
@@ -758,7 +794,6 @@ function readFolderCache(email) {
             } catch {}
           }
         } else if (res.dest && res.destUid && localMsg) {
-          moveDestFolder = res.dest;
           // Normal klasörden çöpe taşındıysa ve sunucu yeni UID döndürdüyse (COPYUID):
           // Çöp kutusuna GERÇEK UID ile ekle! Asla eski/geçersiz INBOX UID'si kullanılmaz.
           const finalDest = res.dest;
@@ -807,20 +842,9 @@ function readFolderCache(email) {
         }
       }
 
-      // 3. Etkilenen klasörlerin unread_count sayaçlarını yerel DB'de anında güncelle
-      try {
-        const db = getDb();
-        const updFolder = db.prepare(`
-          UPDATE folders SET unread_count = (
-            SELECT COALESCE(SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END), 0)
-            FROM messages m
-            WHERE m.account_id = folders.account_id AND lower(m.folder_path) = lower(folders.path)
-          )
-          WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
-            AND (lower(path) = lower(?) OR lower(path) = lower(?))
-        `);
-        updFolder.run(email, folderPath, moveDestFolder || folderPath);
-      } catch {}
+      // 3. Okunmamış sayacını delta ile güncelle.
+      // Yerel alt kümeden yeniden hesaplamak sunucu değerini eziyordu.
+      if (localMsg && !localMsg.is_read) adjustUnread(email, folderPath, -1);
 
       return true;
     } catch (e) {
@@ -864,7 +888,8 @@ function readFolderCache(email) {
     if (serverUids.length > 0) {
       let localMsgs = [];
       let localAtts = [];
-      let moveDestFolder = null;
+      // Okunmamış sayacı için silme ÖNCESİ kaç iletinin okunmamış olduğunu bil
+      const removedUnread = countUnread(email, folderPath, serverUids);
       try {
         const acc = getAccountByEmail(email);
         if (acc) {
@@ -913,7 +938,6 @@ function readFolderCache(email) {
           }
 
           if (!isTrash && res?.dest && res?.uidMap && localMsgs.length > 0) {
-            moveDestFolder = res.dest;
             const finalDest = res.dest;
             const uidMap = res.uidMap || {};
             try {
@@ -966,20 +990,8 @@ function readFolderCache(email) {
           }
         }
 
-        // 3. Etkilenen klasörlerin unread_count sayaçlarını yerel DB'de anında güncelle
-        try {
-          const db = getDb();
-          const updFolder = db.prepare(`
-            UPDATE folders SET unread_count = (
-              SELECT COALESCE(SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END), 0)
-              FROM messages m
-              WHERE m.account_id = folders.account_id AND lower(m.folder_path) = lower(folders.path)
-            )
-            WHERE account_id = (SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
-              AND (lower(path) = lower(?) OR lower(path) = lower(?))
-          `);
-          updFolder.run(email, folderPath, moveDestFolder || folderPath);
-        } catch {}
+        // 3. Okunmamış sayacını delta ile güncelle (silinen okunmamış sayısı kadar azalt)
+        if (removedUnread > 0) adjustUnread(email, folderPath, -removedUnread);
 
         return true;
       } catch (e) {
@@ -1499,105 +1511,179 @@ function readFolderCache(email) {
     await fs.promises.writeFile(filePath, eml, 'utf8');
     return { saved: true, path: filePath };
   });
-  ipcMain.handle('mail:empty-trash', async (_evt, email) => {
-    const trashFolder = getTrashFolder(email);
-    const acc = getAccountByEmail(email);
-    if (!acc) throw new Error('Hesap bulunamadı.');
+  // Çöp/spam kutusunu sunucuda kalıcı olarak boşaltır, SONRA yerel DB'yi temizler.
+//
+// Düzeltilen kritik hatalar:
+//  1) imapflow `search()` hata/bağlantı durumunda `false`/`undefined` DÖNER
+//     (throw etmez). `if (all && all.length > 0)` koruması bunu "kutu zaten boş"
+//     sanıyor, expunge hiç yapılmadan handler `true` dönüyordu -> kullanıcı
+//     "silindi" diyordu, sunucuda hiçbir şey silinmemişti.
+//  2) `messageFlagsAdd`/`messageDelete` imapflow'da exec hatasında `false`
+//     döndürür (throw etmez) ve `\Deleted` permanentFlags'ta yoksa sessizce
+//     hiçbir şey yapılmadan `true` döner. Dönüş değerleri KONTROL ediliyor.
+//  3) `run('EXPUNGE')` imapflow'ta range olmadan tamamen no-op (bkz. expunge.js).
+//     Gerçek doğrulama: expunge sonrası yeniden arama yapılıyor.
+//  4) Tek komutta 20.000 UID göndermek sessizce başarısız oluyor; UID'ler
+//     parçalara bölünüyor.
+//  5) Klasör, `mail.cjs`'teki `findTrashPath` (IMAP \Trash bayrağı) ile de
+//     doğrulanıyor; DB/sağlayıcı tahmini yanlış kutuya düşüyordu.
+async function emptySpecialFolder({ email, folder, patterns, imapFlag, label }) {
+  const acc = getAccountByEmail(email);
+  if (!acc) throw new Error('Hesap bulunamadı.');
 
-    // SIRA ÖNEMLİ: Önce IMAP sunucusundaki mesajları kalıcı expunge et, SONRA yerel DB'yi temizle.
-    // Ters sırada (eski davranış) IMAP başarısız olsa bile yerel tüm çöp kayıtları
-    // siliniyordu; kullanıcı boşalttığını sanıp kritik iletileri kaybediyor, sonraki
-    // senkron da iletileri "ilk sync" yolundan geri yüklüyordu.
-    let purgedUids = [];
-    try {
-      const creds = await freshCredentials(acc);
-      purgedUids = await imapLock(email, async () => {
-        return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
-          await client.mailboxOpen(trashFolder, { readOnly: false });
-          const all = await client.search({ all: true }, { uid: true });
-          if (all && all.length > 0) {
-            await client.messageFlagsAdd(all.join(','), ['\\Deleted'], { uid: true });
-            try { await client.messageDelete(all.join(','), { uid: true }); } catch {}
-            try { await client.run('EXPUNGE'); } catch {}
+  // 1. Doğru klasörü IMAP'ten doğrula (\Trash / \Junk bayrağı)
+  let targetFolder = folder;
+  let creds = null;
+  try {
+    creds = await freshCredentials(acc);
+    await imapLock(email, async () =>
+      withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
+        if (imapFlag) {
+          try {
+            const detected = await findSpecialFolderByFlag(client, imapFlag);
+            if (detected) targetFolder = detected;
+          } catch (e) {
+            console.warn(`[empty] ${label} bayrağıyla klasör tespiti başarısız:`, e?.message);
           }
+        }
+        // Tahmin edilen yol gerçekten açılabiliyor mu?
+        try {
+          await client.mailboxOpen(targetFolder, { readOnly: true });
+        } catch (e) {
+          // Yol yanlışsa: hiçbir şey silmeden hataya düş (sessiz sahte başarı yok)
+          throw new Error(`${label} klasörü sunucuda açılamadı ("${targetFolder}"): ${e?.responseText || e?.message}`);
+        }
+      }),
+    );
+  } catch (e) {
+    console.error(`[empty-${label}] hata:`, e);
+    throw new Error(`${label} klasörü sunucuda açılamadı: ${e?.message || e}. Yerel veriler korundu.`);
+  }
+
+  // 2. Sunucuda expunge et
+  let purgedUids = [];
+  try {
+    purgedUids = await imapLock(email, async () =>
+      withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
+        await client.mailboxOpen(targetFolder, { readOnly: false });
+
+        const found = await client.search({ all: true }, { uid: true });
+        if (!Array.isArray(found)) {
+          // search() false/undefined döndü -> BAŞARISIZ. Önceden burası boş
+          // kutu sanılıp sessizce "başarılı" dönülüyordu.
+          throw new Error('Sunucu ileti listesini döndürmedi (arama başarısız veya bağlantı koptu).');
+        }
+        const uids = found.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+        if (uids.length === 0) {
           try { await client.mailboxClose(); } catch {}
-          return (all || []).map(String);
-        });
-      });
-    } catch (e) {
-      // Sunucu tarafı başarısız: yerel veriye DOKUNMA, hatayı kullanıcıya bildir
-      console.error('[empty-trash] hata:', e);
-      throw new Error(`Çöp kutusu sunucuda boşaltılamadı: ${e?.message || e}. Yerel veriler korundu.`);
-    }
+          return [];
+        }
 
-    // IMAP başarılı: expunge edilen UID'leri önbelleğe al ve yerel DB'yi temizle
-    for (const u of purgedUids) {
-      markDeleted(email, trashFolder, u);
-    }
-    getDb().prepare(
-      `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(folder_path)=lower(?) OR lower(folder_path) LIKE '%çöp%' OR lower(folder_path) LIKE '%trash%' OR lower(folder_path) LIKE '%deleted%')`
-    ).run(email, trashFolder);
-    try {
-      getDb().prepare(
-        `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(folder_path)=lower(?) OR lower(folder_path) LIKE '%çöp%' OR lower(folder_path) LIKE '%trash%' OR lower(folder_path) LIKE '%deleted%')`
-      ).run(email, trashFolder);
-    } catch {}
+        // UID setini parçala: 20.000 iletiyi tek STORE'da göndermek
+        // sunucu tarafında sessizce reddediliyor.
+        const CHUNK = 400;
+        for (let i = 0; i < uids.length; i += CHUNK) {
+          const chunk = uids.slice(i, i + CHUNK);
+          const seq = chunk.join(',');
+          try {
+            await client.messageDelete(seq, { uid: true });
+          } catch (e) {
+            // messageDelete STORE + EXPUNGE yapar; başarısız olursa bayrak + EXPUNGE
+            console.warn(`[empty] ${label} messageDelete başarısız (${e?.message}), bayrak yolu deneniyor`);
+            const flagged = await client.messageFlagsAdd(seq, ['\\Deleted'], { uid: true });
+            if (flagged === false) {
+              throw new Error(`Sunucu Deleted bayrağını kabul etmedi (UID ${chunk[0]}-${chunk[chunk.length - 1]}).`);
+            }
+            await client.run('UID EXPUNGE');
+          }
+        }
 
-    try {
-      getDb().prepare(
-        `UPDATE folders SET unread_count=0 WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(path)=lower(?) OR lower(path) LIKE '%çöp%' OR lower(path) LIKE '%trash%' OR lower(path) LIKE '%deleted%')`
-      ).run(email, trashFolder);
-    } catch {}
+        // 3. DOĞRULA: hâlâ duran ileti var mı?
+        const remaining = await client.search({ all: true }, { uid: true });
+        const left = Array.isArray(remaining) ? remaining.length : -1;
+        if (left !== 0) {
+          throw new Error(
+            left < 0
+              ? 'Silme sonrası doğrulama yapılamadı (sunucu yanıt vermedi).'
+              : `Sunucuda ${left} ileti hâlâ duruyor; silme tamamlanamadı.`,
+          );
+        }
 
-    return true;
+        try { await client.mailboxClose(); } catch {}
+        return uids.map(String);
+      }),
+    );
+  } catch (e) {
+    console.error(`[empty-${label}] hata:`, e);
+    throw new Error(`${label} sunucuda boşaltılamadı: ${e?.message || e}. Yerel veriler korundu.`);
+  }
+
+  // 4. IMAP doğrulandı: yerel DB'yi temizle
+  const where = '(ltr(folder_path)=ltr(?)' + patterns.map(() => ' OR ltr(folder_path) LIKE ?').join('') + ')';
+  const likeParams = patterns.map((p) => `%${p}%`);
+  const pathWhere = '(ltr(path)=ltr(?)' + patterns.map(() => ' OR ltr(path) LIKE ?').join('') + ')';
+
+  for (const u of purgedUids) {
+    markDeleted(email, targetFolder, u);
+  }
+  const db = getDb();
+  const accId = `(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)`;
+  const deleted = db
+    .prepare(`DELETE FROM messages WHERE account_id=${accId} AND ${where}`)
+    .run(email, targetFolder, ...likeParams);
+  try {
+    db.prepare(`DELETE FROM attachments WHERE account_id=${accId} AND ${where}`)
+      .run(email, targetFolder, ...likeParams);
+  } catch {}
+  try {
+    db.prepare(`UPDATE folders SET unread_count=0 WHERE account_id=${accId} AND ${pathWhere}`)
+      .run(email, targetFolder, ...likeParams);
+  } catch {}
+
+  console.log(`[empty-${label}] ${email}: sunucuda ${purgedUids.length} ileti silindi, yerelden ${deleted.changes} satır temizlendi.`);
+  return { purged: purgedUids.length, removedLocal: deleted.changes, folder: targetFolder };
+}
+
+async function findSpecialFolderByFlag(client, flag) {
+  try {
+    const tree = await client.listTree();
+    const walk = (nodes) => {
+      for (const n of nodes || []) {
+        if (n.flags && n.flags.has(flag)) return n.path;
+        if (n.folders) {
+          const sub = walk(n.folders);
+          if (sub) return sub;
+        }
+      }
+      return null;
+    };
+    return walk(tree?.folders || tree) || null;
+  } catch {
+    return null;
+  }
+}
+
+const TRASH_PATTERNS = ['çöp', 'trash', 'deleted', 'bin', 'silinmiş', 'recycl'];
+  const SPAM_PATTERNS = ['spam', 'junk', 'gereksiz', 'istenmeyen', 'önemsiz'];
+
+  ipcMain.handle('mail:empty-trash', async (_evt, email) => {
+    return emptySpecialFolder({
+      email,
+      folder: getTrashFolder(email),
+      patterns: TRASH_PATTERNS,
+      imapFlag: '\\Trash',
+      label: 'Çöp kutusu',
+    });
   });
 
   ipcMain.handle('mail:empty-spam', async (_evt, email) => {
-    const spamFolder = getSpamFolder(email);
-    const acc = getAccountByEmail(email);
-    if (!acc) throw new Error('Hesap bulunamadı.');
-
-    // empty-trash ile aynı sıra: önce sunucu, sonra yerel DB
-    let purgedUids = [];
-    try {
-      const creds = await freshCredentials(acc);
-      purgedUids = await imapLock(email, async () => {
-        return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
-          await client.mailboxOpen(spamFolder, { readOnly: false });
-          const all = await client.search({ all: true }, { uid: true });
-          if (all && all.length > 0) {
-            await client.messageFlagsAdd(all.join(','), ['\\Deleted'], { uid: true });
-            try { await client.messageDelete(all.join(','), { uid: true }); } catch {}
-            try { await client.run('EXPUNGE'); } catch {}
-          }
-          try { await client.mailboxClose(); } catch {}
-          return (all || []).map(String);
-        });
-      });
-    } catch (e) {
-      console.error('[empty-spam] hata:', e);
-      throw new Error(`Gereksiz e-posta sunucuda boşaltılamadı: ${e?.message || e}. Yerel veriler korundu.`);
-    }
-
-    for (const u of purgedUids) {
-      markDeleted(email, spamFolder, u);
-    }
-    getDb().prepare(
-      `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(folder_path)=lower(?) OR lower(folder_path) LIKE '%spam%' OR lower(folder_path) LIKE '%junk%' OR lower(folder_path) LIKE '%gereksiz%')`
-    ).run(email, spamFolder);
-    try {
-      getDb().prepare(
-        `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(folder_path)=lower(?) OR lower(folder_path) LIKE '%spam%' OR lower(folder_path) LIKE '%junk%' OR lower(folder_path) LIKE '%gereksiz%')`
-      ).run(email, spamFolder);
-    } catch {}
-
-    try {
-      getDb().prepare(
-        `UPDATE folders SET unread_count=0 WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(path)=lower(?) OR lower(path) LIKE '%spam%' OR lower(path) LIKE '%junk%' OR lower(path) LIKE '%gereksiz%')`
-      ).run(email, spamFolder);
-    } catch {}
-
-    return true;
+    return emptySpecialFolder({
+      email,
+      folder: getSpamFolder(email),
+      patterns: SPAM_PATTERNS,
+      imapFlag: '\\Junk',
+      label: 'Gereksiz e-posta',
+    });
   });
   // Bağlantı Testi — mevcut kaydedilmiş veya formda düzenlenen hesap kimlik bilgilerini doğrular
   ipcMain.handle('accounts:test-connection', async (_evt, { accountId, ...overrides }) => {

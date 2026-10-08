@@ -105,6 +105,7 @@ export default function App() {
     loadMessages,
     loadMore,
     loadMoreFromServer,
+    setServerTotal,
     sync,
   } = useMessages();
 
@@ -444,6 +445,11 @@ export default function App() {
           updateUnifiedCount();
           refreshUnreadCounts();
         }
+        // Sunucudaki toplamı da besle: "Sunucudaki Daha Eski İletileri Getir"
+        // butonu yalnızca serverTotal > yerel sayı olduğunda görünür.
+        // Önceden bu değer hiç doldurulmadığı için buton hiç render edilmiyor,
+        // kullanıcı elle Eşitle'ye basmadan eski iletilere hiç ulaşamıyordu.
+        if (typeof res?.total === 'number') setServerTotal(res.total);
       } catch (err) {
         if (!cancelled) {
           console.error('[sync error]', err);

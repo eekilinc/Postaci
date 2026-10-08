@@ -13,6 +13,14 @@ function initDb(userDataPath) {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
+  // SQLite'un yerleşik lower()'ı SADECE ASCII'yi küçültür:
+  //   lower('[Gmail]/Çöp kutusu') -> '[gmail]/Çöp kutusu'   (Ç küçülmez)
+  // Dolayısıyla `lower(path) LIKE '%çöp%'` Türkçe klasör adlarında HİÇ eşleşmez.
+  // Çöp/spam/arşiv klasörü çözümlemesi bu yüzden hep yanlış kutuya düşüyordu.
+  // Unicode-duyarlı `ltr()` kaydediyoruz; klasör eşleştirmelerinde `lower()` yerine
+  // bundan sonra `ltr()` kullanılmalı.
+  db.function('ltr', { deterministic: true }, (s) => (s == null ? null : String(s).toLowerCase()));
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

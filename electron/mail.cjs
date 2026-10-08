@@ -524,6 +524,17 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
 
     if (beforeUid) {
       // Sayfalama: "Daha eski iletiler"
+      // `beforeUid` renderer'da listenin EN SON iletisinden geliyor ve liste
+      // `ORDER BY date DESC` ile sıralı — yani beforeUid TARIHSEL olarak en eski
+      // iletidir. Ama IMAP UID'leri VARIŞ SIRASINA göre artar ve monoton
+      // değildir (gecikmeli/eski tarihli iletiler yeni UID alır). Bu uyumsuzluk
+      // "Sunucudaki eski iletileri getir"in bazı hesaplarda hiç işe yaramamasının
+      // nedeniydi: aranan aralık zaten alınmış iletilerle doluydu, hepsi
+      // üzerine yazılıyordu ve kullanıcıya "50 ileti çekildi" deniyordu.
+      //
+      // Düzeltme: (1) UID'leri sayısal sırala ve EN KÜÇÜK olandan başla,
+      // (2) zaten yerelde OLAN UID'leri hedef dışı bırak ki her tıklamada
+      //     gerçek ilerleme olsun.
       const beforeNum = Number(beforeUid);
       if (!Number.isNaN(beforeNum) && beforeNum > 1) {
         try {
@@ -534,7 +545,37 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
             older = await client.search({ uid: `1:${beforeNum - 1}` }, { uid: true });
           }
           if (Array.isArray(older)) {
-            target = older.slice(-limit);
+            const ordered = older
+              .map(Number)
+              .filter((n) => Number.isFinite(n) && n > 0)
+              .sort((a, b) => a - b);
+
+            // Zaten yerelde olan UID'leri ele: aksi halde her tıklama aynı
+            // penceredeki mevcut iletileri tekrar "çekiyor" gibi görünür ama
+            // listeye hiçbir yeni ileti giremez.
+            const alreadyLocal = new Set();
+            try {
+              const ph = ordered.map(() => '?').join(',');
+              if (ordered.length > 0) {
+                const rows = db.prepare(
+                  `SELECT uid FROM messages
+                   WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
+                     AND folder_path=? COLLATE NOCASE AND uid IN (${ph})`
+                ).all(email, folderPath, ...ordered.map(String));
+                for (const r of rows) alreadyLocal.add(String(r.uid));
+              }
+            } catch {}
+
+            const missing = ordered.filter((u) => !alreadyLocal.has(String(u)));
+            if (missing.length === 0) {
+              // Bu pencerede hepsi zaten var; daha eski UID'lere tüm kutuyu
+              // taramadan inmeden ulaşmak IMAP'te mümkün değil. Kullanıcıya
+              // "daha eski ileti yok" bilgisini vereceğiz (synced=0 döner).
+              target = [];
+            } else {
+              // En ESKİLERDEN başla ki her tıklamada ilerleme olsun
+              target = missing.slice(0, limit);
+            }
           }
         } catch (e) {
           throw new Error(`[${folderPath}] eski ileti araması başarısız: ${imapErrDetail(e)}`);

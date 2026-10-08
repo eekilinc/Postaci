@@ -232,16 +232,48 @@ function _accountIdByEmail(db, email) {
   return client(db).select({ id: accounts.id }).from(accounts).where(sql`${accounts.email} = ${email} COLLATE NOCASE`).get();
 }
 
-function markReadDb(db, email, folderPath, uid) {
-  client(db).update(messages).set({ is_read: 1 })
+// ── Okunmamış sayacı (folders.unread_count) bakımı ──────────────────────────
+// folders.unread_count, sunucudan IMAP STATUS ile gelen gerçek değerin ÜZERİNE
+// yerel okundu/okunmadı değişikliklerinin ARTMALI olarak yansıtıldığı bir
+// sayacıdır. Önceden okundu/okunmadı bu alana HİÇ dokunmuyordu -> bir e-postayı
+// okuduğunda rozet ANINDA düşmüyordu. Buna karşılık silme/taşıma handler'ları
+// unread_count'u yerel alt kümenin sayısıyla EZİYORDU (900 okunmamış → 50).
+// Kural: sunucu STATUS değerini yazar (mail.cjs), yerel işlemler delta uygular.
+function adjustFolderUnread(db, email, folderPath, delta) {
+  if (!delta || !folderPath) return;
+  try {
+    db.prepare(
+      `UPDATE folders
+       SET unread_count = MAX(0, COALESCE(unread_count, 0) + ?)
+       WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
+         AND (path = ? COLLATE NOCASE OR ltr(path) = ltr(?))`
+    ).run(delta, email, folderPath, folderPath);
+  } catch (e) {
+    // Sayaç güncellenemezse rozet bir sonraki sunucu senkronunda düzelir
+    console.warn('[unread] klasör sayacı güncellenemedi:', e?.message);
+  }
+}
+
+function setReadState(db, email, folderPath, uid, nextIsRead) {
+  const prev = client(db).select({ is_read: messages.is_read }).from(messages)
+    .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+    .get();
+  const wasRead = prev ? !!prev.is_read : null;
+  client(db).update(messages).set({ is_read: nextIsRead ? 1 : 0 })
     .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
     .run();
+  // Gerçekten durum değiştiyse sayacı güncelle (ayni duruma tekrar yazma etkisiz)
+  if (wasRead !== null && wasRead !== !!nextIsRead) {
+    adjustFolderUnread(db, email, folderPath, nextIsRead ? -1 : 1);
+  }
+}
+
+function markReadDb(db, email, folderPath, uid) {
+  setReadState(db, email, folderPath, uid, true);
 }
 
 function markUnreadDb(db, email, folderPath, uid) {
-  client(db).update(messages).set({ is_read: 0 })
-    .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
-    .run();
+  setReadState(db, email, folderPath, uid, false);
 }
 
 function toggleStarDb(db, email, folderPath, uid) {
@@ -256,14 +288,24 @@ function toggleStarDb(db, email, folderPath, uid) {
 }
 
 function batchMarkReadDb(db, email, folderPath, uids, isRead = 1) {
-  const trans = db.transaction((list) => {
-    for (const uid of list || []) {
-    client(db).update(messages).set({ is_read: isRead ? 1 : 0 })
-      .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
-      .run();
+  const list = uids || [];
+  const trans = db.transaction((arr) => {
+    let delta = 0;
+    for (const uid of arr) {
+      const prev = client(db).select({ is_read: messages.is_read }).from(messages)
+        .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+        .get();
+      const wasRead = prev ? !!prev.is_read : null;
+      client(db).update(messages).set({ is_read: isRead ? 1 : 0 })
+        .where(sql`${messages.account_id}=(SELECT id FROM accounts WHERE email=${email} COLLATE NOCASE) AND ${messages.folder_path}=${folderPath} AND ${messages.uid}=${String(uid)}`)
+        .run();
+      // Yalnızca GERÇEKTEN durum değişen iletiler sayacı etkiler
+      if (wasRead !== null && wasRead !== !!isRead) delta += isRead ? -1 : 1;
     }
+    return delta;
   });
-  trans(uids);
+  const delta = trans(list);
+  if (delta) adjustFolderUnread(db, email, folderPath, delta);
 }
 
 function batchToggleStarDb(db, email, folderPath, uids, starred = 1) {
@@ -444,4 +486,4 @@ function searchContacts(db, query, limit = 8) {
 }
 
 
-module.exports = { settingGet, settingSet, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, getMessageBody, saveMessageBody, listAttachments, saveAttachments, listContacts, upsertContact, deleteContact, searchContacts, listAccounts, getAccountById, getAccountByEmail, addAccount, updateAccount, deleteAccount, updateTokens };
+module.exports = { settingGet, settingSet, markReadDb, markUnreadDb, toggleStarDb, batchMarkReadDb, batchToggleStarDb, adjustFolderUnread, getMessageBody, saveMessageBody, listAttachments, saveAttachments, listContacts, upsertContact, deleteContact, searchContacts, listAccounts, getAccountById, getAccountByEmail, addAccount, updateAccount, deleteAccount, updateTokens };
