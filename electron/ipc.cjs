@@ -8,8 +8,8 @@ const { emailFromIdToken, fetchProfileEmail, syncInbox, syncFolder, fetchBody, f
 const { detectSettings } = require('./providers.cjs');
 const { splitAddresses, buildReply, buildReplyAll, buildForward } = require('./compose.cjs');
 const { enc, dec, freshCredentials, withAuthRetry, _tokenRefreshPromises } = require('./token-auth.cjs');
-const { markDeleted, isDeleted, _lastSyncTime, _imapQueues, _lastImapOpTime, _activeFolderPerAccount, imapLock, SYNC_CONCURRENCY, syncOneInboxWithTimeout, isTimeoutError, runWithConcurrency } = require('./imap-queue.cjs');
-const { notifyNewMessages, showDesktopNotification } = require('./notifications.cjs');
+const { markDeleted, isDeleted, clearDeleted, _lastSyncTime, _imapQueues, _lastImapOpTime, _activeFolderPerAccount, imapLock, SYNC_CONCURRENCY, syncOneInboxWithTimeout, isTimeoutError, runWithConcurrency } = require('./imap-queue.cjs');
+const { notifyNewMessages, showDesktopNotification, flushAllPendingToasts, DEFAULT_NOTIFICATION_SETTINGS } = require('./notifications.cjs');
 const { updateBackgroundSyncSchedule } = require('./background-sync.cjs');
 const { syncStartupSettings } = require('./shell-integration.cjs');
 
@@ -173,9 +173,19 @@ function registerIpc(ctx) {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
     try {
+      const normEmail = (email || '').toLowerCase().trim();
+      // Arka plan turuyla çakışmayı önle: mail:sync-folder ile aynı disiplinde,
+      // iş başlamadan ÖNCE damgala (35 sn sürecek bir elle senkron boyunca
+      // arka plan turu aynı işi ikinci kez koşmasın).
+      _lastSyncTime.set(normEmail, Date.now());
       const res = await withIpcTimeout(
         withAuthRetry(acc, (creds) =>
-          imapLock(email, () => syncInbox({ provider: acc.provider, email: acc.email, db: getDb(), ...creds }))),
+          imapLock(email, () => syncInbox({
+            provider: acc.provider, email: acc.email, db: getDb(), ...creds,
+            // Az önce silinen iletilerin geri gelmesini engelle (mail:sync-folder ile aynı davranış)
+            skipUid: (uid) => isDeleted(email, 'INBOX', String(uid)),
+          }))
+        ),
         35000,
         'Eşitleme',
       );
@@ -190,6 +200,9 @@ function registerIpc(ctx) {
   });
   const _folderSyncMap = new Map(); // email -> timestamp
   const _folderSyncInFlight = new Map(); // email -> Promise
+  // Klasör listesinin IMAP'ten son çekildiği zaman (normEmail -> timestamp)
+  const _folderListFetchedAt = new Map();
+  const FOLDER_LIST_REFRESH_MS = 10 * 60 * 1000; // 10 dakikada bir tazele
 
   // IPC yardımcı: asla sonsuza takılmaması için sınırlı süre (takılan IMAP sözünü boşa düşürür)
   function withIpcTimeout(promise, ms, label) {
@@ -200,31 +213,43 @@ function registerIpc(ctx) {
     return Promise.race([promise, timeout]).finally(() => { if (t) clearTimeout(t); });
   }
 
-  // Klasör önbelleğini tek yerden oku (okunmamış sayılarıyla birlikte)
-  function readFolderCache(email) {
-    const db = getDb();
-    const cached = db.prepare(`
-      SELECT f.name, f.path, f.flags,
-             COALESCE((SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END)
-                       FROM messages m
-                       WHERE m.account_id = f.account_id AND lower(m.folder_path) = lower(f.path)), 0) AS unread_count
-      FROM folders f
-      WHERE f.account_id = (SELECT id FROM accounts WHERE email = ? COLLATE NOCASE)
-    `).all(email);
-    try {
-      const updStmt = db.prepare(
-        `UPDATE folders SET unread_count=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND path=?`
-      );
-      for (const f of cached) {
-        updStmt.run(f.unread_count || 0, email, f.path);
-      }
-    } catch {}
-    return (cached || []).map((f) => {
-      let flags = [];
-      try { if (f.flags) flags = JSON.parse(f.flags); } catch {}
-      return { path: f.path, name: f.name, flags, delimiter: '/', unread_count: f.unread_count || 0 };
-    });
-  }
+  // Klasör önbelleğini tek yerden oku.
+// unread_count kaynağı: DB'deki folders tablosunda SAKLANAN değer.
+// Bu değeri sunucudan IMAP STATUS ile dolduran iki yol var:
+//   - syncFolder (mail.cjs) → aktif klasör her senkronlanınca
+//   - refreshFolderCounts (mail.cjs) → 15 dakikada bir tüm klasörler
+// Daha önce burada HER çağrıda yerel `messages` alt kümesinden yeniden hesaplanıp
+// folders.unread_count EZİLİYORDU. Yerel küme limit (30/50) ile sınırlı olduğu
+// için 900 okunmamışı olan bir klasör 50'ye düşüyor ve refreshFolderCounts'in
+// STATUS verisi kalıcı olarak bozuluyordu. Artık yalnızca okuyoruz.
+function readFolderCache(email) {
+  const db = getDb();
+  const cached = db.prepare(`
+    SELECT f.name, f.path, f.flags,
+           COALESCE(f.unread_count, 0) AS unread_count,
+           COALESCE((SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END)
+                     FROM messages m
+                     WHERE m.account_id = f.account_id AND lower(m.folder_path) = lower(f.path)), 0) AS local_unread
+    FROM folders f
+    WHERE f.account_id = (SELECT id FROM accounts WHERE email = ? COLLATE NOCASE)
+  `).all(email);
+
+  return (cached || []).map((f) => {
+    let flags = [];
+    try { if (f.flags) flags = JSON.parse(f.flags); } catch {}
+    // Sunucudan hiç STATUS gelmemişse (unread_count hiç yazılmamışsa) yerel
+    // hesapla düşüş yap; yazılmışsa sunucu değeri doğrudur.
+    const stored = Number(f.unread_count) || 0;
+    const local = Number(f.local_unread) || 0;
+    return {
+      path: f.path,
+      name: f.name,
+      flags,
+      delimiter: '/',
+      unread_count: stored > 0 ? stored : local,
+    };
+  });
+}
 
   async function fetchFoldersFromImap(acc) {
     const email = acc.email;
@@ -275,13 +300,35 @@ function registerIpc(ctx) {
       }
       try {
         const db = getDb();
+        // Sadece UPSERT yetiyordu: sunucuda silinmiş bir klasör yerel DB'de
+        // kalıcı olarak listelenmeye devam ediyordu (bayat rozetle).
         const upsert = db.prepare(`
           INSERT INTO folders (account_id, name, path, flags, unread_count)
           VALUES ((SELECT id FROM accounts WHERE email=? COLLATE NOCASE), ?, ?, ?, 0)
           ON CONFLICT(account_id, path) DO UPDATE SET name=excluded.name, flags=excluded.flags
         `);
+        const serverPaths = [];
         for (const f of list) {
           upsert.run(email, f.name || f.path, f.path, JSON.stringify(f.flags || []));
+          serverPaths.push(f.path);
+        }
+        // Artık sunucuda olmayan, yerelde mesaj/ek kaydı da bulunmayan
+        // klasörleri temizle (o klasörün verisi varsa dokunma).
+        try {
+          if (serverPaths.length > 0) {
+            const ph = serverPaths.map(() => '?').join(',');
+            db.prepare(
+              `DELETE FROM folders
+               WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
+                 AND path NOT IN (${ph})
+                 AND path NOT IN (
+                   SELECT DISTINCT folder_path FROM messages
+                   WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE)
+                 )`,
+            ).run(email, ...serverPaths, email);
+          }
+        } catch (delErr) {
+          console.warn('[mail:folders] bayat klasör temizliği uyarısı:', delErr?.message);
         }
       } catch (e) {
         console.warn('[mail:folders] DB klasör önbelleği güncelleme uyarısı:', e?.message);
@@ -291,7 +338,9 @@ function registerIpc(ctx) {
 
     _folderSyncInFlight.set(email, task);
     try {
-      return await withIpcTimeout(task, 25000, 'Klasör listesi');
+      const res = await withIpcTimeout(task, 25000, 'Klasör listesi');
+      _folderListFetchedAt.set((email || '').toLowerCase().trim(), Date.now());
+      return res;
     } finally {
       _folderSyncInFlight.delete(email);
     }
@@ -301,14 +350,21 @@ function registerIpc(ctx) {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
 
-    // 1. Sağlıklı önbellek varsa ANINDA (0 ms) dön
+    // 1. Önbellek yeterince tazeyse ANINDA (0 ms) dön.
+    //    `length > 2` eşiği çok gevşekti: 3 klasör kaydedildikten sonra IMAP'e
+    //    bir daha hiç gidilmiyordu, böylece web'de oluşturulan yeni klasörler
+    //    hiç görünmüyor, sunucuda silinenler kalıcı listeleniyordu.
+    //    Artık hem yeterli sayıda klasör olmalı hem de SINIRLI BİR SÜRE boyunca
+    //    tazelenmemiş olmalı (periyodik arka plan tazelemesi).
     try {
       const cached = readFolderCache(email);
-      if (cached.length > 2) return cached;
+      if (cached.length >= 3) {
+        const stale = Date.now() - (_folderListFetchedAt.get((email || '').toLowerCase().trim()) || 0);
+        if (stale < FOLDER_LIST_REFRESH_MS) return cached;
+      }
     } catch {}
 
-    // 2. Önbellek boş veya şüpheli derecede eksikse (örn. yalnızca INBOX):
-    // IMAP'ten taze listeyi çekip DB'ye yaz, tazesini dön. Hata olursa eldekiyle devam et.
+    // 2. Önbellek boş, eksik veya bayat: IMAP'ten taze listeyi çekip DB'ye yaz
     try {
       await fetchFoldersFromImap(acc);
       const fresh = readFolderCache(email);
@@ -644,28 +700,17 @@ function registerIpc(ctx) {
     } catch {}
 
     try {
-      // 1. Mesajı kaynak klasörden ANINDA sil (0ms tepki)
-      // UYARI: Çöp kutusuna eski INBOX UID'si ile geçici kayıt eklemiyoruz!
-      // Bu geçersiz UID çöpten silinmeye çalışıldığında bulunamaz ve hortlamaya yol açar.
-      getDb().prepare(
-        `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
-      ).run(email, folderPath, String(uid));
-      try {
-        getDb().prepare(
-          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`
-        ).run(email, folderPath, String(uid));
-      } catch {}
-    } catch (dbErr) {
-      console.warn('[mail:delete] DB güncelleme uyarısı:', dbErr?.message);
-    }
-
-    // 2. Ardından sunucu tarafı IMAP işlemini yürüt
-    try {
+      // 1. ÖNCE sunucu tarafı IMAP işlemini yürüt.
+      // Sıralama kritik: yerel kayıt IMAP başarısı olmadan silinirse, deletedUidCache
+      // TTL'i (5 dk) dolduğunda ileti bir sonraki senkronda geri yüklenir ve kullanıcı
+      // "sildim, geri geldi" diye raporlar. Başarısızlıkta renderer'a fırlatıp
+      // iyimser (optimistic) silmeyi geri aldırıyoruz.
       let moveDestFolder = null;
+      let res = null;
       const acc = getAccountByEmail(email);
       if (acc) {
         const creds = await freshCredentials(acc);
-        const res = await imapLock(email, () =>
+        res = await imapLock(email, () =>
           moveToTrash({
             provider: acc.provider,
             email: acc.email,
@@ -676,9 +721,29 @@ function registerIpc(ctx) {
             ...creds,
           })
         );
-        console.log('[mail:delete] moveToTrash result:', res);
-        if (!res) return false;
+        if (!res) {
+          // markDeleted'ı geri al: aksi halde 5 dk boyunca bu UID senkronlanmayacak
+          clearDeleted(email, folderPath, String(uid));
+          throw new Error('E-posta sunucudan silinemedi. Bağlantınızı kontrol edip tekrar deneyin.');
+        }
+        console.log('[mail:delete] moveToTrash başarılı:', res.success ? 'ok' : res);
+      }
 
+      // 2. IMAP başarılı: yerel kaydı sil.
+      // UYARI: Çöp kutusuna eski INBOX UID'si ile geçici kayıt eklemiyoruz!
+      // Bu geçersiz UID çöpten silinmeye çalışıldığında bulunamaz ve hortlamaya yol açar.
+      getDb().prepare(
+        `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
+      ).run(email, folderPath, String(uid));
+      try {
+        getDb().prepare(
+          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`
+        ).run(email, folderPath, String(uid));
+      } catch (attErr) {
+        console.warn('[mail:delete] ek temizleme uyarısı:', attErr?.message);
+      }
+
+      if (res) {
         if (isTrash) {
           // Çöp kutusunda expunge edilen gerçek UID varsa (eski UID'den farklıysa) onu da önbelleğe al ve DB'den temizle
           if (res.realUid && res.realUid !== String(uid)) {
@@ -759,8 +824,12 @@ function registerIpc(ctx) {
 
       return true;
     } catch (e) {
+      // Renderer iyimser (optimistic) silmeyi geri alsın diye FIRLAT.
+      // `return false` sessiz kalıyordu: UI iletiyi gizliyor, DB'de de silinmişti,
+      // 5 dk sonra deletedUidCache TTL'i dolunca ileti listede geri beliriyordu.
       console.error('[mail:delete] error:', e);
-      return false;
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(msg || 'E-posta silinemedi.');
     }
   });
 
@@ -774,7 +843,7 @@ function registerIpc(ctx) {
     const localDraftUids = uids.filter((u) => String(u).startsWith('draft-') || String(u).startsWith('local-'));
     const serverUids = uids.filter((u) => !String(u).startsWith('draft-') && !String(u).startsWith('local-'));
 
-    // Yerel taslakları doğrudan veritabanından sil
+    // Yerel taslakları doğrudan veritabanından sil (sunucuda karşılıkları yok)
     if (localDraftUids.length > 0) {
       try {
         const db = getDb();
@@ -789,49 +858,60 @@ function registerIpc(ctx) {
       }
     }
 
-    // 1. Sunucu mesajlarının yerel DB durumunu anında güncelle (0ms tepki)
-    let localMsgs = [];
-    let localAtts = [];
-    let moveDestFolder = null;
+    // Sunucu mesajları için: ÖNCE IMAP, SONRA yerel DB.
+    // Ters sırada IMAP hatasında yerel kayıtlar silinmiş kalıyor ve
+    // deletedUidCache TTL'i (5 dk) dolunca iletiler toplu halde geri yükleniyordu.
     if (serverUids.length > 0) {
-      try {
-        const db = getDb();
-        if (!isTrash) {
-          const placeholders = serverUids.map(() => '?').join(',');
-          localMsgs = db.prepare(
-            `SELECT * FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid IN (${placeholders})`
-          ).all(email, folderPath, ...serverUids.map(String));
-          localAtts = db.prepare(
-            `SELECT * FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid IN (${placeholders})`
-          ).all(email, folderPath, ...serverUids.map(String));
-        }
-
-        const stmt = db.prepare(
-          `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
-        );
-        const attStmt = db.prepare(
-          `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`
-        );
-        db.transaction((list) => {
-          for (const uid of list) {
-            stmt.run(email, folderPath, String(uid));
-            try { attStmt.run(email, folderPath, String(uid)); } catch {}
-          }
-        })(serverUids);
-      } catch (dbErr) {
-        console.warn('[mail:batch-delete] DB uyarısı:', dbErr?.message);
-      }
-    }
-
-    // 2. IMAP üzerinde toplu taşı veya expunge et (yalnızca sunucu mesajları için)
-    if (serverUids.length > 0) {
+      let localMsgs = [];
+      let localAtts = [];
+      let moveDestFolder = null;
       try {
         const acc = getAccountByEmail(email);
         if (acc) {
+          // Taşıma için gereken yerel metadata'yı SİLME ÖNCESİ oku
+          if (!isTrash && serverUids.length > 0) {
+            try {
+              const db = getDb();
+              const placeholders = serverUids.map(() => '?').join(',');
+              localMsgs = db.prepare(
+                `SELECT * FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid IN (${placeholders})`
+              ).all(email, folderPath, ...serverUids.map(String));
+              localAtts = db.prepare(
+                `SELECT * FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid IN (${placeholders})`
+              ).all(email, folderPath, ...serverUids.map(String));
+            } catch (readErr) {
+              console.warn('[mail:batch-delete] yerel meta okuma uyarısı:', readErr?.message);
+            }
+          }
+
           const creds = await freshCredentials(acc);
           const res = await imapLock(email, () =>
             batchMoveToTrash({ provider: acc.provider, email: acc.email, folderPath, uids: serverUids, ...creds })
           );
+          if (res && res.success === false) {
+            for (const uid of serverUids) clearDeleted(email, folderPath, String(uid));
+            throw new Error(res.error || 'E-postalar sunucudan silinemedi.');
+          }
+
+          // 1. IMAP başarılı: yerel kayıtları sil
+          try {
+            const db = getDb();
+            const stmt = db.prepare(
+              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
+            );
+            const attStmt = db.prepare(
+              `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`
+            );
+            db.transaction((list) => {
+              for (const uid of list) {
+                stmt.run(email, folderPath, String(uid));
+                try { attStmt.run(email, folderPath, String(uid)); } catch {}
+              }
+            })(serverUids);
+          } catch (dbErr) {
+            console.warn('[mail:batch-delete] DB uyarısı:', dbErr?.message);
+          }
+
           if (!isTrash && res?.dest && res?.uidMap && localMsgs.length > 0) {
             moveDestFolder = res.dest;
             const finalDest = res.dest;
@@ -903,8 +983,10 @@ function registerIpc(ctx) {
 
         return true;
       } catch (e) {
+        // Renderer'ın iyimser toplu silmesini geri aldırmak için fırlat
         console.error('[mail:batch-delete] error:', e);
-        return false;
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(msg || 'E-postalar silinemedi.');
       }
     }
 
@@ -916,16 +998,21 @@ function registerIpc(ctx) {
     if (fromFolder.toLowerCase() === toFolder.toLowerCase()) return true;
 
     markDeleted(email, fromFolder, String(uid));
-    try {
-      getDb().prepare(
-        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-      ).run(toFolder, email, fromFolder, String(uid));
-    } catch (e) {
-      console.warn('[mail:move-to-folder] DB uyarısı:', e?.message);
+
+    // Taslak/yerel iletiler sunucuda yok; doğrudan taşı
+    if (String(uid).startsWith('draft-') || String(uid).startsWith('local-')) {
+      try {
+        getDb().prepare(
+          `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+        ).run(toFolder, email, fromFolder, String(uid));
+      } catch (e) {
+        console.warn('[mail:move-to-folder] DB uyarısı:', e?.message);
+      }
+      return true;
     }
 
-    if (String(uid).startsWith('draft-') || String(uid).startsWith('local-')) return true;
-
+    // ÖNCE sunucuda taşı, sonra yerel kaydı güncelle. Sunucu başarısız olursa
+    // markDeleted geri alınır ve renderer'a fırlatılır (iyimser taşıma geri alınır).
     try {
       const acc = getAccountByEmail(email);
       if (acc) {
@@ -933,42 +1020,40 @@ function registerIpc(ctx) {
         const res = await imapLock(email, () =>
           moveToFolder({ provider: acc.provider, email: acc.email, fromFolder, toFolder, uid: String(uid), ...creds })
         );
-        if (res && res.destUid) {
-          const finalUid = String(res.destUid);
-          try {
-            const db = getDb();
-            const existing = db.prepare(
-              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-            ).get(email, toFolder, finalUid);
-            if (existing) {
-              db.prepare(
-                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-              ).run(email, toFolder, String(uid));
-            } else {
-              db.prepare(
-                `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-              ).run(toFolder, finalUid, email, toFolder, String(uid));
-            }
-            try {
-              db.prepare(
-                `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
-              ).run(toFolder, finalUid, email, fromFolder, String(uid));
-            } catch {}
-          } catch (mErr) {
-            console.warn('[mail:move-to-folder] UID güncelleme hatası:', mErr?.message);
+        if (!res) {
+          clearDeleted(email, fromFolder, String(uid));
+          throw new Error('E-posta sunucuda taşınamadı. Bağlantınızı kontrol edip tekrar deneyin.');
+        }
+
+        try {
+          const db = getDb();
+          const finalUid = res.destUid ? String(res.destUid) : String(uid);
+          const existing = db.prepare(
+            `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+          ).get(email, toFolder, finalUid);
+          if (existing) {
+            db.prepare(
+              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
+            ).run(email, fromFolder, String(uid));
+          } else {
+            db.prepare(
+              `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+            ).run(toFolder, finalUid, email, fromFolder, String(uid));
           }
-        } else if (res && !res.destUid) {
           try {
-            getDb().prepare(
-              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-            ).run(email, toFolder, String(uid));
+            db.prepare(
+              `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
+            ).run(toFolder, finalUid, email, fromFolder, String(uid));
           } catch {}
+        } catch (mErr) {
+          console.warn('[mail:move-to-folder] UID güncelleme hatası:', mErr?.message);
         }
       }
       return true;
     } catch (e) {
       console.error('[mail:move-to-folder] error:', e);
-      return false;
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(msg || 'E-posta taşınamadı.');
     }
   });
 
@@ -980,19 +1065,23 @@ function registerIpc(ctx) {
       markDeleted(email, fromFolder, String(uid));
     }
 
-    try {
-      const db = getDb();
-      const stmt = db.prepare(
-        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-      );
-      db.transaction((list) => {
-        for (const uid of list) stmt.run(toFolder, email, fromFolder, String(uid));
-      })(uids);
-    } catch (e) {
-      console.warn('[mail:batch-move-to-folder] DB uyarısı:', e?.message);
-    }
-
     const serverUids = uids.filter((u) => !String(u).startsWith('draft-') && !String(u).startsWith('local-'));
+    const localUids = uids.filter((u) => String(u).startsWith('draft-') || String(u).startsWith('local-'));
+
+    // Taslak/yerel iletiler sunucuda yok: doğrudan taşı
+    if (localUids.length > 0) {
+      try {
+        const db = getDb();
+        const stmt = db.prepare(
+          `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+        );
+        db.transaction((list) => {
+          for (const uid of list) stmt.run(toFolder, email, fromFolder, String(uid));
+        })(localUids);
+      } catch (e) {
+        console.warn('[mail:batch-move-to-folder] DB uyarısı:', e?.message);
+      }
+    }
     if (serverUids.length === 0) return true;
 
     try {
@@ -1002,8 +1091,13 @@ function registerIpc(ctx) {
         const res = await imapLock(email, () =>
           batchMoveToFolder({ provider: acc.provider, email: acc.email, fromFolder, toFolder, uids: serverUids, ...creds })
         );
-        if (res && res.uidMap) {
-          const uidMap = res.uidMap;
+        if (!res || res.success === false) {
+          for (const uid of serverUids) clearDeleted(email, fromFolder, String(uid));
+          throw new Error(res?.error || 'E-postalar sunucuda taşınamadı.');
+        }
+
+        const uidMap = res.uidMap || {};
+        {
           try {
             const db = getDb();
             const updateStmt = db.prepare(
@@ -1045,7 +1139,8 @@ function registerIpc(ctx) {
       return true;
     } catch (e) {
       console.error('[mail:batch-move-to-folder] error:', e);
-      return false;
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(msg || 'E-postalar taşınamadı.');
     }
   });
 
@@ -1055,16 +1150,19 @@ function registerIpc(ctx) {
     if (folderPath.toLowerCase() === targetArchive.toLowerCase()) return true;
 
     markDeleted(email, folderPath, String(uid));
-    try {
-      getDb().prepare(
-        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-      ).run(targetArchive, email, folderPath, String(uid));
-    } catch (e) {
-      console.warn('[mail:archive] DB uyarısı:', e?.message);
+
+    if (String(uid).startsWith('draft-') || String(uid).startsWith('local-')) {
+      try {
+        getDb().prepare(
+          `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+        ).run(targetArchive, email, folderPath, String(uid));
+      } catch (e) {
+        console.warn('[mail:archive] DB uyarısı:', e?.message);
+      }
+      return true;
     }
 
-    if (String(uid).startsWith('draft-') || String(uid).startsWith('local-')) return true;
-
+    // Sunucuda taşı başarısız olursa yerel kayıt taşınmış sayılmasın
     try {
       const acc = getAccountByEmail(email);
       if (acc) {
@@ -1072,42 +1170,30 @@ function registerIpc(ctx) {
         const res = await imapLock(email, () =>
           moveToFolder({ provider: acc.provider, email: acc.email, fromFolder: folderPath, toFolder: targetArchive, uid: String(uid), ...creds })
         );
-        if (res && res.destUid) {
-          const finalUid = String(res.destUid);
+        if (!res) {
+          clearDeleted(email, folderPath, String(uid));
+          throw new Error('E-posta sunucuda arşivlenemedi. Bağlantınızı kontrol edip tekrar deneyin.');
+        }
+        try {
+          const db = getDb();
+          const finalUid = res.destUid ? String(res.destUid) : String(uid);
+          db.prepare(
+            `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`
+          ).run(targetArchive, finalUid, email, folderPath, String(uid));
           try {
-            const db = getDb();
-            const existing = db.prepare(
-              `SELECT id FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-            ).get(email, targetArchive, finalUid);
-            if (existing) {
-              db.prepare(
-                `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-              ).run(email, targetArchive, String(uid));
-            } else {
-              db.prepare(
-                `UPDATE messages SET folder_path=?, uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-              ).run(targetArchive, finalUid, email, targetArchive, String(uid));
-            }
-            try {
-              db.prepare(
-                `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
-              ).run(targetArchive, finalUid, email, folderPath, String(uid));
-            } catch {}
-          } catch (aErr) {
-            console.warn('[mail:archive] UID güncelleme hatası:', aErr?.message);
-          }
-        } else if (res && !res.destUid) {
-          try {
-            getDb().prepare(
-              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-            ).run(email, targetArchive, String(uid));
+            db.prepare(
+              `UPDATE attachments SET folder_path=?, msg_uid=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND msg_uid=?`
+            ).run(targetArchive, finalUid, email, folderPath, String(uid));
           } catch {}
+        } catch (aErr) {
+          console.warn('[mail:archive] UID güncelleme hatası:', aErr?.message);
         }
       }
       return true;
     } catch (e) {
       console.error('[mail:archive] error:', e);
-      return false;
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(msg || 'E-posta arşivlenemedi.');
     }
   });
 
@@ -1120,19 +1206,21 @@ function registerIpc(ctx) {
       markDeleted(email, folderPath, String(uid));
     }
 
-    try {
-      const db = getDb();
-      const stmt = db.prepare(
-        `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
-      );
-      db.transaction((list) => {
-        for (const uid of list) stmt.run(targetArchive, email, folderPath, String(uid));
-      })(uids);
-    } catch (e) {
-      console.warn('[mail:batch-archive] DB uyarısı:', e?.message);
-    }
-
     const serverUids = uids.filter((u) => !String(u).startsWith('draft-') && !String(u).startsWith('local-'));
+    const localUids = uids.filter((u) => String(u).startsWith('draft-') || String(u).startsWith('local-'));
+    if (localUids.length > 0) {
+      try {
+        const db = getDb();
+        const stmt = db.prepare(
+          `UPDATE messages SET folder_path=? WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? AND uid=?`
+        );
+        db.transaction((list) => {
+          for (const uid of list) stmt.run(targetArchive, email, folderPath, String(uid));
+        })(localUids);
+      } catch (e) {
+        console.warn('[mail:batch-archive] DB uyarısı:', e?.message);
+      }
+    }
     if (serverUids.length === 0) return true;
 
     try {
@@ -1142,8 +1230,12 @@ function registerIpc(ctx) {
         const res = await imapLock(email, () =>
           batchMoveToFolder({ provider: acc.provider, email: acc.email, fromFolder: folderPath, toFolder: targetArchive, uids: serverUids, ...creds })
         );
-        if (res && res.uidMap) {
-          const uidMap = res.uidMap;
+        if (!res || res.success === false) {
+          for (const uid of serverUids) clearDeleted(email, folderPath, String(uid));
+          throw new Error(res?.error || 'E-postalar sunucuda arşivlenemedi.');
+        }
+
+        const uidMap = res.uidMap || {};
           try {
             const db = getDb();
             const updateStmt = db.prepare(
@@ -1180,12 +1272,12 @@ function registerIpc(ctx) {
           } catch (baErr) {
             console.warn('[mail:batch-archive] UID güncelleme hatası:', baErr?.message);
           }
-        }
       }
       return true;
     } catch (e) {
       console.error('[mail:batch-archive] error:', e);
-      return false;
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(msg || 'E-postalar arşivlenemedi.');
     }
   });
 
@@ -1412,7 +1504,36 @@ function registerIpc(ctx) {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
 
-    // 1. Yerel DB'deki ilgili hesaba ve çöp klasörüne ait mesajları ve ekleri temizle
+    // SIRA ÖNEMLİ: Önce IMAP sunucusundaki mesajları kalıcı expunge et, SONRA yerel DB'yi temizle.
+    // Ters sırada (eski davranış) IMAP başarısız olsa bile yerel tüm çöp kayıtları
+    // siliniyordu; kullanıcı boşalttığını sanıp kritik iletileri kaybediyor, sonraki
+    // senkron da iletileri "ilk sync" yolundan geri yüklüyordu.
+    let purgedUids = [];
+    try {
+      const creds = await freshCredentials(acc);
+      purgedUids = await imapLock(email, async () => {
+        return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
+          await client.mailboxOpen(trashFolder, { readOnly: false });
+          const all = await client.search({ all: true }, { uid: true });
+          if (all && all.length > 0) {
+            await client.messageFlagsAdd(all.join(','), ['\\Deleted'], { uid: true });
+            try { await client.messageDelete(all.join(','), { uid: true }); } catch {}
+            try { await client.run('EXPUNGE'); } catch {}
+          }
+          try { await client.mailboxClose(); } catch {}
+          return (all || []).map(String);
+        });
+      });
+    } catch (e) {
+      // Sunucu tarafı başarısız: yerel veriye DOKUNMA, hatayı kullanıcıya bildir
+      console.error('[empty-trash] hata:', e);
+      throw new Error(`Çöp kutusu sunucuda boşaltılamadı: ${e?.message || e}. Yerel veriler korundu.`);
+    }
+
+    // IMAP başarılı: expunge edilen UID'leri önbelleğe al ve yerel DB'yi temizle
+    for (const u of purgedUids) {
+      markDeleted(email, trashFolder, u);
+    }
     getDb().prepare(
       `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(folder_path)=lower(?) OR lower(folder_path) LIKE '%çöp%' OR lower(folder_path) LIKE '%trash%' OR lower(folder_path) LIKE '%deleted%')`
     ).run(email, trashFolder);
@@ -1428,29 +1549,7 @@ function registerIpc(ctx) {
       ).run(email, trashFolder);
     } catch {}
 
-    // 2. IMAP sunucusundaki mesajları kalıcı expunge et
-    try {
-      const creds = await freshCredentials(acc);
-      await imapLock(email, async () => {
-        return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
-          await client.mailboxOpen(trashFolder, { readOnly: false });
-          const all = await client.search({ all: true }, { uid: true });
-          if (all && all.length > 0) {
-            for (const u of all) {
-              markDeleted(email, trashFolder, String(u));
-            }
-            await client.messageFlagsAdd(all.join(','), ['\\Deleted'], { uid: true });
-            try { await client.messageDelete(all.join(','), { uid: true }); } catch {}
-            try { await client.run('EXPUNGE'); } catch {}
-          }
-          try { await client.mailboxClose(); } catch {}
-        });
-      });
-      return true;
-    } catch (e) {
-      console.error('[empty-trash] hata:', e);
-      return false;
-    }
+    return true;
   });
 
   ipcMain.handle('mail:empty-spam', async (_evt, email) => {
@@ -1458,7 +1557,31 @@ function registerIpc(ctx) {
     const acc = getAccountByEmail(email);
     if (!acc) throw new Error('Hesap bulunamadı.');
 
-    // 1. Yerel DB'deki ilgili hesaba ve spam klasörüne ait mesajları ve ekleri temizle
+    // empty-trash ile aynı sıra: önce sunucu, sonra yerel DB
+    let purgedUids = [];
+    try {
+      const creds = await freshCredentials(acc);
+      purgedUids = await imapLock(email, async () => {
+        return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
+          await client.mailboxOpen(spamFolder, { readOnly: false });
+          const all = await client.search({ all: true }, { uid: true });
+          if (all && all.length > 0) {
+            await client.messageFlagsAdd(all.join(','), ['\\Deleted'], { uid: true });
+            try { await client.messageDelete(all.join(','), { uid: true }); } catch {}
+            try { await client.run('EXPUNGE'); } catch {}
+          }
+          try { await client.mailboxClose(); } catch {}
+          return (all || []).map(String);
+        });
+      });
+    } catch (e) {
+      console.error('[empty-spam] hata:', e);
+      throw new Error(`Gereksiz e-posta sunucuda boşaltılamadı: ${e?.message || e}. Yerel veriler korundu.`);
+    }
+
+    for (const u of purgedUids) {
+      markDeleted(email, spamFolder, u);
+    }
     getDb().prepare(
       `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND (lower(folder_path)=lower(?) OR lower(folder_path) LIKE '%spam%' OR lower(folder_path) LIKE '%junk%' OR lower(folder_path) LIKE '%gereksiz%')`
     ).run(email, spamFolder);
@@ -1474,29 +1597,7 @@ function registerIpc(ctx) {
       ).run(email, spamFolder);
     } catch {}
 
-    // 2. IMAP sunucusundaki mesajları kalıcı expunge et
-    try {
-      const creds = await freshCredentials(acc);
-      await imapLock(email, async () => {
-        return withClient({ provider: acc.provider, email: acc.email, ...creds }, async (client) => {
-          await client.mailboxOpen(spamFolder, { readOnly: false });
-          const all = await client.search({ all: true }, { uid: true });
-          if (all && all.length > 0) {
-            for (const u of all) {
-              markDeleted(email, spamFolder, String(u));
-            }
-            await client.messageFlagsAdd(all.join(','), ['\\Deleted'], { uid: true });
-            try { await client.messageDelete(all.join(','), { uid: true }); } catch {}
-            try { await client.run('EXPUNGE'); } catch {}
-          }
-          try { await client.mailboxClose(); } catch {}
-        });
-      });
-      return true;
-    } catch (e) {
-      console.error('[empty-spam] hata:', e);
-      return false;
-    }
+    return true;
   });
   // Bağlantı Testi — mevcut kaydedilmiş veya formda düzenlenen hesap kimlik bilgilerini doğrular
   ipcMain.handle('accounts:test-connection', async (_evt, { accountId, ...overrides }) => {
@@ -1668,25 +1769,13 @@ function registerIpc(ctx) {
     });
   });
   ipcMain.handle('notifications:get-settings', () => {
-    return getSetting('notification_settings', {
-      notificationsEnabled: true,
-      syncIntervalMinutes: 2,
-      soundEnabled: true,
-      quietHoursEnabled: false,
-      quietHoursStart: '22:00',
-      quietHoursEnd: '08:00',
-    });
+    // Varsayılanlar notifications.cjs'teki TEK kaynaktan gelir ve getSetting
+    // kayıtlı ayarla birleştirir (eksik anahtar kalmaz).
+    return getSetting('notification_settings', DEFAULT_NOTIFICATION_SETTINGS);
   });
   ipcMain.handle('notifications:save-settings', (_evt, newSettings) => {
-    const current = getSetting('notification_settings', {
-      notificationsEnabled: true,
-      syncIntervalMinutes: 2,
-      soundEnabled: true,
-      quietHoursEnabled: false,
-      quietHoursStart: '22:00',
-      quietHoursEnd: '08:00',
-    });
-    const updated = { ...current, ...newSettings };
+    const current = getSetting('notification_settings', DEFAULT_NOTIFICATION_SETTINGS);
+    const updated = { ...current, ...(newSettings || {}) };
     setSetting('notification_settings', updated);
     updateBackgroundSyncSchedule();
     return updated;
@@ -1694,14 +1783,15 @@ function registerIpc(ctx) {
   ipcMain.handle('notifications:test', () => {
     const accs = listAccounts();
     const targetEmail = accs.length > 0 ? accs[0].email : '';
+    // Test bildirimi birleştirme penceresini beklemesin: göster ve hemen boşalt
     showDesktopNotification({
       title: '📧 Postacı — Test Bildirimi',
       body: 'Windows masaüstü bildirimleri aktif! Tıklayarak gelen kutunuza gidebilirsiniz.',
       email: targetEmail,
       folderPath: 'INBOX',
-      uid: '',
-      silent: false,
+      uid: 'test-' + Date.now(),
     });
+    flushAllPendingToasts();
     if (getMainWindow() && !getMainWindow().isDestroyed()) {
       try { getMainWindow().flashFrame(true); } catch {}
       getMainWindow().webContents.send('notify:new-mail', {
@@ -1709,6 +1799,8 @@ function registerIpc(ctx) {
         folderPath: 'INBOX',
         count: 1,
         messages: [{ uid: 'test', subject: 'Postacı test bildirimi başarıyla alındı!', from: 'Postacı Ekibi' }],
+        quiet: false,
+        muted: false,
       });
     }
     return true;

@@ -10,6 +10,13 @@ const IMAP = {
   yahoo: { host: 'imap.mail.yahoo.com', port: 993 },
 };
 
+// Tek bir sync turunda en fazla çekilecek yeni ileti sayısı.
+// limit (30/50) tek pencere; limit'i aşan yeni iletilerin TAMAMINI aynı turda
+// almak, Gmail/Exchange'in FETCH yükünü patlatabileceği için tavan konulur.
+// Tavan sonrası kalanlar sonraki turlarda alınır (lastSeenUid ilerlediği için
+// hiçbir ileti kalıcı olarak atlanmaz).
+const MAX_NEW_PER_SYNC = 150;
+
 const TOKEN_URL = {
   google: 'https://oauth2.googleapis.com/token',
   microsoft: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
@@ -141,8 +148,17 @@ function closeClient(client) {
   }
 }
 
+// Havuz anahtarı her yerde AYNI normalize edilmelidir.
+// getOrCreateClient `.trim()` kullanıyordu, invalidate/release kullanmıyordu:
+// boşluklu kaydedilmiş bir e-postada idleTimer hiç kurulmuyor (süresiz bağlantı
+// sızıntısı) ve ölü istemci havuzdan atılamıyordu — o hesap uygulama yeniden
+// başlatılana kadar hiç eşitlenmiyordu.
+function clientKey(email) {
+  return (email || '').toLowerCase().trim();
+}
+
 function invalidateClient(email) {
-  const key = (email || '').toLowerCase();
+  const key = clientKey(email);
   const entry = _activeClients.get(key);
   if (entry) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
@@ -152,7 +168,7 @@ function invalidateClient(email) {
 }
 
 function releaseClient(email) {
-  const key = (email || '').toLowerCase();
+  const key = clientKey(email);
   const entry = _activeClients.get(key);
   if (!entry) return;
 
@@ -170,7 +186,7 @@ function releaseClient(email) {
 
 async function getOrCreateClient(creds) {
   const { provider, email, accessToken, password, imapHost, imapPort } = creds;
-  const key = (email || '').toLowerCase().trim();
+  const key = clientKey(email);
   const credHash = `${provider}:${accessToken || ''}:${password || ''}:${imapHost || ''}:${imapPort || ''}`;
 
   const existing = _activeClients.get(key);
@@ -180,19 +196,28 @@ async function getOrCreateClient(creds) {
       existing.idleTimer = null;
     }
     // Eğer şu an bir bağlantı kurulma aşamasındaysa, ikinci bir bağlantı açmak yerine
-    // bu bağlantının tamamlanmasını bekle (Microsoft eşzamanlı bağlantı kilidini önler)
+    // bu bağlantının tamamlanmasını bekle (Microsoft eşzamanlı bağlantı kilidini önler).
+    // DİKKAT: credHash karşılaştırması connectingPromise dalında ATLANIYORDU —
+    // yenilenmiş token'ı bekleyen çağıran, eski (iptal edilmiş) token'la açılmış
+    // bağlantıyı alabiliyordu. Artık kimlik değiştiyse o bağlantı kullanılmaz.
     if (existing.connectingPromise) {
-      const client = await existing.connectingPromise;
-      if (client && client.usable) {
-        return { client, isReused: true };
+      if (existing.credHash !== credHash) {
+        // Kimlik bilgileri değişmiş: eski kurulumu iptal et, temiz bağlantı aç
+        _activeClients.delete(key);
+        closeClient(null);
+      } else {
+        const client = await existing.connectingPromise;
+        if (client && client.usable) {
+          return { client, isReused: true };
+        }
       }
-    }
-    // Bağlantı kullanılabilir durumdaysa ve kimlik bilgileri değişmemişse tekrar kullan
-    if (existing.client && existing.client.usable && existing.credHash === credHash) {
+    } else if (existing.client && existing.client.usable && existing.credHash === credHash) {
+      // Bağlantı kullanılabilir durumdaysa ve kimlik bilgileri değişmemişse tekrar kullan
       return { client: existing.client, isReused: true };
+    } else {
+      _activeClients.delete(key);
+      closeClient(existing.client);
     }
-    _activeClients.delete(key);
-    closeClient(existing.client);
   }
 
   // Yeni bağlantı aç — eşzamanlı çağrıları tek bir bağlantıda birleştir
@@ -486,6 +511,17 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     let target = [];       // tam çekilecek UID'ler (envelope+flags+bodyStructure)
     let flagOnlyUids = []; // yalnızca bayrağı tazelenecek bilinen UID'ler (ucuz FLAGS)
 
+    // Sayaçlar HER ŞEKDİLDE ilk sync bloğundan ÖNCE tanımlanmalı.
+    // `let` TDZ (temporal dead zone) nedeniyle aşağıdaki ilk-sync dalında
+    // `synced++` yazmak ReferenceError fırlatıyor, catch bloğu onu yutup
+    // UID arama yoluna düşüyor ve kutudaki TÜM iletiler "yeni" sayılıp
+    // kullanıcıya "30 yeni e-posta" bildirimi patlatıyordu.
+    let synced = 0;
+    let failed = 0;
+    let firstError = null;
+    let flagsTouched = 0;
+    const newMessages = [];
+
     if (beforeUid) {
       // Sayfalama: "Daha eski iletiler"
       const beforeNum = Number(beforeUid);
@@ -514,7 +550,34 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
         try {
           const fresh = await client.search({ uid: `${lastSeenUid + 1}:*` }, { uid: true });
           if (Array.isArray(fresh) && fresh.length > 0) {
-            target = fresh.slice(-limit);
+            // DİKKAT: eski davranış `fresh.slice(-limit)` idi ve KALICI VERİ KAYBI
+            // yaratıyordu. lastSeenUid bir sonraki turda yerel MAX(uid)'den geldiği
+            // için, limit'i aşan yeni iletilerin ORTA kısmı bir daha asla istenmiyordu
+            // (serverMaxUid <= lastSeenUid olur, arama boş dönerdi). Örn. 80 yeni
+            // ileti varken sadece son 30'u çekilir, 50'si kalıcı olarak kaybolur;
+            // bildirim ve rozet için de bir daha gelmezler.
+            //
+            // Doğrusu: (1) kullanıcı en yeni iletileri ANINDA görsün diye en yenileri
+            // önce çek, (2) kalan boşluğu AYNI turda ek pencerelerle tüket.
+            // Böylece küçük partiler anında, büyük partiler de eksiksiz işlenir.
+            const ordered = fresh
+              .map(Number)
+              .filter((n) => Number.isFinite(n))
+              .sort((a, b) => a - b);
+            const newestWindow = ordered.slice(-limit);
+            target = newestWindow;
+
+            let cursor = ordered.length - newestWindow.length; // tüketilmemiş ilk indeks
+            let guard = 0;
+            while (cursor > 0 && target.length < MAX_NEW_PER_SYNC && guard < 5) {
+              guard++;
+              const startIdx = Math.max(0, cursor - limit);
+              target = ordered.slice(startIdx, cursor).concat(target);
+              cursor = startIdx;
+            }
+            if (ordered.length > target.length) {
+              console.log(`[sync] ${email} [${folderPath}]: ${ordered.length} yeni ileti bulundu, tur sınırı (${MAX_NEW_PER_SYNC}) nedeniyle ${target.length} tanesi çekildi; kalan sonraki turlarda alınacak.`);
+            }
           }
         } catch (e) {
           console.warn(`[sync] ${email} [${folderPath}] yeni ileti arama uyarısı:`, e?.message || e);
@@ -603,25 +666,63 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
           if (localUidsToCheck.length > 0) {
             const existingOnServer = await client.search({ uid: localUidsToCheck.join(',') }, { uid: true });
             if (Array.isArray(existingOnServer)) {
-              // Yalnızca aranan UID sayısı çok fazlayken (>50) ve sunucudaki toplam ileti sayısı yerel kayıtları aşıyorken 0 dönmesi şüpheli bir geçici arama anomalisi olabilir.
-              // Normal şartlarda (özellikle Spam/Çöp gibi silinen kutularda) aranan UID'lerin 0 dönmesi o iletilerin sunucudan silindiğini gösterir.
-              const isSuspicious = existingOnServer.length === 0 && localUidsToCheck.length > 50 && total >= localUidsToCheck.length;
-              if (isSuspicious) {
-                console.warn(`[sync] ${email} [${folderPath}] temizlik atlandı: sunucu yanıtı şüpheli boş döndü (kutuda=${total}, yerel=${localUidsToCheck.length}).`);
-              } else {
-                const serverUidSet = new Set(existingOnServer.map(String));
-                const deleteLocal = db.prepare(
-                  `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`,
-                );
-                const deleteAtt = db.prepare(
-                  `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`,
-                );
+              // ── Veri kaybı koruması ──────────────────────────────────────
+              // Önceden koruma yalnızca `length > 50` koşuluna bakıyordu; oysa yerel
+              // satır sayısı limit (30/50) ile sınırlıydı -> koruma PRATİKTE HİÇ
+              // devreye girmiyordu. Kısmi/bozuk bir SEARCH yanıtı geldiğinde
+              // eksik her UID için DELETE çalışıyor, gövdeler de siliniyordu.
+              //
+              // Yeni kural: sunucudan HİÇBİR UID dönmediyse (ve sunucu kutu boş
+              // demiyorsa) emin değiliz -> silme. Dönen sonuç kısmi ise emin
+              // olmak için KALAN UID'leri tek tek doğrula; ancak onlar da yoksa
+              // yine silme (muhtemel sunucu anomalisi).
+              const found = existingOnServer.map(String);
+              const foundSet = new Set(found);
+              const missing = localUidsToCheck.filter((u) => !foundSet.has(u));
 
-                for (const uidStr of localUidsToCheck) {
-                  if (!serverUidSet.has(uidStr)) {
-                    deleteLocal.run(email, folderPath, uidStr);
-                    try { deleteAtt.run(email, folderPath, uidStr); } catch {}
+              if (found.length === 0 && localUidsToCheck.length > 1) {
+                console.warn(
+                  `[sync] ${email} [${folderPath}] temizlik atlandı: sunucu hiçbir UID döndürmedi ` +
+                  `(kutuda=${total}, sorulan=${localUidsToCheck.length}). Geçici arama anomalisi varsayıldı.`,
+                );
+              } else {
+                // Kısmi sonuç şüphesi: doğrulama için kalan UID'leri tek tek sor
+                let verifiedMissing = missing;
+                if (missing.length > 0 && missing.length <= 20) {
+                  try {
+                    const recheck = [];
+                    for (const uidStr of missing) {
+                      const r = await client.search({ uid: uidStr }, { uid: true });
+                      if (Array.isArray(r) && r.length === 0) recheck.push(uidStr);
+                    }
+                    verifiedMissing = recheck;
+                  } catch (reErr) {
+                    // Doğrulama yapılamadıysa EMNİ OLMA, silme
+                    console.warn(`[sync] ${email} [${folderPath}] temizlik atlandı: doğrulama araması başarısız (${reErr?.message}).`);
+                    verifiedMissing = [];
                   }
+                } else if (missing.length > 20) {
+                  console.warn(
+                    `[sync] ${email} [${folderPath}] temizlik atlandı: sunucu ${found.length}/${localUidsToCheck.length} UID döndürdü, ` +
+                    `eksik ${missing.length} ileti tek tek doğrulanamayacak kadar çok. Veri kaybı riski nedeniyle silinmedi.`,
+                  );
+                  verifiedMissing = [];
+                }
+
+                if (verifiedMissing.length > 0) {
+                  const deleteLocal = db.prepare(
+                    `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND uid=?`,
+                  );
+                  const deleteAtt = db.prepare(
+                    `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE AND msg_uid=?`,
+                  );
+                  db.transaction((list) => {
+                    for (const uidStr of list) {
+                      deleteLocal.run(email, folderPath, uidStr);
+                      try { deleteAtt.run(email, folderPath, uidStr); } catch {}
+                    }
+                  })(verifiedMissing);
+                  console.log(`[sync] ${email} [${folderPath}]: ${verifiedMissing.length} ileti sunucuda bulunamadı, yerelden silindi.`);
                 }
               }
             }
@@ -632,12 +733,6 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
       }
     }
     mark('prune');
-
-    let synced = 0;
-    let failed = 0;
-    let firstError = null;
-    let flagsTouched = 0;
-    const newMessages = [];
 
     // 1) Ucuz bayrak tazeleme (hem okundu hem de yıldızlı bayrağı)
     if (flagOnlyUids.length > 0) {
@@ -707,8 +802,11 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
   });
 }
 
-async function syncInbox({ provider, email, accessToken, password, imapHost, imapPort, db, limit = 30, skipPrune = false }) {
-  return syncFolder({ provider, email, accessToken, password, imapHost, imapPort, folderPath: 'INBOX', db, limit, skipPrune });
+// skipUid DİKKAT: `deletedUidCache` koruması bu yolda da aktarılmalı.
+// Geçirilmezse elle "Eşitle" yapan kullanıcı, az önce sildiği iletiyi listede
+// geri bulur (sunucu tarafı silinmiş olsa bile yerel tabloya yeniden yazılır).
+async function syncInbox({ provider, email, accessToken, password, imapHost, imapPort, db, limit = 30, skipPrune = false, skipUid = null }) {
+  return syncFolder({ provider, email, accessToken, password, imapHost, imapPort, folderPath: 'INBOX', db, limit, skipPrune, skipUid });
 }
 
 // Hafif rozet tazeleme: ileti ÇEKMEZ, her klasöre STATUS sorup okunmamış sayısını DB'ye yazar.

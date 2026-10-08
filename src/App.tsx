@@ -353,6 +353,7 @@ export default function App() {
     setMessages,
     setSelected,
     loadFolders,
+    loadMessages,
     updateUnifiedCount,
     refreshUnreadCounts,
     setNotice,
@@ -547,6 +548,18 @@ export default function App() {
   }, [navigateToMessage]);
 
   // ── Masaüstü Bildirimleri & Arka Plan Senkronizasyonu Olayları ─────────────
+// DİKKAT: Bu efekt bilinçli olarak SADECE BİR KEZ (mount) kurulur ve aktif
+// hesap/klasör bilgisi ref üzerinden okunur. Önceden [activeAccount,
+// activeFolder] bağımlılığı vardı; her klasör/hesap değişiminde tüm
+// IPC listener'ları sökülüp yeniden takılıyordu. Sökme ile takma arasındaki
+// o küçük pencerede gelen `notify:new-mail` event'i KALICI OLARAK DÜŞÜYORDU
+// (ne ses çalıyor ne kart gösteriliyordu). Yeni e-posta tam da kullanıcının
+// klasörler arasında dolaştığı sırada geldiği için bu pencere sık tetikleniyordu.
+const notifyCtxRef = useRef({ activeAccount, activeFolder });
+  useEffect(() => {
+    notifyCtxRef.current = { activeAccount, activeFolder };
+  }, [activeAccount, activeFolder]);
+
   useEffect(() => {
     if (!window.postaci?.notifications) return;
 
@@ -556,19 +569,34 @@ export default function App() {
     });
 
     // 2. Yeni e-posta geldiğinde (arka plan veya anlık senkronizasyon):
-    const unsubNewMail = window.postaci.notifications.onNewMail?.(({ email, folderPath, count, messages }) => {
-      if (email === activeAccount) {
+    const unsubNewMail = window.postaci.notifications.onNewMail?.((payload) => {
+      const { email, folderPath, count, messages, quiet, muted } = payload || ({} as {
+        email?: string; folderPath?: string; count?: number; messages?: any[];
+        quiet?: boolean; muted?: boolean;
+      });
+      if (!email) return;
+      const { activeAccount: curAcc, activeFolder: curFolder } = notifyCtxRef.current;
+
+      // Arayüz daima tazelensin (rozetler, liste) — sessiz saat bunu ETKİLEMEZ
+      if (email === curAcc) {
         loadFolders(email);
-        const currentFolder = activeFolder || 'INBOX';
+        const currentFolder = curFolder || 'INBOX';
         if ((folderPath || 'INBOX').toLowerCase() === currentFolder.toLowerCase()) {
           loadMessages(email, currentFolder);
         }
       }
       refreshUnreadCounts();
 
-      // Ses çal
-      const soundPref = localStorage.getItem('postaci_sound_choice') || 'chirp';
-      playNotificationSound(soundPref);
+      // Sessiz saat: ses de kart da susturulur (main process karar verir).
+      // Önceden burada sessiz saat kontrolü YOKTU; masaüstü bildirimi susturulup
+      // ses çalıyordu -> "ses geliyor ama bildirim görünmüyor" belirtisi.
+      if (quiet) return;
+
+      // Ses çal — `muted` main process'in soundEnabled ayarından gelir
+      if (!muted) {
+        const soundPref = localStorage.getItem('postaci_sound_choice') || 'chirp';
+        playNotificationSound(soundPref);
+      }
 
       // Ekran içi zengin bildirim kartı (In-App floating notification)
       const inAppEnabled = localStorage.getItem('postaci_show_in_app_alerts') !== 'false';
@@ -576,7 +604,7 @@ export default function App() {
         if (messages && messages.length > 0) {
           const first = messages[0];
           setInAppAlert({
-            id: String(first.uid || Date.now()),
+            id: `${email}:${first.uid || Date.now()}`,
             from: first.from || email,
             email,
             subject: first.subject || '(konusuz e-posta)',
@@ -584,9 +612,9 @@ export default function App() {
             uid: first.uid,
             count,
           });
-        } else if (count > 0) {
+        } else if (count && count > 0) {
           setInAppAlert({
-            id: Date.now().toString(),
+            id: `${email}:${Date.now()}`,
             from: email,
             email,
             subject: `${count} yeni e-posta alındı.`,
@@ -599,9 +627,10 @@ export default function App() {
 
     // 3. Arka plan senkronizasyonu yeni posta getirdiğinde UI'ı sessizce tazele
     const unsubBg = window.postaci.notifications.onBackgroundSynced(({ email, folderPath, count }) => {
-      if (email === activeAccount) {
+      const { activeAccount: curAcc, activeFolder: curFolder } = notifyCtxRef.current;
+      if (email === curAcc) {
         loadFolders(email);
-        const currentFolder = activeFolder || 'INBOX';
+        const currentFolder = curFolder || 'INBOX';
         if ((folderPath || 'INBOX').toLowerCase() === currentFolder.toLowerCase()) {
           loadMessages(email, currentFolder);
         }
@@ -619,7 +648,7 @@ export default function App() {
       unsubNewMail?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeAccount, activeFolder]);
+  }, []);
 
   // ── Action handler'ları ──────────────────────────────────────────────────
 

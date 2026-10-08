@@ -545,23 +545,32 @@ function getAllUnreadCounts() {
   const db = getDb();
   try {
     // 1. Hesap bazında gelen kutusu okunmamış sayıları (AccountRail için)
+    // NOT: INBOX özelinde sunucudan STATUS ile gelen folders.unread_count daha
+    // güvenilirdir (yerel messages tablosu limit ile sınırlıdır). Yerel sayım
+    // yalnızca sunucu değeri hiç yazılmamışsa devreye girer.
     const accountRows = db.prepare(`
       SELECT a.email,
-             COALESCE(SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END), 0) as unread
+             COALESCE(MAX(COALESCE(f.unread_count, 0)),
+               (SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END)
+                FROM messages m
+                WHERE m.account_id = a.id AND (upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%'))
+             ) as unread
       FROM accounts a
-      LEFT JOIN messages m ON m.account_id = a.id AND (upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%')
+      LEFT JOIN folders f ON f.account_id = a.id AND (upper(f.path) = 'INBOX' OR lower(f.path) LIKE '%gelen%')
       GROUP BY a.email
     `).all();
 
     // 2. Her hesabın her klasöründeki okunmamış sayısı (FolderNav için)
-    // Tüm kayıtlı klasörleri baz al — böylece içi boş veya okunmamış iletisi kalmayan klasörler de kesinlikle 0 döner!
+    // Tüm kayıtlı klasörleri baz al — böylece içi boş veya okunmamış iletisi kalmayan
+    // klasörler de kesinlikle 0 döner!
+    // Öncelik sunucudan gelen folders.unread_count'te; 0 ise yerel hesap.
     const folderRows = db.prepare(`
       SELECT a.email, f.path AS folder_path,
-             COALESCE((
+             MAX(COALESCE(f.unread_count, 0), COALESCE((
                SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END)
                FROM messages m
                WHERE m.account_id = f.account_id AND lower(m.folder_path) = lower(f.path)
-             ), 0) AS unread
+             ), 0)) AS unread
       FROM folders f
       JOIN accounts a ON a.id = f.account_id
     `).all();
@@ -577,10 +586,25 @@ function getAllUnreadCounts() {
     `).all();
 
     // 3. Birleşik gelen kutusu okunmamış sayısı
+    // Hesapların sunucu değerlerinin toplamı (daha güvenilir) + folders'da
+    // karşılığı olmayan INBOX benzeri klasörlerin yerel toplamı.
     const unifiedRow = db.prepare(`
-      SELECT COALESCE(SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END), 0) as unread
-      FROM messages m
-      WHERE upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%'
+      SELECT COALESCE((
+        SELECT SUM(COALESCE(f.unread_count, 0))
+        FROM folders f
+        WHERE upper(f.path) = 'INBOX' OR lower(f.path) LIKE '%gelen%'
+      ), 0) +
+      COALESCE((
+        SELECT SUM(CASE WHEN m.is_read = 0 THEN 1 ELSE 0 END)
+        FROM messages m
+        WHERE (upper(m.folder_path) = 'INBOX' OR lower(m.folder_path) LIKE '%gelen%')
+          AND NOT EXISTS (
+            SELECT 1 FROM folders f2
+            WHERE f2.account_id = m.account_id
+              AND (upper(f2.path) = 'INBOX' OR lower(f2.path) LIKE '%gelen%')
+              AND lower(f2.path) = lower(m.folder_path)
+          )
+      ), 0) as unread
     `).get();
 
     const byAccount = {};

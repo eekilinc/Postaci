@@ -87,11 +87,29 @@ function client(db) {
 function settingGet(db, key, defaultValue = null) {
   const rows = client(db).select().from(settings).where(eq(settings.key, key)).all();
   if (rows.length === 0) return defaultValue;
+  let parsed;
   try {
-    return JSON.parse(rows[0].value);
+    parsed = JSON.parse(rows[0].value);
   } catch {
     return rows[0].value;
   }
+  // Kayıtlı ayar nesnesini varsayılanlarla BİRLEŞTİR.
+  // Aksi halde eski sürümden kalan eksik anahtarlar sessizce kayboluyor:
+  // örn. `syncIntervalMinutes` yoksa runBackgroundSync her turda erken dönüyor
+  // (arka plan senkronu hiç çalışmıyor) ama updateBackgroundSyncSchedule
+  // "devrede" logu basıyor. `notificationsEnabled` yoksa tüm bildirimler
+  // sessizce kapanıyor. Eksik anahtarların default'tan gelmesi şart.
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    !Array.isArray(parsed) &&
+    defaultValue &&
+    typeof defaultValue === 'object' &&
+    !Array.isArray(defaultValue)
+  ) {
+    return { ...defaultValue, ...parsed };
+  }
+  return parsed;
 }
 
 function settingSet(db, key, value) {

@@ -205,7 +205,16 @@ declare global {
         test: () => Promise<boolean>;
         onOpenMessage: (callback: (data: { email: string; folderPath: string; uid: string }) => void) => () => void;
         onBackgroundSynced: (callback: (data: { email: string; folderPath: string; count: number }) => void) => () => void;
-        onNewMail?: (callback: (data: { email: string; folderPath: string; count: number; messages?: Array<{ uid: string; subject: string; from: string }> }) => void) => () => void;
+        onNewMail?: (callback: (data: {
+          email: string;
+          folderPath: string;
+          count: number;
+          messages?: Array<{ uid: string; subject: string; from: string }>;
+          /** Sessiz saatlerde true: ses ve in-app kart gösterilmez, liste yine de tazelenir */
+          quiet?: boolean;
+          /** Ses ayarı kapalıysa true */
+          muted?: boolean;
+        }) => void) => () => void;
       };
       appSettings: {
         get: () => Promise<{

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MailIcon, CloseIcon } from './icons';
 
 export interface IncomingMailData {
@@ -26,14 +26,23 @@ export const InAppNotification: React.FC<InAppNotificationProps> = ({
 }) => {
   const [closing, setClosing] = useState(false);
 
+  // `onClose` her render'da yeni bir arrow fonksiyon olarak gelir; bağımlılığa
+  // koymak 7 sn'lik otomatik kapanma sayacını her render'da sıfırlıyor ve kart
+  // ekranda kalıcı olarak asılı kalabiliyordu. Ref ile sabitlendi.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!data) return;
     const timer = setTimeout(() => {
       setClosing(true);
-      setTimeout(onClose, 300);
+      setTimeout(() => onCloseRef.current(), 300);
     }, 7000);
     return () => clearTimeout(timer);
-  }, [data, onClose]);
+    // Yalnızca bildirim verisi değiştiğinde yeniden kurulur
+  }, [data]);
 
   if (!data) return null;
 

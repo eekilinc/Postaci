@@ -11,6 +11,7 @@ interface UseBatchActionsProps {
   setMessages: React.Dispatch<React.SetStateAction<Msg[]>>;
   setSelected: React.Dispatch<React.SetStateAction<Msg | null>>;
   loadFolders: (email: string) => void;
+  loadMessages?: (email: string | null, folder: string, unified?: boolean) => void;
   updateUnifiedCount: () => void;
   refreshUnreadCounts?: () => Promise<void> | void;
   setNotice: (n: string | null) => void;
@@ -25,6 +26,7 @@ export function useBatchActions({
   setMessages,
   setSelected,
   loadFolders,
+  loadMessages,
   updateUnifiedCount,
   refreshUnreadCounts,
   setNotice,
@@ -33,6 +35,22 @@ export function useBatchActions({
   const { t } = useTranslation();
   const [selectedUids, setSelectedUids] = useState<Set<string>>(new Set());
   const [lastSelectedUid, setLastSelectedUid] = useState<string | null>(null);
+
+  // Main process artık sunucu işlemi başarısız olduğunda hata FIRLATIR (sessiz false dönmez).
+  // Toplu işlemler iyimser (optimistic) listeden kaldırıldığı için hata halinde
+  // listeyi kaynaktan yeniden yükleyerek kullanıcıya geri göstermeliyiz.
+  const rollbackOptimistic = async (email?: string | null, folder?: string | null) => {
+    try {
+      const acc = email ?? activeAccount;
+      const f = folder ?? activeFolder ?? 'INBOX';
+      if (acc) loadMessages?.(acc, f, isUnified);
+      if (acc) loadFolders(acc);
+      updateUnifiedCount();
+      await refreshUnreadCounts?.();
+    } catch {
+      /* geri yükleme başarısız olursa bir sonraki senkron düzeltir */
+    }
+  };
 
   // Klasör, hesap veya birleşik görünüm değiştiğinde seçimleri anında sıfırla (React render-phase reset)
   const [prevTargetKey, setPrevTargetKey] = useState<string>(`${activeAccount}|${activeFolder}|${isUnified}`);
@@ -122,6 +140,7 @@ export function useBatchActions({
       await refreshUnreadCounts?.();
     } catch (e) {
       setError(cleanIpcError(e));
+      await rollbackOptimistic();
     }
   };
 
@@ -226,6 +245,7 @@ export function useBatchActions({
       await refreshUnreadCounts?.();
     } catch (e) {
       setError(cleanIpcError(e));
+      await rollbackOptimistic();
     }
   };
 
@@ -263,6 +283,7 @@ export function useBatchActions({
       await refreshUnreadCounts?.();
     } catch (e) {
       setError(cleanIpcError(e));
+      await rollbackOptimistic();
     }
   };
 

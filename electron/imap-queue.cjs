@@ -17,6 +17,12 @@ function isDeleted(email, folderPath, uid) {
   if (Date.now() > exp) { deletedUidCache.delete(key); return false; }
   return true;
 }
+// İşlem sunucuda BAŞARISIZ olduğunda işareti geri al.
+// Aksi halde 5 dakika boyunca o UID hiç senkronlanmaz ve kullanıcı iletiyi
+// listede göremez (başarılı ama sessiz veri kaybı).
+function clearDeleted(email, folderPath, uid) {
+  deletedUidCache.delete(`${email}:${folderPath}:${uid}`);
+}
 
 // Son kullanıcı senkronizasyon zamanı — arka plan sync'in aktif kullanıcıyla yarışmasını önler
 const _lastSyncTime = new Map(); // email -> timestamp
@@ -29,10 +35,17 @@ const _imapQueues = new Map(); // email → Promise (kuyruk sonu)
 const _lastImapOpTime = new Map(); // email → timestamp
 const _activeFolderPerAccount = new Map(); // normEmail → folderPath (terk edilen klasörleri atlamak için)
 
+// Bir hesabın kuyruğu en fazla bu kadar süre bekler. Asılı kalan bir görev
+// (sessizce düşen soket, throttling, takılan FETCH) kuyruğu tıkamasın:
+// eski davranışta _imapQueues bir asılı promise'in arkasına zincirlendiği için
+// o hesabın TÜM sonraki IMAP işlemleri hiç çalışmıyor, kullanıcı "bu hesap hiç
+// eşitlenmiyor" diyor ve düzelmesi için uygulamayı yeniden başlatmak gerekiyordu.
+const QUEUE_WAIT_TIMEOUT_MS = 20000;
+
 function imapLock(email, fn) {
   const key = (email || '').toLowerCase().trim();
   const prev = _imapQueues.get(key) ?? Promise.resolve();
-  const task = prev.then(async () => {
+  const run = async () => {
     // Ardışık çok hızlı çağrılarda minik güvenlik payı (50ms); boşta bekleyen bağlantıda 0ms
     const lastOp = _lastImapOpTime.get(key) || 0;
     const elapsed = Date.now() - lastOp;
@@ -44,14 +57,24 @@ function imapLock(email, fn) {
     } finally {
       _lastImapOpTime.set(key, Date.now());
     }
-  }, async () => {
-    try {
-      return await fn();
-    } finally {
-      _lastImapOpTime.set(key, Date.now());
-    }
+  };
+  const task = Promise.race([
+    prev.then(run, run),
+    new Promise((_, rej) => setTimeout(
+      // Mesaj bilerek isTimeoutError() ile eşleşecek şekilde yazıldı:
+      // çağıran taraf bu hatada invalidateClient() çağırıp ölü bağlantıyı düşürsün.
+      () => rej(new Error(`[${email}] IMAP kuyruğu zaman aşımına uğradı (${Math.round(QUEUE_WAIT_TIMEOUT_MS / 1000)} sn); takılı işlem düşürülüyor.`)),
+      QUEUE_WAIT_TIMEOUT_MS,
+    )),
+  ]);
+  // Kuyruk sonu: hata yutulur ve ZİNCİR ÜZERİNE BİRİLEMEZ.
+  // (Yalnızca "önceki iş bitti" sinyali taşınır; asılı iş burada bırakılır.)
+  const settled = task.then(() => {}, () => {});
+  _imapQueues.set(key, settled);
+  // Asılı iş normalde birkaç saniye içinde çözülür; kuyruk kaydını temizle
+  settled.finally(() => {
+    if (_imapQueues.get(key) === settled) _imapQueues.delete(key);
   });
-  _imapQueues.set(key, task.then(() => {}, () => {})); // kuyruk sonunu güncelle, hata yutma
   return task; // çağırıcıya gerçek sonuç / hata döner
 }
 
@@ -68,12 +91,26 @@ const SYNC_CONCURRENCY = 2; // Gmail IP/bağlantı kısıtlamalarını önlemek 
 // Tam temizlik ve diğer klasörlerin rozetleri arka planda en seyrek bu aralıkla taranır
 const FULL_PRUNE_INTERVAL_MS = 15 * 60 * 1000;
 const _lastFullPrune = new Map(); // email -> timestamp
+// Yalnızca BAŞARILI turun sonunda damgalanır. Baştan damgalarsak, zamana
+// uğrayan/başarısız bir tur sayacı ilerletir ve prune 15 dakika daha hiç
+// çalışmaz ("sildiğim mailler hâlâ listede duruyor" şikayetinin kaynağı).
+const _fullPrunePending = new Map(); // email -> timestamp (başlatıldı, henüz tamamlanmadı)
 function shouldFullPrune(email) {
   const key = (email || '').toLowerCase().trim();
   const last = _lastFullPrune.get(key) || 0;
   if (Date.now() - last < FULL_PRUNE_INTERVAL_MS) return false;
-  _lastFullPrune.set(key, Date.now());
+  _fullPrunePending.set(key, Date.now());
   return true;
+}
+function commitFullPrune(email) {
+  const key = (email || '').toLowerCase().trim();
+  if (_fullPrunePending.has(key)) {
+    _lastFullPrune.set(key, _fullPrunePending.get(key));
+    _fullPrunePending.delete(key);
+  }
+}
+function abortFullPrune(email) {
+  _fullPrunePending.delete((email || '').toLowerCase().trim());
 }
 
 function isTimeoutError(e) {
@@ -111,11 +148,15 @@ async function syncOneInboxWithTimeout(fullAcc) {
           console.warn(`[bg-sync] ${email} klasör sayaçları atlandı:`, e?.message || e);
         }
       }
+      // Tur gerçekten bitti: 15 dakikalık sayaç ancak şimdi ilerlesin
+      if (doPrune) commitFullPrune(email);
       return r;
     }));
   try {
     return await withTimeout(work, SYNC_PER_ACCOUNT_TIMEOUT_MS, `[${email}] INBOX eşitleme`);
   } catch (e) {
+    // Başarısız tur sayacı ilerletmesin; bir sonraki deneme hemen tekrar denesin
+    if (doPrune) abortFullPrune(email);
     if (isTimeoutError(e)) {
       try { invalidateClient(email); } catch {}
     }
@@ -147,7 +188,7 @@ async function runWithConcurrency(items, limit, worker) {
 }
 
 module.exports = {
-  deletedUidCache, markDeleted, isDeleted, _lastSyncTime, _imapQueues, _lastImapOpTime, _activeFolderPerAccount,
-  imapLock, SYNC_PER_ACCOUNT_TIMEOUT_MS, SYNC_CONCURRENCY, FULL_PRUNE_INTERVAL_MS, shouldFullPrune,
+  deletedUidCache, markDeleted, isDeleted, clearDeleted, _lastSyncTime, _imapQueues, _lastImapOpTime, _activeFolderPerAccount,
+  imapLock, SYNC_PER_ACCOUNT_TIMEOUT_MS, SYNC_CONCURRENCY, FULL_PRUNE_INTERVAL_MS, shouldFullPrune, commitFullPrune, abortFullPrune,
   isTimeoutError, syncOneInboxWithTimeout, runWithConcurrency,
 };

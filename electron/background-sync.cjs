@@ -1,7 +1,7 @@
 // electron/background-sync.cjs - periyodik arka plan senkronizasyonu (main.cjs'ten tasindi)
 const { getSetting, listAccounts, getAccountByEmail } = require('./db.cjs');
 const { _lastSyncTime, runWithConcurrency, syncOneInboxWithTimeout, SYNC_CONCURRENCY } = require('./imap-queue.cjs');
-const { notifyNewMessages } = require('./notifications.cjs');
+const { notifyNewMessages, DEFAULT_NOTIFICATION_SETTINGS } = require('./notifications.cjs');
 
 let _getMainWindow = () => null;
 function initBackgroundSync({ getMainWindow } = {}) {
@@ -16,11 +16,7 @@ async function runBackgroundSync() {
   if (bgSyncRunning) return;
   bgSyncRunning = true;
   try {
-    const settings = getSetting('notification_settings', {
-      notificationsEnabled: true,
-      syncIntervalMinutes: 2,
-      soundEnabled: true,
-    });
+    const settings = getSetting('notification_settings', DEFAULT_NOTIFICATION_SETTINGS);
 
     if (!settings.syncIntervalMinutes || settings.syncIntervalMinutes <= 0) return;
 
@@ -80,15 +76,15 @@ function updateBackgroundSyncSchedule() {
     clearInterval(bgSyncTimer);
     bgSyncTimer = null;
   }
-  const settings = getSetting('notification_settings', {
-    notificationsEnabled: true,
-    syncIntervalMinutes: 2,
-    soundEnabled: true,
-  });
+  const settings = getSetting('notification_settings', DEFAULT_NOTIFICATION_SETTINGS);
 
-  const minutes = Number(settings.syncIntervalMinutes) || 2;
-  if (minutes > 0) {
-    const ms = Math.max(30000, Math.round(minutes * 60 * 1000));
+  const raw = settings.syncIntervalMinutes;
+  const minutes = Number(raw);
+  // Ayarlar tamamen kapatılmış olabilir; ama "değer yoksa" demek DEĞİL.
+  // undefined/null/NaN -> varsayılan 2 dakika. Yalnızca geçerli bir 0 "kapalı" demektir.
+  const enabled = raw === 0 || raw === '0' ? false : (Number.isFinite(minutes) ? minutes > 0 : true);
+  if (enabled) {
+    const ms = Math.max(30000, Math.round((Number.isFinite(minutes) && minutes > 0 ? minutes : 2) * 60 * 1000));
     bgSyncTimer = setInterval(() => {
       runBackgroundSync().catch((e) => console.error('[bg-sync] hata:', e));
     }, ms);

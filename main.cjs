@@ -392,10 +392,14 @@ app.on('second-instance', (_event, commandLine, _workingDirectory) => {
     mainWindow.setAlwaysOnTop(true);
     mainWindow.focus();
     mainWindow.setAlwaysOnTop(false);
+  } else {
+    // Pencere yoksa (tekil örnekte tamamen kapatılmış) yeniden aç.
+    // Önceden hiçbir şey yapılmıyordu: bildirime tıklamak hiçbir iz bırakmıyordu.
+    try { createWindow(); } catch {}
+  }
 
-    if (Array.isArray(commandLine)) {
-      handleProtocolUrl(commandLine.join(' '));
-    }
+  if (Array.isArray(commandLine)) {
+    handleProtocolUrl(commandLine.join(' '));
   }
 });
 
@@ -414,6 +418,10 @@ app.on('window-all-closed', () => {
   });
   if (isQuitting || behavior.closeToQuit || process.platform === 'darwin') {
     app.quit();
+  } else {
+    // Pencere kapatıldı ama uygulama tepsi simgesinde yaşıyor; arka plan
+    // senkronizasyonu ve bildirimler çalışmaya devam etsin.
+    try { require('./electron/logger.cjs').log.info('[window] pencere kapatıldı, uygulama arka planda çalışıyor'); } catch {}
   }
 });
 
