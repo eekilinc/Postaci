@@ -20,6 +20,8 @@ import { cleanIpcError } from '../utils/errors';
 
 const PAGE_SIZE = 50;
 
+export { PAGE_SIZE };
+
 export interface MessageTarget {
   email: string | null;
   folder: string;
@@ -33,7 +35,7 @@ const EMPTY_TARGET: MessageTarget = {
 };
 
 // Eşitle sonucunu tek cümlede özetler; sessiz başarısızlıkları görünür kılar
-function formatSyncNotice(
+export function formatSyncNotice(
   folderPath: string | null,
   r: {
     total: number;
@@ -53,17 +55,17 @@ function formatSyncNotice(
   return s + '.';
 }
 
-async function fetchPage(t: MessageTarget, offset: number): Promise<Msg[]> {
+export async function fetchPage(t: MessageTarget, offset: number): Promise<Msg[]> {
   if (t.unified) return window.postaci!.mail.listUnified(PAGE_SIZE, offset);
   return window.postaci!.mail.list(t.email!, t.folder, PAGE_SIZE, offset);
 }
 
-async function fetchCount(t: MessageTarget): Promise<number> {
+export async function fetchCount(t: MessageTarget): Promise<number> {
   if (t.unified) return (await window.postaci!.mail.countUnified()).total;
   return (await window.postaci!.mail.count(t.email!, t.folder)).total;
 }
 
-function ipcReady(t: MessageTarget): boolean {
+export function ipcReady(t: MessageTarget): boolean {
   if (typeof window === 'undefined' || !window.postaci) return false;
   return t.unified || !!t.email;
 }

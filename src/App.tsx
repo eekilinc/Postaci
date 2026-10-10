@@ -34,6 +34,7 @@ import { ShortcutsHelpModal } from './components/ShortcutsHelpModal';
 import { UndoSendBar } from './components/UndoSendBar';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useUpdaterStatus } from './hooks/useUpdaterStatus';
+import { useComposeDraft } from './hooks/useComposeDraft';
 import type { LayoutMode } from './components/LayoutSwitcher';
 import { PostaciLogo } from './components/PostaciLogo';
 import { InAppNotification, type IncomingMailData } from './components/InAppNotification';
@@ -294,16 +295,34 @@ export default function App() {
   // Compose state
   const [showCompose, setShowCompose] = useState(false);
   const [composeTitle, setComposeTitle] = useState('Yeni E-posta');
-  const [cFrom, setCFrom] = useState('');
-  const [cTo, setCTo] = useState('');
-  const [cCc, setCCc] = useState('');
-  const [cBcc, setCBcc] = useState('');
-  const [cSubject, setCSubject] = useState('');
-  const [cText, setCText] = useState('');
-  const [cHtml, setCHtml] = useState('');
-  const [cInReplyTo, setCInReplyTo] = useState<string | undefined>(undefined);
-  const [cReferences, setCReferences] = useState<string | undefined>(undefined);
-  const [cFiles, setCFiles] = useState<ComposeFile[]>([]);
+  // Taslak alanları useComposeDraft hook'unda; eskiden 10 ayrı useState idi.
+  const {
+    draft: composeDraft,
+    setField: setComposeField,
+    setFiles: setCFiles,
+    replace: replaceComposeDraft,
+    clear: clearComposeDraft,
+    restoreSaved: restoreSavedDraft,
+  } = useComposeDraft();
+  const cFrom = composeDraft.from;
+  const cTo = composeDraft.to;
+  const cCc = composeDraft.cc;
+  const cBcc = composeDraft.bcc;
+  const cSubject = composeDraft.subject;
+  const cText = composeDraft.text;
+  const cHtml = composeDraft.html;
+  const cInReplyTo = composeDraft.inReplyTo;
+  const cReferences = composeDraft.references?.[0];
+  const cFiles = composeDraft.files;
+  const setCFrom = (v: string) => setComposeField('from', v);
+  const setCTo = (v: string) => setComposeField('to', v);
+  const setCCc = (v: string) => setComposeField('cc', v);
+  const setCBcc = (v: string) => setComposeField('bcc', v);
+  const setCSubject = (v: string) => setComposeField('subject', v);
+  const setCText = (v: string) => setComposeField('text', v);
+  const setCHtml = (v: string) => setComposeField('html', v);
+  const setCInReplyTo = (v: string | undefined) => setComposeField('inReplyTo', v);
+  const setCReferences = (v: string | undefined) => setComposeField('references', v ? [v] : undefined);
 
   // ── Gönderimi Geri Al (Undo Send) Hook ────────────────────────────────────
   const {
@@ -856,53 +875,44 @@ const notifyCtxRef = useRef({ activeAccount, activeFolder });
     const subjStr = typeof targetSubject === 'string' ? targetSubject : '';
     setComposeTitle('Yeni E-posta');
     const sender = activeAccount || '';
-    setCFrom(sender);
-    setCInReplyTo(undefined);
-    setCReferences(undefined);
     setError(null);
     setNotice(null);
 
     // Hedef alıcı belirtilmemişse kaydedilmiş aktif taslak var mı kontrol et
-    if (!toStr) {
-      const savedDraftRaw = localStorage.getItem('postaci_active_draft');
-      if (savedDraftRaw) {
-        try {
-          const d = JSON.parse(savedDraftRaw);
-          if (d && (d.to || d.cc || d.subject || d.text || d.html)) {
-            if (d.from) setCFrom(d.from);
-            setCTo(d.to || '');
-            setCCc(d.cc || '');
-            setCSubject(d.subject || '');
-            setCText(d.text || '');
-            setCHtml(d.html || '');
-            setCFiles([]);
-            setShowCompose(true);
-            setNotice(t('notice.draftRestored'));
-            setTimeout(() => setNotice(null), 3000);
-            return;
-          }
-        } catch {}
+    if (!toStr && restoreSavedDraft()) {
+      setCFrom(composeDraft.from || sender);
+      setShowCompose(true);
+      setNotice(t('notice.draftRestored'));
+      setTimeout(() => setNotice(null), 3000);
+      return;
+    }
+
+    // Otomatik imza kontrolü
+    const sig = getAccountSignature(sender);
+    let text = '';
+    let html = '';
+    if (sig.enabled) {
+      if (sig.isHtml && sig.html) {
+        text = `\n\n--\n${sig.text || ''}`;
+        html = `<br><br><div class="postaci-signature" style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:14px;">${sig.html}</div>`;
+      } else if (sig.text) {
+        text = `\n\n--\n${sig.text}`;
+        html = `<br><br><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${sig.text.replace(/\n/g, '<br>')}</div>`;
       }
     }
 
-    setCTo(toStr); setCCc(''); setCBcc(''); setCSubject(subjStr); setCFiles([]);
-    // Otomatik imza kontrolü
-    const sig = getAccountSignature(sender);
-    if (sig.enabled) {
-      if (sig.isHtml && sig.html) {
-        setCText(`\n\n--\n${sig.text || ''}`);
-        setCHtml(`<br><br><div class="postaci-signature" style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:14px;">${sig.html}</div>`);
-      } else if (sig.text) {
-        setCText(`\n\n--\n${sig.text}`);
-        setCHtml(`<br><br><div class="postaci-signature" style="color:#666;font-size:13px;border-top:1px solid #e5e7eb;padding-top:6px;margin-top:12px;">${sig.text.replace(/\n/g, '<br>')}</div>`);
-      } else {
-        setCText('');
-        setCHtml('');
-      }
-    } else {
-      setCText('');
-      setCHtml('');
-    }
+    replaceComposeDraft({
+      from: sender,
+      to: toStr,
+      cc: '',
+      bcc: '',
+      subject: subjStr,
+      text,
+      html,
+      inReplyTo: undefined,
+      references: undefined,
+      files: [],
+    });
 
     setShowCompose(true);
   };
@@ -920,11 +930,18 @@ const notifyCtxRef = useRef({ activeAccount, activeFolder });
           ? await window.postaci.mail.replyAllTemplate(targetAccount, targetFolder, selected.uid)
           : await window.postaci.mail.forwardTemplate(targetAccount, targetFolder, selected.uid);
       setComposeTitle(mode === 'reply' ? 'Yanıtla' : mode === 'replyAll' ? 'Tümünü Yanıtla' : 'İlet');
-      setCFrom(targetAccount);
-      setCTo(tpl.to); setCCc(tpl.cc); setCBcc(''); setCSubject(tpl.subject);
-      setCText(tpl.text);
-      setCHtml(tpl.html || tpl.text.replace(/\n/g, '<br>'));
-      setCInReplyTo(tpl.inReplyTo); setCReferences(tpl.references);
+      replaceComposeDraft({
+        from: targetAccount,
+        to: tpl.to,
+        cc: tpl.cc,
+        bcc: '',
+        subject: tpl.subject,
+        text: tpl.text,
+        html: tpl.html || tpl.text.replace(/\n/g, '<br>'),
+        inReplyTo: tpl.inReplyTo,
+        references: tpl.references ? [tpl.references] : undefined,
+        files: [],
+      });
       setShowCompose(true);
     } catch (e) {
       setError(cleanIpcError(e));
@@ -1050,14 +1067,19 @@ const notifyCtxRef = useRef({ activeAccount, activeFolder });
     const targetAccount = selected.account_email || activeAccount;
     if (!targetAccount) return;
     setComposeTitle('Taslağı Düzenle');
-    setCFrom(targetAccount);
-    setCTo(selected.to_addr || '');
-    setCCc('');
-    setCBcc('');
-    setCSubject(selected.subject === '(Taslak)' ? '' : (selected.subject || ''));
-    setCText(body?.text || selected.snippet || '');
-    setCHtml(body?.html || (body?.text ? body.text.replace(/\n/g, '<br>') : ''));
-    setCFiles([]);
+    const text = body?.text || selected.snippet || '';
+    replaceComposeDraft({
+      from: targetAccount,
+      to: selected.to_addr || '',
+      cc: '',
+      bcc: '',
+      subject: selected.subject === '(Taslak)' ? '' : (selected.subject || ''),
+      text,
+      html: body?.html || (body?.text ? body.text.replace(/\n/g, '<br>') : ''),
+      inReplyTo: undefined,
+      references: undefined,
+      files: [],
+    });
     setShowCompose(true);
   };
 
@@ -1088,11 +1110,11 @@ const notifyCtxRef = useRef({ activeAccount, activeFolder });
       attachments: [...cFiles],
     };
 
-    // Formu kapat ve aktif taslağı temizle
-    localStorage.removeItem('postaci_active_draft');
+    // Formu kapat ve aktif taslağı temizle.
+    // clear() `from` alanını korur (gönderen seçili kalsın) ve localStorage
+    // kaydını da siler — eskiden iki ayrı adımda yapılıyordu.
     setShowCompose(false);
-    setCTo(''); setCCc(''); setCBcc(''); setCSubject(''); setCText(''); setCHtml(''); setCFiles([]);
-    setCInReplyTo(undefined); setCReferences(undefined);
+    clearComposeDraft();
 
     queueSendWithUndo(payload);
   };
