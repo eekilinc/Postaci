@@ -46,6 +46,35 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 
 ## Tamamlananlar (2026-10-11)
 
+- [x] **Gizlilik: CSS izleme pikseli sızıntısı kapatıldı (143 → 170 test).**
+  "Harici görselleri engelle" kalkanı yalnız `<img src=…>` yakalıyordu;
+  `style="background:url(https://…)"` gömülü izleyiciler sanitizasyondan
+  geçiyor ve CSP (`img-src https:`) yüzünden yine yükleniyordu — gönderen,
+  kalkan açıkken bile IP/açılma saati izleyebiliyordu. Zincir
+  `src/utils/sanitizeEmail.ts`'e tek fonksiyona çıkarıldı ve DÖRT vektör
+  kapatıldı: (1) img src, (2) CSS url() — yalnız style ÖZNİTELİĞİ içinde,
+  gövde örneç metni dokunulmaz; protokole göreli `//` dahil, (3) poster/srcset,
+  (4) `<input type=image src>`. data:/göreli URL'ler ve kullanıcı izni
+  (`allowRemoteImages`) korunur. 18 test `sanitizeEmail.test.tsx`'te; sızıntı
+  önce canlı Node kanıtıyla KIRMIZI gösterildi (img engellendi, CSS ayakta
+  kaldı), sonra düzeltmeyle yeşile döndü.
+- [x] **Veri kaybı: gönderim hatasında içerik geri yüklenir.** `useUndoSend`
+  catch bloğu yalnız hata gösteriyordu; taslak kuyruğa girip silindiği için
+  SMTP hatasında (internet kesintisi, token bitişi) kullanıcının yazdığı
+  e-posta kayboluyordu. Artık hata durumunda `onRestoreCompose(payload)`
+  çağrılır — içerik yazma penceresine döner, kullanıcı düzeltip yeniden
+  gönderebilir.
+- [x] **Veri kaybı: geri alma penceresi kalıcı.** Geri sayım yalnız bellekte
+  yaşıyordu; "Gönder"e basıp 5 sn penceresinde uygulamayı kapatan kullanıcı
+  e-postayı sessizce kaybediyordu (ne gider ne kalır). Artık kuyruğa girerken
+  payload `postaci_pending_send` anahtarıyla localStorage'a yazılır;
+  gönderim/geri alma bitince silinir. Uygulama açılışında
+  `restorePendingSend()` varsa compose'a geri yükler + uyarı gösterir. Kota
+  dolarsa ekler olmadan kaydedilir (`attachmentsSkipped` bayrağı uyarıda
+  söyler). `useUndoSend.test.tsx` 9 test ile sabitlendi; App.tsx'te üç akış
+  (geri al / hata / açılış kurtarması) tek `restoreComposeFrom` üzerinden
+  birleştirildi.
+
 - [x] **Senkronizasyon aralıklı hataları — imapLock iki aşamaya ayrıldı** (134 → 143 test).
   Belirti: "bazen silerken, bazen çekerken sorun oluyor". Kök neden
   `electron/imap-queue.cjs` `imapLock()` içindeydi: 20 sn'lik sayaç ENQUEUE

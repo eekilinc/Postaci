@@ -1,8 +1,8 @@
 // src/hooks/useMessageBody.ts — seçili mesaj gövdesi, gizlilik koruması, ekler ve thread
 import { useMemo, useRef, useState } from 'react';
-import DOMPurify from 'dompurify';
 import type { Attachment, BodyResult, MarkReadTiming, Msg } from '../types';
 import { cleanIpcError } from '../utils/errors';
+import { sanitizeEmailHtml } from '../utils/sanitizeEmail';
 
 export function useMessageBody() {
   const [body, setBody] = useState<BodyResult>(null);
@@ -25,25 +25,9 @@ export function useMessageBody() {
   const safeHtml = useMemo(() => {
     const html = body?.html;
     if (!html) return '';
-    let sanitized = DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
-
-    // Yatay taşmayı ve ekran dışına uzayan imza/duyuruları engelle:
-    // 'white-space: nowrap' veya nowrap="..." özniteliklerini temizle
-    sanitized = sanitized
-      .replace(/white-space\s*:\s*nowrap/gi, 'white-space: normal')
-      .replace(/<nobr\b[^>]*>/gi, '<span>')
-      .replace(/<\/nobr>/gi, '</span>')
-      .replace(/\s+nowrap(?=[\s=>])/gi, '');
-
-    if (!allowRemoteImages) {
-      return sanitized.replace(
-        /<img([^>]*)\ssrc=["'](https?:\/\/[^"']+)["']([^>]*)>/gi,
-        (_match, _before, src) => {
-          return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-100/50 dark:bg-zinc-800/50 text-[10px] text-zinc-400 select-none my-0.5" title="Harici görsel engellendi (${src})">[Görsel gizlendi]</span>`;
-        },
-      );
-    }
-    return sanitized;
+    // Zincirin tamamı (DOMPurify + nowrap temizliği + uzak görüntü kalkanı)
+    // src/utils/sanitizeEmail.ts'te; burası yalnızca görüntüleme tercihini iletir.
+    return sanitizeEmailHtml(html, { allowRemoteImages });
   }, [body, allowRemoteImages]);
 
   const allowSenderAlways = (senderAddr: string) => {

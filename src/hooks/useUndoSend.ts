@@ -1,4 +1,12 @@
 // src/hooks/useUndoSend.ts — Geri Al özellikli e-posta gönderim kuyruğu
+//
+// VERİ KAYBI SÖZLEŞMESİ (useUndoSend.test.tsx ile sabitlendi):
+// - Gönderim hatası → içerik yazma penceresine GERİ YÜKLENİR (taslak, kuyruğa
+//   girerken temizlendiği için aksi halde kullanıcı yazdığını kaybediyordu).
+// - Geri alma penceresi (N sn) kalıcıdır: kuyruğa girerken payload
+//   localStorage'a yazılır; pencere sırasında uygulama kapanırsa bir sonraki
+//   açılışta restorePendingSend() ile kurtarılır. Gönderim/geri alma bitince
+//   kayıt silinir. Kota dolarsa ekler olmadan kaydedilir (attachmentsSkipped).
 import { useRef, useState } from 'react';
 import type { ComposeFile, Msg } from '../types';
 import { useTranslation } from '../i18n';
@@ -20,6 +28,41 @@ export interface UndoSendTask {
   id: string;
   countdown: number;
   payload: SendPayload;
+}
+
+// ── Kalıcı bekleyen gönderim (uygulama pencere sırasında kapansa bile) ────────
+export const PENDING_SEND_KEY = 'postaci_pending_send';
+
+export type PendingSend = SendPayload & { attachmentsSkipped?: boolean };
+
+export function persistPendingSend(p: SendPayload) {
+  try {
+    localStorage.setItem(PENDING_SEND_KEY, JSON.stringify({ ...p, attachmentsSkipped: false }));
+  } catch {
+    // Kota aşıldı (büyük ekler): ekler olmadan kaydet — tüm e-postayı
+    // kaybetmekten iyidir; kurtarımda attachmentsSkipped bayrağı söyler.
+    try {
+      localStorage.setItem(PENDING_SEND_KEY, JSON.stringify({ ...p, attachments: [], attachmentsSkipped: true }));
+    } catch {}
+  }
+}
+
+export function clearPendingSend() {
+  try {
+    localStorage.removeItem(PENDING_SEND_KEY);
+  } catch {}
+}
+
+/** Uygulama açılışında çağrılır: yarım kalmış gönderimi döndürür ve kaydı temizler. */
+export function restorePendingSend(): PendingSend | null {
+  try {
+    const raw = localStorage.getItem(PENDING_SEND_KEY);
+    if (!raw) return null;
+    localStorage.removeItem(PENDING_SEND_KEY);
+    return JSON.parse(raw) as PendingSend;
+  } catch {
+    return null;
+  }
 }
 
 interface UseUndoSendProps {
@@ -74,6 +117,8 @@ export function useUndoSend({
         })),
       });
       setNotice?.(t('notice.emailSent'));
+      // Gönderim tamamlandı: "uygulama kapanırsa kurtar" kaydına gerek kalmadı
+      clearPendingSend();
       window.postaci.db.stats().catch(() => {});
       if (selectedMsg && String(selectedMsg.uid).startsWith('draft-') && activeAccount && activeFolder) {
         window.postaci.mail.delete(activeAccount, activeFolder, selectedMsg.uid).catch(() => {});
@@ -82,6 +127,10 @@ export function useUndoSend({
       }
     } catch (e) {
       setError?.(e instanceof Error ? e.message : String(e));
+      // Veri kaybını önle: taslak gönderim kuyruğa girerken temizlendi.
+      // Hata durumunda içeriği yazma penceresine geri yükle ki kullanıcı
+      // düzeltip tekrar gönderebilsin (yeniden yazmak zorunda kalmasın).
+      onRestoreCompose?.(payload);
     } finally {
       setSending(false);
       setUndoTask(null);
@@ -109,6 +158,9 @@ export function useUndoSend({
       countdown: delay,
       payload,
     });
+    // Geri sayım bellekte yaşıyor: bu pencerede uygulama kapanırsa e-posta ne
+    // gider ne kalırdı. Kalıcı kayıt -> açılışta restorePendingSend() kurtarır.
+    persistPendingSend(payload);
 
     let current = delay;
     undoIntervalRef.current = setInterval(() => {
@@ -127,6 +179,9 @@ export function useUndoSend({
     if (undoIntervalRef.current) clearInterval(undoIntervalRef.current);
     const p = undoTask.payload;
     setUndoTask(null);
+    // İçerik compose'a dönüyor; kurtarma kaydına gerek kalmadı (compose'un
+    // otomatik taslak kaydı devralır).
+    clearPendingSend();
     onRestoreCompose?.(p);
     setNotice?.(t('notice.undoSendRestored'));
   };

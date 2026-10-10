@@ -15,7 +15,7 @@ import { useFolders } from './hooks/useFolders';
 import { useMessages } from './hooks/useMessages';
 import { useMessageBody } from './hooks/useMessageBody';
 import { useBatchActions } from './hooks/useBatchActions';
-import { useUndoSend } from './hooks/useUndoSend';
+import { useUndoSend, restorePendingSend, type SendPayload } from './hooks/useUndoSend';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useTranslation } from './i18n';
 
@@ -325,6 +325,27 @@ export default function App() {
   const setCReferences = (v: string | undefined) => setComposeField('references', v ? [v] : undefined);
 
   // ── Gönderimi Geri Al (Undo Send) Hook ────────────────────────────────────
+  // Payload'ı yazma penceresine geri yükleyen tek yol — hem "geri al" hem
+  // "gönderim hatası" hem de "uygulama kapanırken yarıda kalan gönderim"
+  // kurtarması aynı fonksiyonu kullanır.
+  const restoreComposeFrom = (p: SendPayload) => {
+    setCFrom(p.fromEmail);
+    setCTo(p.to);
+    setCCc(p.cc);
+    setCBcc(p.bcc || '');
+    setCSubject(p.subject);
+    setCText(p.text);
+    setCHtml(p.html);
+    setCFiles(p.attachments ?? []);
+    setCInReplyTo(p.inReplyTo);
+    setCReferences(p.references);
+    // Başlığa dokunma: yanıt/ileri akışında 'Yanıtla' kalmalı; açılış kurtarmasında
+    // başlık zaten varsayılan ('Yeni E-posta') durumdadır. Ayrıca ComposeModal'ın
+    // aktif taslak otomatik kaydı yalnız 'Yeni E-posta' başlığında çalışır —
+    // burada değiştirmek yanıt içeriğini yanlış taslağa dönüştürür.
+    setShowCompose(true);
+  };
+
   const {
     undoTask,
     sending,
@@ -332,19 +353,7 @@ export default function App() {
     handleUndoSend,
     handleSendImmediately,
   } = useUndoSend({
-    onRestoreCompose: (p) => {
-      setCFrom(p.fromEmail);
-      setCTo(p.to);
-      setCCc(p.cc);
-      setCBcc(p.bcc || '');
-      setCSubject(p.subject);
-      setCText(p.text);
-      setCHtml(p.html);
-      setCFiles(p.attachments);
-      setCInReplyTo(p.inReplyTo);
-      setCReferences(p.references);
-      setShowCompose(true);
-    },
+    onRestoreCompose: restoreComposeFrom,
     selectedMsg: selected,
     activeAccount,
     activeFolder,
@@ -353,6 +362,27 @@ export default function App() {
     setNotice,
     setError,
   });
+
+  // Uygulama açılırken yarım kalmış gönderimi kurtar: geri alma penceresi
+  // (N sn) sırasında uygulama kapatılmışsa e-posta ne gitmiş ne kalmıştı.
+  // Kalıcı kayıt (postaci_pending_send) açılışta compose'a geri yüklenir.
+  useEffect(() => {
+    const pending = restorePendingSend();
+    if (!pending) return;
+    restoreComposeFrom(pending);
+    const skippedNote = pending.attachmentsSkipped
+      ? ' (ekler yer darlığı nedeniyle kaydedilemedi — yeniden ekleyin)'
+      : '';
+    setNotice(
+      (language === 'en'
+        ? `An unsent email was restored${skippedNote}. Please review and send again.`
+        : `Gönderilmemiş bir e-posta bulundu, yazma penceresine geri yüklendi${skippedNote}. Kontrol edip tekrar gönderin.`),
+    );
+    const t = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(t);
+    // Sadece açılışta bir kez: bağımlılıklar bilinçli olarak boş.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Çoklu Seçim & Toplu İşlemler (Multi-Select & Batch Actions) Hook ───────
   const {
