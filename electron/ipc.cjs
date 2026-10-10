@@ -187,7 +187,7 @@ function registerIpc(ctx) {
             skipUid: (uid) => isDeleted(email, 'INBOX', String(uid)),
           }))
         ),
-        35000,
+        110000,
         'Eşitleme',
       );
       if (res && res.newMessages && res.newMessages.length > 0) {
@@ -370,7 +370,7 @@ function readFolderCache(email) {
 
     _folderSyncInFlight.set(email, task);
     try {
-      const res = await withIpcTimeout(task, 25000, 'Klasör listesi');
+      const res = await withIpcTimeout(task, 110000, 'Klasör listesi');
       _folderListFetchedAt.set((email || '').toLowerCase().trim(), Date.now());
       return res;
     } finally {
@@ -444,7 +444,7 @@ function readFolderCache(email) {
               skipUid: (uid) => isDeleted(email, normFolder, String(uid)),
             });
           })),
-        35000,
+        110000,
         'Klasör eşitleme',
       );
       if (normFolder.toUpperCase() === 'INBOX' && res && res.newMessages && res.newMessages.length > 0) {
@@ -516,7 +516,7 @@ function readFolderCache(email) {
             ...creds,
             skipUid: (uid) => isDeleted(email, folderPath, String(uid)),
           }))),
-        75000,
+        110000,
         'Eski iletiler',
       );
     } catch (e) {
@@ -1821,7 +1821,7 @@ const TRASH_PATTERNS = ['çöp', 'trash', 'deleted', 'bin', 'silinmiş', 'recycl
                 return { exists: mb?.exists ?? client.mailbox?.exists ?? null, status };
               });
             })),
-          45000,
+          110000,
           'Tanı bağlantısı',
         );
         const total = info?.status?.messages ?? info?.exists ?? '?';

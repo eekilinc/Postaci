@@ -44,7 +44,38 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 - [x] **useMessages → Query** — `src/hooks/useMessages.ts` API birebir korunarak taşındı: liste/sayı hedef anahtarlı önbellekte, `setMessages` çift formlu (iyimser UI aynen), sayfa derinliği korunarak tazeleme, reqId sayaçları yerine anahtar izolasyonu + hedef aynası. Biome'un gerçek bulgusu (`currentTarget` memo) düzeltildi; `!` kullanımları proje standardı olduğu için korundu.
 - [ ] Harici (kurulum gerektirmez): Hoppscotch/HTTPie, ripgrep/fd/bat/zoxide/btop.
 
+## Tamamlananlar (2026-10-11)
+
+- [x] **Senkronizasyon aralıklı hataları — imapLock iki aşamaya ayrıldı** (134 → 143 test).
+  Belirti: "bazen silerken, bazen çekerken sorun oluyor". Kök neden
+  `electron/imap-queue.cjs` `imapLock()` içindeydi: 20 sn'lik sayaç ENQUEUE
+  anında başlıyor ve **bekleme + çalıştırmanın toplamını** sınırlıyordu (yorum
+  "kuyruk bekler" diyordu, uygulama toplamı kesiyordu). Üç kullanıcı görünen
+  sonuç:
+  1. 20 sn'yi aşan sağlıklı INBOX senkronu hata alıyor; catch'teki
+     `invalidateClient` **hâlâ sağlıklı** soketi öldürüp indirmeyi yarıda kesiyordu
+     → "çekerken bazen hata" (büyük kutu / yavaş ağda tekrarlanır).
+  2. Senkron arkasına kuyruklanan silme, hâlâ **beklerken** aynı sayaçla
+     düşüyordu; terk edilen zincir sonra yine de koşuyor, sunucu değişiyor ama
+     yerel temizlik yapılmıyordu → "silerken bazen sorun" + hayalet durum.
+  3. Aşan işlemde `invalidateClient` hiç çağrılmıyordu → asılı soket kuyruğu
+     sonsuza dek tutabiliyordu.
+  Düzeltme: BEKLEME aşaması (60 sn, öncül bitince sayaç durur; aşılırsa işlem
+  **hç çalışmadan** reddedilir) + YÜRÜTME aşaması (45 sn iç bütçe; aşılırsa
+  `invalidateClient` çağrılır → kuyruk her zaman ilerler). Meşgul hatası
+  bilerek "zaman aşımına uğradı" içermiyor ki çağıranlar `isTimeoutError`
+  ile sağlıklı öncülün soketini yanlışlıkla düşürmesin. Dış bütçeler
+  (mail:sync 35 sn, sync-folder 35 sn, folders 25 sn, sync-more 75 sn,
+  diagnose 45 sn, bg-sync 45 sn → 110 sn) imapLock'un kendi temiz hata
+  eşiğinin (60+45 sn) altından yukarıya çekildi — eskiden sağlıklı bekleyişi
+  kesip yine sağlıklı soketi öldürüyorlardı.
+  Güvence: `electron/imap-lock.test.ts` (9 test, sahte zamanlayıcı, ~0.5 sn) —
+  kırmızı→yeşil döngüsüyle sabitlendi; regresyon göstergeleri (sıralama, hata
+  iyileştirmesi, hesaplar arası bağımsızlık) dahil.
+
 ## Tamamlananlar (2026-10-08)
+
+
 
 - [x] **Lint birleştirme** — Biome tamamen kaldırıldı; tek standart oxlint (CI ile aynı).
 - [x] **Test kapsamı** — db.test.ts, compose.test.ts, providers.test.ts eklendi: 22 -> 43 test.
