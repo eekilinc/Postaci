@@ -10,7 +10,7 @@ on:
 
 jobs:
   validate:
-    name: Lint & Build Validation
+    name: Lint, Test & Build Validation
     runs-on: windows-latest
 
     steps:
@@ -28,6 +28,9 @@ jobs:
 
       - name: 🔍 Lint (Oxlint)
         run: npm run lint
+
+      - name: 🧪 Unit Tests (Vitest)
+        run: npm test
 
       - name: 🛠️ Build Frontend (TypeScript + Vite)
         run: npm run build
