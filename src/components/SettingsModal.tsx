@@ -1,14 +1,23 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import type { AccentKey, Account, DateFormatPreference, ListDensity, MarkReadTiming, QuickSnippet, SnippetLines, ThemeKey } from '../types';
 import type { LayoutMode } from './LayoutSwitcher';
-import { ACCENTS } from '../constants';
 import { getAccountSignature, saveAccountSignature } from '../utils/signatures';
 import { playNotificationSound } from '../utils/sound';
 import { useTranslation } from '../i18n';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
-import { CloseIcon, SnippetIcon, TrashIcon } from './icons';
+import { CloseIcon } from './icons';
 import { PostaciLogo } from './PostaciLogo';
-import appIcon from '../assets/icon.png';
+import { buildNavTabs, type SettingsTab } from './settingsTabs';
+import { AboutTab } from './settings/AboutTab';
+import { ScalingTab } from './settings/ScalingTab';
+import { AdvancedTab } from './settings/AdvancedTab';
+import { AppearanceTab } from './settings/AppearanceTab';
+import { GeneralTab } from './settings/GeneralTab';
+import { AccountsTab } from './settings/AccountsTab';
+import { ComposingTab } from './settings/ComposingTab';
+
+/** Sürüm okunamadığında kullanılan değer — karşılaştırmalarda geçerli sürüm sayılır. */
+const UNKNOWN_VERSION = '—';
 
 interface SettingsModalProps {
   theme: ThemeKey;
@@ -36,14 +45,7 @@ interface SettingsModalProps {
   onRefreshAccounts?: () => void;
 }
 
-type SettingsTab =
-  | 'general'
-  | 'appearance'
-  | 'scaling'
-  | 'accounts'
-  | 'composing'
-  | 'advanced'
-  | 'about';
+export type { SettingsTab } from './settingsTabs';
 
 export function SettingsModal({
   theme,
@@ -70,8 +72,9 @@ export function SettingsModal({
   onOpenShortcutsHelp,
   onRefreshAccounts,
 }: SettingsModalProps) {
-  const { language, setLanguage } = useTranslation();
-  const handleLayoutMode = onLayoutModeChange || setLayoutMode;
+  const { language } = useTranslation();
+  // setLayoutMode props'ta opsiyonel olabilir; çağıran her yerde tanımlı.
+  const handleLayoutMode = onLayoutModeChange || setLayoutMode || (() => {});
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [updateCheckStatus, setUpdateCheckStatus] = useState<string | null>(null);
   const updaterStatus = useUpdaterStatus();
@@ -347,7 +350,6 @@ export function SettingsModal({
   const [sigText, setSigText] = useState(() => getAccountSignature(selectedEmail).text);
   const [sigHtml, setSigHtml] = useState(() => getAccountSignature(selectedEmail).html ?? '');
   const [savedNotice, setSavedNotice] = useState(false);
-  const sigEditorRef = useRef<HTMLDivElement | null>(null);
 
   // Dahili İmla / Yazım Denetimi (Spellchecker)
   const [spellcheckEnabled, setSpellcheckEnabled] = useState(() => {
@@ -420,15 +422,14 @@ export function SettingsModal({
     setSigIsHtml(s.isHtml ?? false);
     setSigText(s.text);
     setSigHtml(s.html ?? '');
-    if (sigEditorRef.current) {
-      sigEditorRef.current.innerHTML = s.html ?? '';
-    }
+    // Editör ComposingTab içinde; sigHtml değişince oradaki useEffect içeriği senkronlar.
     setSavedNotice(false);
   };
 
   const handleSaveSignature = () => {
     if (!selectedEmail) return;
-    const currentHtml = sigEditorRef.current ? sigEditorRef.current.innerHTML : sigHtml;
+    // Editör artık ComposingTab içinde; HTML'i oradan onInput ile senkron gelir.
+    const currentHtml = sigHtml;
     saveAccountSignature(selectedEmail, {
       enabled: sigEnabled,
       text: sigText,
@@ -440,64 +441,6 @@ export function SettingsModal({
     setTimeout(() => setSavedNotice(false), 2500);
   };
 
-  const execSigCommand = (cmd: string, val: string | undefined = undefined) => {
-    if (sigEditorRef.current) {
-      sigEditorRef.current.focus();
-    }
-    document.execCommand(cmd, false, val);
-    if (sigEditorRef.current) {
-      setSigHtml(sigEditorRef.current.innerHTML);
-    }
-  };
-
-  const handleInsertSigLogo = async () => {
-    if (!window.postaci?.openFileDialog) return;
-    try {
-      const dataUrl = await window.postaci.openFileDialog({
-        title: language === 'en' ? 'Choose Signature Logo' : 'İmza Logosu veya Görseli Seç',
-        filters: [{ name: 'Görseller / Images', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp', 'gif'] }],
-      });
-      if (dataUrl) {
-        const imgTag = `<img src="${dataUrl}" alt="Logo" style="max-height: 50px; max-width: 180px; object-fit: contain; margin-top: 8px; display: block;" />`;
-        execSigCommand('insertHTML', imgTag);
-      }
-    } catch (e) {
-      console.error('Failed to insert logo:', e);
-    }
-  };
-
-  const handleInsertSigLink = () => {
-    const url = prompt(language === 'en' ? 'Enter website address (URL):' : 'Web sitesi adresi girin (URL):');
-    if (url) {
-      const href = url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:') ? url : `https://${url}`;
-      execSigCommand('createLink', href);
-    }
-  };
-
-  const handleApplySigTemplate = (templateType: 'modern' | 'two-column' | 'simple') => {
-    const accountName = accounts.find((a) => a.email === selectedEmail)?.display_name || selectedEmail.split('@')[0];
-    let templateHtml = '';
-    if (templateType === 'modern') {
-      templateHtml = `<div style="font-family: Arial, sans-serif; font-size: 13px; color: #333; line-height: 1.5; border-left: 3px solid #2563eb; padding-left: 12px; margin-top: 8px;"><div style="font-weight: bold; font-size: 14px; color: #1e293b;">${accountName}</div><div style="color: #64748b; font-size: 12px;">Unvan / Departman</div><div style="margin-top: 4px; color: #475569; font-size: 12px;">📧 <a href="mailto:${selectedEmail}" style="color: #2563eb; text-decoration: none;">${selectedEmail}</a> &nbsp;|&nbsp; 🌐 <a href="https://example.com" style="color: #2563eb; text-decoration: none;">example.com</a></div></div>`;
-    } else if (templateType === 'two-column') {
-      templateHtml = `<table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; font-size: 13px; color: #333; margin-top: 8px;"><tr><td style="padding-right: 14px; border-right: 2px solid #cbd5e1; vertical-align: middle;"><div style="width: 44px; height: 44px; border-radius: 8px; background: #2563eb; color: #fff; font-weight: bold; font-size: 18px; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 44px;">${accountName.slice(0, 2).toUpperCase()}</div></td><td style="padding-left: 14px; vertical-align: middle; line-height: 1.4;"><strong style="color: #0f172a; font-size: 14px;">${accountName}</strong><br/><span style="color: #64748b; font-size: 12px;">Şirket / Kuruluş</span><br/><span style="font-size: 11px; color: #2563eb;">${selectedEmail}</span></td></tr></table>`;
-    } else {
-      templateHtml = `<div style="font-family: Arial, sans-serif; font-size: 13px; color: #4b5563; line-height: 1.4; margin-top: 8px;">Saygılarımla / Best regards,<br/><strong style="color: #111827;">${accountName}</strong><br/><span style="font-size: 12px; color: #6b7280;">Tel: +90 (5XX) XXX XX XX</span></div>`;
-    }
-    setSigHtml(templateHtml);
-    if (sigEditorRef.current) {
-      sigEditorRef.current.innerHTML = templateHtml;
-    }
-  };
-
-  useEffect(() => {
-    if (sigEditorRef.current && sigIsHtml) {
-      if (sigEditorRef.current.innerHTML !== sigHtml) {
-        sigEditorRef.current.innerHTML = sigHtml;
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sigIsHtml, selectedEmail]);
 
   const handleTestNotification = async () => {
     if (!window.postaci?.notifications) return;
@@ -513,8 +456,10 @@ export function SettingsModal({
     }
   };
 
-  const currentVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || '1.0.22';
-  const [logoLoadError, setLogoLoadError] = useState(false);
+  // Vite build'de __APP_VERSION__ inject edilir; preload yedekliği ikinci sırada.
+  // Son çare 'bilinmiyor' — sahte bir sürüm numarası güncelleme kontrolünü yanıltır.
+  const currentVersion =
+    (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || window.postaci?.version || UNKNOWN_VERSION;
   const [latestReleaseInfo, setLatestReleaseInfo] = useState<{
     version?: string;
     hasUpdate?: boolean;
@@ -539,7 +484,7 @@ export function SettingsModal({
         if (r?.ok) {
           const tag = (r.version || '').replace(/^v/, '');
           const cur = (currentVersion || '').replace(/^v/, '');
-          const hasUpdate = Boolean(tag && tag !== cur);
+          const hasUpdate = Boolean(tag && cur !== UNKNOWN_VERSION && tag !== cur);
           setLatestReleaseInfo({
             version: tag || undefined,
             hasUpdate,
@@ -555,7 +500,8 @@ export function SettingsModal({
       if (res.ok) {
         const data = await res.json();
         const tag = (data.tag_name || '').replace(/^v/, '');
-        const hasUpdate = Boolean(tag && tag !== currentVersion);
+        // Sürüm bilinmiyorsa karşılaştırma anlamsız; "güncelleme var" demek yanlış olur.
+        const hasUpdate = Boolean(tag && currentVersion !== UNKNOWN_VERSION && tag !== currentVersion);
         setLatestReleaseInfo({
           version: tag,
           hasUpdate,
@@ -697,31 +643,15 @@ export function SettingsModal({
   };
 
   // Mailbird Duvar Kağıtları Önizlemeleri
-  const wallpapers = useMemo(
-    () => [
-      { id: 'default', label: language === 'en' ? 'Default' : 'Varsayılan', color: '#2b56bf' },
-      { id: 'blue-abstract', label: language === 'en' ? 'Blue Geometry' : 'Mavi Geometri', bg: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)' },
-      { id: 'dark-violet', label: language === 'en' ? 'Dark Violet' : 'Mor Gece', bg: 'linear-gradient(135deg, #2e1065 0%, #7e22ce 100%)' },
-      { id: 'emerald-glow', label: language === 'en' ? 'Emerald Forest' : 'Zümrüt Orman', bg: 'linear-gradient(135deg, #064e3b 0%, #059669 100%)' },
-      { id: 'sunset-amber', label: language === 'en' ? 'Sunset Amber' : 'Gün Batımı', bg: 'linear-gradient(135deg, #7c2d12 0%, #f97316 100%)' },
-      { id: 'slate-cyber', label: language === 'en' ? 'Cyber Slate' : 'Siber Grafit', bg: 'linear-gradient(135deg, #0f172a 0%, #334155 100%)' },
-    ],
-    [language]
-  );
 
   // Sadece gerçek, dolu ve çalışan sekmeler (İçeriği olmayan boş sekmeler kaldırıldı!)
-  const navTabs: { id: SettingsTab; label: string }[] = [
-    { id: 'general', label: language === 'en' ? 'General' : 'Genel' },
-    { id: 'appearance', label: language === 'en' ? 'Appearance' : 'Görünüm' },
-    { id: 'scaling', label: language === 'en' ? 'Scaling & Zoom' : 'Ölçeklendirme' },
-    { id: 'accounts', label: language === 'en' ? 'Accounts' : 'Hesaplar' },
-    { id: 'composing', label: language === 'en' ? 'Composing' : 'Oluşturma' },
-    { id: 'advanced', label: language === 'en' ? 'Advanced' : 'Gelişmiş' },
-    { id: 'about', label: language === 'en' ? 'About Postacı' : 'Postacı Hakkında' },
-  ];
+  const navTabs: { id: SettingsTab; label: string }[] = buildNavTabs(language);
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={language === 'en' ? 'Settings' : 'Ayarlar'}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs animate-fadeIn select-none p-4"
       onClick={onClose}
     >
@@ -825,2057 +755,188 @@ export function SettingsModal({
           {/* Dinamik Tab İçerikleri */}
           <div className="flex-1 overflow-y-auto p-5 sm:p-6 pb-4 custom-scrollbar">
             {/* ==================== 1. GENEL TAB ==================== */}
-            {activeTab === 'general' && (
-              <div className="space-y-6">
-                {/* Uygulama Davranışı */}
-                <div>
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
-                    {language === 'en' ? 'Application behavior' : 'Uygulama davranışı'}
-                  </h3>
-                  <div className="space-y-3 text-xs sm:text-[13px]">
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={launchOnStartup}
-                        onChange={(e) => {
-                          const val = e.target.checked;
-                          setLaunchOnStartup(val);
-                          localStorage.setItem('postaci_startup', String(val));
-                          updateAppBehavior({ launchOnStartup: val });
-                        }}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Launch at Windows startup' : 'Windows başlangıcında açılsın'}</span>
-                    </label>
-
-                    <label className="flex items-start gap-2.5 ml-6 cursor-pointer opacity-90">
-                      <input
-                        type="checkbox"
-                        checked={startMinimized}
-                        disabled={!launchOnStartup}
-                        onChange={(e) => {
-                          const val = e.target.checked;
-                          setStartMinimized(val);
-                          localStorage.setItem('postaci_minimized', String(val));
-                          updateAppBehavior({ startMinimized: val });
-                        }}
-                        className="h-4 w-4 mt-0.5 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer disabled:opacity-40"
-                      />
-                      <div className="flex flex-col">
-                        <span className={!launchOnStartup ? 'text-zinc-400' : ''}>
-                          {language === 'en' ? 'Start minimized in background silently' : 'Başlangıçta simge durumunda açılsın (arka planda sessizce başlar)'}
-                        </span>
-                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                          {language === 'en' ? 'When enabled, main window will not pop up on Windows startup, waits in system tray.' : 'Açık olduğunda Windows açılırken ana pencere ekrana gelmez, sistem tepsisinde (saat yanında) hazır bekler.'}
-                        </span>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={hideTaskbarOnMinimize}
-                        onChange={(e) => {
-                          const val = e.target.checked;
-                          setHideTaskbarOnMinimize(val);
-                          localStorage.setItem('postaci_hide_taskbar', String(val));
-                          updateAppBehavior({ hideTaskbarOnMinimize: val });
-                        }}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Hide from taskbar when minimized (system tray only)' : 'Simge durumunda iken görev çubuğu simgesi gizlensin (yalnızca sistem tepsisinde kalsın)'}</span>
-                    </label>
-
-                    <div>
-                      <label className="flex items-center gap-2.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={closeToQuit}
-                          onChange={(e) => {
-                            const val = e.target.checked;
-                            setCloseToQuit(val);
-                            localStorage.setItem('postaci_close_to_quit', String(val));
-                            updateAppBehavior({ closeToQuit: val });
-                          }}
-                          className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                        />
-                        <span>{language === 'en' ? 'Exit application completely when clicking close (✕)' : 'Çıkma tuşuna (✕) basıldığında uygulamadan tamamen çıkılsın'}</span>
-                      </label>
-                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 pl-6.5 mt-0.5 leading-relaxed">
-                        {language === 'en' ? 'If unchecked (recommended), clicking close keeps Postacı running in background/tray.' : 'İşaretli değilse (önerilen), çıkma tuşuna basıldığında Postacı arka planda ve sistem tepsisinde çalışmaya devam eder.'}
-                      </p>
-                    </div>
-
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={useGmailShortcuts}
-                        onChange={(e) => {
-                          const val = e.target.checked;
-                          setUseGmailShortcuts(val);
-                          localStorage.setItem('postaci_gmail_shortcuts', String(val));
-                          updateAppBehavior({ useGmailShortcuts: val });
-                        }}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Enable Gmail keyboard shortcuts (C, R, A, E, # etc.)' : 'Gmail klavye kısayollarını kullan (C, R, A, E, # vb.)'}</span>
-                    </label>
-
-                    <label className="flex items-start gap-2.5 cursor-pointer pt-1">
-                      <input
-                        type="checkbox"
-                        checked={spellcheckEnabled}
-                        onChange={(e) => handleToggleSpellcheck(e.target.checked)}
-                        className="h-4 w-4 mt-0.5 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <div className="flex flex-col">
-                        <span>{language === 'en' ? 'Check spelling as you type (TR & EN)' : 'Yazarken dahili imla ve yazım denetimi yap (Türkçe & İngilizce)'}</span>
-                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                          {language === 'en'
-                            ? 'Underlines spelling errors. Right-click words to view suggestions or add to custom dictionary.'
-                            : 'Yazım hatalarını kırmızı dalgalı çizgiyle belirtir. Sağ tıklayarak düzeltme önerilerini görebilir veya sözlüğe ekleyebilirsiniz.'}
-                        </span>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-
-                {/* E-posta Okuma & Okundu İşaretleme Davranışı */}
-                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-2 tracking-tight">
-                    {language === 'en' ? 'Reading & Mark as Read' : 'Okuma ve Okundu İşaretleme'}
-                  </h3>
-                  <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3.5 dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
-                    <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                      {language === 'en' ? 'Mark as Read Timing' : 'Okundu Olarak İşaretleme Zamanlaması'}
-                    </h4>
-                    <p className="text-[11px] text-zinc-500">
-                      {language === 'en'
-                        ? 'Determine when an email is automatically marked as read upon selection.'
-                        : 'Bir ileti seçildiğinde ne zaman okundu olarak işaretleneceğini belirleyin.'}
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      {[
-                        {
-                          id: 'instant',
-                          label: language === 'en' ? 'Instant' : 'Anında',
-                          desc: language === 'en' ? 'As soon as email is clicked' : 'İleti tıklandığı anda',
-                        },
-                        {
-                          id: 'delay_3s',
-                          label: language === 'en' ? 'After 3 Seconds' : '3 Saniye Sonra',
-                          desc: language === 'en' ? 'When viewing for 3 seconds' : 'İletide 3 sn kalındığında',
-                        },
-                        {
-                          id: 'delay_5s',
-                          label: language === 'en' ? 'After 5 Seconds' : '5 Saniye Sonra',
-                          desc: language === 'en' ? 'When viewing for 5 seconds' : 'İletide 5 sn kalındığında',
-                        },
-                        {
-                          id: 'manual',
-                          label: language === 'en' ? 'Manual' : 'Manuel',
-                          desc: language === 'en' ? 'Only when button is pressed' : 'Sadece düğmeye basıldığında',
-                        },
-                      ].map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => handleMarkReadTimingChange(m.id as MarkReadTiming)}
-                          className={`p-2 rounded-xl border text-left transition cursor-pointer ${
-                            localMarkReadTiming === m.id
-                              ? 'border-blue-600 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-950/40 ring-1 ring-blue-500'
-                              : 'border-zinc-200 dark:border-zinc-750 hover:bg-white dark:hover:bg-zinc-800'
-                          }`}
-                        >
-                          <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{m.label}</div>
-                          <div className="text-[10px] text-zinc-400 mt-0.5">{m.desc}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Bildirimler */}
-                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
-                    {language === 'en' ? 'Notifications' : 'Bildirimler'}
-                  </h3>
-                  <div className="space-y-2.5 text-xs sm:text-[13px]">
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={showUnreadBadge}
-                        onChange={(e) => setShowUnreadBadge(e.target.checked)}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Show unread count badge in taskbar and tray' : 'Okunmamış ileti sayısı görev çubuğu & bildirim alanında gösterilsin'}</span>
-                    </label>
-
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={showTaskbarAlert}
-                        onChange={(e) => setShowTaskbarAlert(e.target.checked)}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Flash taskbar when new email arrives' : 'İleti geldiğinde görev çubuğunda uyarı gösterilsin'}</span>
-                    </label>
-
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={showTrackingAlert}
-                        onChange={(e) => setShowTrackingAlert(e.target.checked)}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Show notification when tracked email is opened' : 'E-posta İzlemesi olan bir ileti açıldığında bildirim alanında göster'}</span>
-                    </label>
-
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={showInAppAlerts}
-                        onChange={(e) => handleToggleInAppAlerts(e.target.checked)}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>
-                        {language === 'en'
-                          ? 'Show in-app floating notification card (top right)'
-                          : 'Uygulama açıkken sağ üstte canlı bildirim kartı gösterilsin'}
-                      </span>
-                    </label>
-
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-xs text-zinc-600 dark:text-zinc-400">{language === 'en' ? 'New email sound:' : 'Yeni ileti sesi:'}</span>
-                      <select
-                        value={soundChoice}
-                        onChange={(e) => handleSoundChange(e.target.value)}
-                        className="rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                      >
-                        <option value="chirp">{language === 'en' ? 'Default (Chirp)' : 'Varsayılan (Chirp)'}</option>
-                        <option value="ding">{language === 'en' ? 'Ding (Classic)' : 'Ding (Klasik)'}</option>
-                        <option value="bell">{language === 'en' ? 'Bell' : 'Çan'}</option>
-                        <option value="none">{language === 'en' ? 'Mute' : 'Sessiz'}</option>
-                      </select>
-                    </div>
-
-                    <div className="pt-1 flex items-center justify-between">
-                      <span className="text-xs text-zinc-600 dark:text-zinc-400">{language === 'en' ? 'Sync check frequency:' : 'E-posta denetleme sıklığı:'}</span>
-                      <select
-                        value={syncInterval}
-                        onChange={(e) => handleSyncIntervalChange(Number(e.target.value))}
-                        className="rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                      >
-                        <option value={0.5}>{language === 'en' ? 'Every 30 seconds (Ultra fast)' : 'Her 30 saniyede bir (Ultra Hızlı)'}</option>
-                        <option value={1}>{language === 'en' ? 'Every 1 minute (Fast)' : 'Her 1 dakikada bir (Hızlı)'}</option>
-                        <option value={2}>{language === 'en' ? 'Every 2 minutes (Recommended - Stable)' : 'Her 2 dakikada bir (Önerilen - Kararlı)'}</option>
-                        <option value={3}>{language === 'en' ? 'Every 3 minutes' : 'Her 3 dakikada bir'}</option>
-                        <option value={5}>{language === 'en' ? 'Every 5 minutes' : 'Her 5 dakikada bir'}</option>
-                        <option value={10}>{language === 'en' ? 'Every 10 minutes' : 'Her 10 dakikada bir'}</option>
-                      </select>
-                    </div>
-
-                    <div className="pt-2 pb-1">
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={handleTestNotification}
-                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium cursor-pointer"
-                        >
-                          {language === 'en' ? 'Send Test Notification' : 'Test Bildirimi Gönder'}
-                        </button>
-                        {testNotice && (
-                          <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                            {testNotice}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Windows Bildirim İpucu & Doğrudan Ayar Butonu */}
-                      <div className="mt-2.5 rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-[11px] leading-relaxed text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200">
-                        <p>
-                          <span className="font-semibold">
-                            {language === 'en' ? '💡 Windows Notification Tip:' : '💡 Windows Bildirim İpucu:'}
-                          </span>{' '}
-                          {language === 'en' ? (
-                            <>
-                              In Windows 10/11, <span className="font-semibold">Focus Assist (Do Not Disturb)</span> may activate automatically between 23:00 - 07:00 or during full screen. In this mode, Windows stores notifications quietly in the Action Center (<kbd className="rounded bg-blue-100 dark:bg-blue-900 px-1 py-0.5 font-mono text-[10px]">Win + N</kbd>) instead of popping up.
-                            </>
-                          ) : (
-                            <>
-                              Windows 10/11'de saat 23:00 - 07:00 arasında veya tam ekran modundayken <span className="font-semibold">Odaklanma Yardımı (Rahatsız Etmeyin)</span> otomatik açılabilir. Bu modda Windows, bildirim pencerelerini masaüstüne çıkarmak yerine sağ alttaki Windows Bildirim Merkezi'ne (<kbd className="rounded bg-blue-100 dark:bg-blue-900 px-1 py-0.5 font-mono text-[10px]">Win + N</kbd>) sessizce depolar.
-                            </>
-                          )}
-                        </p>
-                        {window.postaci?.openExternal && (
-                          <div className="mt-2">
-                            <button
-                              type="button"
-                              onClick={() => window.postaci?.openExternal?.('ms-settings:notifications')}
-                              className="inline-flex items-center gap-1.5 font-semibold text-blue-700 dark:text-blue-300 hover:underline cursor-pointer"
-                            >
-                              ⚙ {language === 'en' ? 'Open Windows Notification Settings ↗' : 'Windows Sistem Bildirim Ayarlarını Aç ↗'}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Sessiz Saatler / Rahatsız Etmeyin */}
-                    <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
-                      <label className="flex items-center gap-2.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={quietHoursEnabled}
-                          onChange={(e) => handleQuietHoursToggle(e.target.checked)}
-                          className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                        />
-                        <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                          {language === 'en' ? 'Quiet Hours / Do Not Disturb' : 'Sessiz Saatler / Rahatsız Etmeyin (Quiet Hours)'}
-                        </span>
-                      </label>
-                      <p className="text-[11px] text-zinc-500 pl-6.5">
-                        {language === 'en'
-                          ? 'Desktop notifications and alert sounds are automatically muted during the specified time range.'
-                          : 'Belirtilen zaman aralığında gelen yeni e-postalarda Windows masaüstü bildirimi ve sesleri otomatik susturulur.'}
-                      </p>
-                      {quietHoursEnabled && (
-                        <div className="flex items-center gap-4 pl-6.5 pt-1 animate-fadeIn">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs text-zinc-600 dark:text-zinc-400">
-                              {language === 'en' ? 'Start:' : 'Başlangıç:'}
-                            </span>
-                            <input
-                              type="time"
-                              value={quietHoursStart}
-                              onChange={(e) => handleQuietHoursTimeChange('start', e.target.value)}
-                              className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
-                            />
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs text-zinc-600 dark:text-zinc-400">
-                              {language === 'en' ? 'End:' : 'Bitiş:'}
-                            </span>
-                            <input
-                              type="time"
-                              value={quietHoursEnd}
-                              onChange={(e) => handleQuietHoursTimeChange('end', e.target.value)}
-                              className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Dil */}
-                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-1 tracking-tight">
-                    {language === 'en' ? 'Language' : 'Dil'}
-                  </h3>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-2.5">
-                    {language === 'en' ? 'Choose application interface language' : 'Uygulama arayüz dilini seçin'}
-                  </p>
-                  <select
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value as 'tr' | 'en')}
-                    className="w-52 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                  >
-                    <option value="tr">Türkçe (Turkish)</option>
-                    <option value="en">English (US)</option>
-                  </select>
-                </div>
-              </div>
+{activeTab === 'general' && (
+              <GeneralTab
+                launchOnStartup={launchOnStartup}
+                startMinimized={startMinimized}
+                hideTaskbarOnMinimize={hideTaskbarOnMinimize}
+                closeToQuit={closeToQuit}
+                useGmailShortcuts={useGmailShortcuts}
+                onAppBehaviorChange={updateAppBehavior}
+                spellcheckEnabled={spellcheckEnabled}
+                onToggleSpellcheck={handleToggleSpellcheck}
+                markReadTiming={localMarkReadTiming}
+                onMarkReadTimingChange={handleMarkReadTimingChange}
+                showUnreadBadge={showUnreadBadge}
+                onShowUnreadBadgeChange={setShowUnreadBadge}
+                showTaskbarAlert={showTaskbarAlert}
+                onShowTaskbarAlertChange={setShowTaskbarAlert}
+                showTrackingAlert={showTrackingAlert}
+                onShowTrackingAlertChange={setShowTrackingAlert}
+                showInAppAlerts={showInAppAlerts}
+                onToggleInAppAlerts={handleToggleInAppAlerts}
+                soundChoice={soundChoice}
+                onSoundChange={handleSoundChange}
+                syncInterval={syncInterval}
+                onSyncIntervalChange={handleSyncIntervalChange}
+                onTestNotification={handleTestNotification}
+                testNotice={testNotice}
+                quietHoursEnabled={quietHoursEnabled}
+                onQuietHoursToggle={handleQuietHoursToggle}
+                quietHoursStart={quietHoursStart}
+                quietHoursEnd={quietHoursEnd}
+                onQuietHoursTimeChange={handleQuietHoursTimeChange}
+              />
             )}
 
             {/* ==================== 2. GÖRÜNÜM TAB ==================== */}
-            {activeTab === 'appearance' && (
-              <div className="space-y-6">
-                {/* Arayüz ve Tema Rengi */}
-                <div>
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
-                    {language === 'en' ? 'Interface & theme color' : 'Arayüz ve tema rengi'}
-                  </h3>
-
-                  {/* Mailbird Tel Kafes Görsel Yerleşim Kartları */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-                    {/* Kart 1: 3 Sütunlu Yan Yana */}
-                    <button
-                      type="button"
-                      onClick={() => handleLayoutMode?.('three-column')}
-                      className={`flex flex-col items-center rounded-xl border p-3 transition text-left ${
-                        layoutMode === 'three-column'
-                          ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-500/30 dark:border-blue-500 dark:bg-blue-950/30'
-                          : 'border-zinc-200 hover:border-zinc-300 bg-white dark:border-zinc-750 dark:bg-zinc-800'
-                      }`}
-                    >
-                      <div className="w-full h-16 rounded border border-blue-500/60 dark:border-blue-400/60 flex p-1 gap-1 mb-2 bg-zinc-50 dark:bg-zinc-900/60">
-                        <div className="w-2 h-full bg-blue-500/30 rounded-xs flex flex-col gap-0.5 p-0.5">
-                          <div className="w-1 h-1 rounded-full bg-blue-500" />
-                          <div className="w-1 h-1 rounded-full bg-blue-500" />
-                        </div>
-                        <div className="w-4 h-full border-r border-blue-300/40 dark:border-blue-700/40" />
-                        <div className="w-8 h-full border-r border-blue-300/40 dark:border-blue-700/40" />
-                        <div className="flex-1 h-full" />
-                      </div>
-                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                        {language === 'en' ? '3-Column Layout' : '3 Sütunlu Düzen'}
-                      </span>
-                      <span className="text-[10px] text-zinc-400">
-                        {language === 'en' ? 'Classic 3-Column' : 'Klasik 3 Sütun'}
-                      </span>
-                    </button>
-
-                    {/* Kart 2: Alt Alta / Yatay Bölmeli */}
-                    <button
-                      type="button"
-                      onClick={() => handleLayoutMode?.('horizontal')}
-                      className={`flex flex-col items-center rounded-xl border p-3 transition text-left ${
-                        layoutMode === 'horizontal'
-                          ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-500/30 dark:border-blue-500 dark:bg-blue-950/30'
-                          : 'border-zinc-200 hover:border-zinc-300 bg-white dark:border-zinc-750 dark:bg-zinc-800'
-                      }`}
-                    >
-                      <div className="w-full h-16 rounded border border-blue-500/60 dark:border-blue-400/60 flex p-1 gap-1 mb-2 bg-zinc-50 dark:bg-zinc-900/60">
-                        <div className="w-2 h-full bg-blue-500/30 rounded-xs flex flex-col gap-0.5 p-0.5">
-                          <div className="w-1 h-1 rounded-full bg-blue-500" />
-                          <div className="w-1 h-1 rounded-full bg-blue-500" />
-                        </div>
-                        <div className="flex-1 h-full flex flex-col gap-1">
-                          <div className="w-full h-1/2 border-b border-blue-300/40 dark:border-blue-700/40" />
-                          <div className="w-full h-1/2" />
-                        </div>
-                      </div>
-                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                        {language === 'en' ? 'Horizontal Split' : 'Alt Alta Bölmeli'}
-                      </span>
-                      <span className="text-[10px] text-zinc-400">
-                        {language === 'en' ? 'Horizontal Reading' : 'Yatay Okuma'}
-                      </span>
-                    </button>
-
-                    {/* Kart 3: Odak / Kompakt */}
-                    <button
-                      type="button"
-                      onClick={() => handleLayoutMode?.('compact')}
-                      className={`flex flex-col items-center rounded-xl border p-3 transition text-left col-span-2 sm:col-span-1 ${
-                        layoutMode === 'compact'
-                          ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-500/30 dark:border-blue-500 dark:bg-blue-950/30'
-                          : 'border-zinc-200 hover:border-zinc-300 bg-white dark:border-zinc-750 dark:bg-zinc-800'
-                      }`}
-                    >
-                      <div className="w-full h-16 rounded border border-blue-500/60 dark:border-blue-400/60 flex p-1 gap-1 mb-2 bg-zinc-50 dark:bg-zinc-900/60">
-                        <div className="w-3 h-full bg-blue-500/20 rounded-xs" />
-                        <div className="flex-1 h-full" />
-                      </div>
-                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                        {language === 'en' ? 'Focus Mode' : 'Odak Modu'}
-                      </span>
-                      <span className="text-[10px] text-zinc-400">
-                        {language === 'en' ? 'Compact List' : 'Kompakt Liste'}
-                      </span>
-                    </button>
-                  </div>
-
-                  {/* Bölme Onay Kutucukları */}
-                  <div className="space-y-2 mb-4 text-xs sm:text-[13px]">
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={showReadingPane}
-                        onChange={(e) => setShowReadingPane(e.target.checked)}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Show reading pane' : 'Okuma bölmesini göster'}</span>
-                    </label>
-
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={showFoldersSeparately}
-                        onChange={(e) => setShowFoldersSeparately(e.target.checked)}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Show folders separately in expanded navigation' : 'Klasörleri genişletilmiş gezinti penceresinde ayrı göster'}</span>
-                    </label>
-                  </div>
-
-                  {/* 3 Kademeli Tema Seçimi (Mailbird Screenshot 2) */}
-                  <div className="space-y-2 mb-4">
-                    <label className="flex items-center gap-2.5 cursor-pointer text-xs sm:text-[13px]">
-                      <input
-                        type="radio"
-                        name="theme_mode"
-                        checked={theme === 'light'}
-                        onChange={() => setTheme('light')}
-                        className="h-4 w-4 border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Light Theme' : 'Açık Tema'}</span>
-                    </label>
-
-                    <label className="flex items-center gap-2.5 cursor-pointer text-xs sm:text-[13px]">
-                      <input
-                        type="radio"
-                        name="theme_mode"
-                        checked={theme === 'dark'}
-                        onChange={() => setTheme('dark')}
-                        className="h-4 w-4 border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Dark Theme' : 'Koyu Tema'}</span>
-                    </label>
-
-                    <label className="flex items-center gap-2.5 cursor-pointer text-xs sm:text-[13px]">
-                      <input
-                        type="radio"
-                        name="theme_mode"
-                        checked={theme === 'system'}
-                        onChange={() => setTheme('system')}
-                        className="h-4 w-4 border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                      />
-                      <span>{language === 'en' ? 'Match System Theme' : 'Sistem Temasıyla Eşitle'}</span>
-                    </label>
-                  </div>
-
-                  {/* Vurgu Rengi Seçici */}
-                  <div className="pt-2">
-                    <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-2">
-                      {language === 'en' ? 'Choose theme accent color' : 'Tema rengini seç'}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      {(Object.keys(ACCENTS) as AccentKey[]).map((k) => (
-                        <button
-                          key={k}
-                          onClick={() => setAccent(k)}
-                          title={ACCENTS[k].label}
-                          className={`h-7 w-7 rounded-full transition transform active:scale-95 ${ACCENTS[k].dot} ${
-                            accent === k
-                              ? 'ring-2 ring-blue-500 ring-offset-2 scale-110 dark:ring-offset-zinc-900'
-                              : 'opacity-80 hover:opacity-100 hover:scale-105'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Arkaplan Duvar Kağıtları (Mailbird Screenshot 2 İmzası) */}
-                <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3 tracking-tight">
-                    {language === 'en' ? 'Background' : 'Arkaplan'}
-                  </h3>
-                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!window.postaci?.openFileDialog) return;
-                        const dataUrl = await window.postaci.openFileDialog({
-                          title: language === 'en' ? 'Choose Custom Background Image' : 'Özel Arkaplan Resmi Seç',
-                          filters: [{ name: 'Resim', extensions: ['jpg','jpeg','png','webp','gif','bmp'] }],
-                        });
-                        if (dataUrl) {
-                          setCustomWallpaperDataUrl(dataUrl);
-                          localStorage.setItem('postaci_custom_wallpaper', dataUrl);
-                          setSelectedWallpaper('custom');
-                          localStorage.setItem('postaci_wallpaper', 'custom');
-                          window.dispatchEvent(new CustomEvent('postaci:wallpaper', { detail: { id: 'custom', dataUrl } }));
-                        }
-                      }}
-                      className="h-16 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-blue-500 flex items-center justify-center text-zinc-400 hover:text-blue-500 transition relative group"
-                      title={language === 'en' ? 'Add custom background' : 'Özel arkaplan ekle'}
-                    >
-                      <span className="text-2xl leading-none">+</span>
-                      {customWallpaperDataUrl && (
-                        <span className="absolute inset-0 rounded-xl overflow-hidden opacity-60">
-                          <img src={customWallpaperDataUrl} className="w-full h-full object-cover" alt="" />
-                        </span>
-                      )}
-                    </button>
-
-                    {wallpapers.map((w) => (
-                      <button
-                        key={w.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedWallpaper(w.id);
-                          localStorage.setItem('postaci_wallpaper', w.id);
-                        }}
-                        style={{ background: w.bg || w.color }}
-                        className={`h-16 rounded-xl transition shadow-xs transform active:scale-95 relative overflow-hidden ${
-                          selectedWallpaper === w.id
-                            ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-zinc-900 scale-105'
-                            : 'opacity-85 hover:opacity-100'
-                        }`}
-                        title={w.label}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* OLED Saf Siyah (True Black) Modu */}
-                <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={localOled}
-                      onChange={(e) => handleOledToggle(e.target.checked)}
-                      className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                    />
-                    <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                      {language === 'en' ? 'OLED True Black Mode (#000000)' : 'OLED Saf Siyah (True Black) Modu'}
-                    </span>
-                  </label>
-                  <p className="text-[11px] text-zinc-500 pl-6.5 mt-0.5">
-                    {language === 'en'
-                      ? 'Sets pure #000000 black background in dark mode for maximum contrast and battery saving on OLED/AMOLED screens.'
-                      : 'Koyu temada arka planı tam #000000 yaparak OLED/AMOLED ekranlarda maksimum kontrast ve enerji tasarrufu sağlar.'}
-                  </p>
-                </div>
-
-                {/* İleti Listesi Yoğunluğu ve Detayları */}
-                <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-900 dark:text-zinc-100 mb-2">
-                      {language === 'en' ? 'Message List Density' : 'İleti Listesi Yoğunluğu'}
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        {
-                          id: 'compact',
-                          label: language === 'en' ? 'Compact' : 'Kompakt',
-                          desc: language === 'en' ? 'Tight rows, more emails' : 'Dar satırlar, çok ileti',
-                        },
-                        {
-                          id: 'normal',
-                          label: language === 'en' ? 'Normal' : 'Normal',
-                          desc: language === 'en' ? 'Balanced spacing' : 'Dengeli satır aralığı',
-                        },
-                        {
-                          id: 'relaxed',
-                          label: language === 'en' ? 'Relaxed' : 'Rahat',
-                          desc: language === 'en' ? 'Spacious view' : 'Geniş ve ferah görünüm',
-                        },
-                      ].map((d) => (
-                        <button
-                          key={d.id}
-                          type="button"
-                          onClick={() => handleDensityChange(d.id as ListDensity)}
-                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                            localDensity === d.id
-                              ? 'border-blue-600 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-950/40 ring-1 ring-blue-500'
-                              : 'border-zinc-200 dark:border-zinc-750 hover:bg-zinc-50 dark:hover:bg-zinc-800'
-                          }`}
-                        >
-                          <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{d.label}</div>
-                          <div className="text-[10px] text-zinc-400 mt-0.5">{d.desc}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    {/* Snippet Satır Sayısı */}
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                        {language === 'en' ? 'Snippet Lines' : 'Özet (Snippet) Satır Sayısı'}
-                      </label>
-                      <select
-                        value={localSnippetLines}
-                        onChange={(e) => handleSnippetLinesChange(Number(e.target.value) as SnippetLines)}
-                        className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                      >
-                        <option value={0}>{language === 'en' ? 'Subject only (0 lines)' : 'Yalnızca Konu (0 satır)'}</option>
-                        <option value={1}>{language === 'en' ? 'Single line (1 line)' : 'Tek Satır Akıcı (1 satır)'}</option>
-                        <option value={2}>{language === 'en' ? 'Detailed snippet (2 lines)' : 'Detaylı Özet (2 satır)'}</option>
-                      </select>
-                    </div>
-
-                    {/* Tarih Formatı */}
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                        {language === 'en' ? 'Date Format' : 'Tarih Gösterim Formatı'}
-                      </label>
-                      <select
-                        value={localDateFormat}
-                        onChange={(e) => handleDateFormatChange(e.target.value as DateFormatPreference)}
-                        className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                      >
-                        <option value="smart">{language === 'en' ? 'Smart (Time today, date older)' : 'Akıllı (Bugün saat, eski gün/ay)'}</option>
-                        <option value="relative">{language === 'en' ? 'Relative (2 hours ago, Yesterday)' : 'Göreceli (2 saat önce, Dün)'}</option>
-                        <option value="absolute">{language === 'en' ? 'Full Date (11.09.2026 14:30)' : 'Tam Tarih (11.09.2026 14:30)'}</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Avatarları Göster */}
-                  <label className="flex items-center gap-2.5 cursor-pointer pt-1">
-                    <input
-                      type="checkbox"
-                      checked={localShowAvatars}
-                      onChange={(e) => handleShowAvatarsChange(e.target.checked)}
-                      className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                    />
-                    <span className="text-xs text-zinc-700 dark:text-zinc-300">
-                      {language === 'en'
-                        ? 'Show sender avatars in message list (faster scrolling when disabled)'
-                        : 'İleti listesinde kişi avatarlarını göster (Gizlendiğinde liste daha hızlı kaydırılır)'}
-                    </span>
-                  </label>
-                </div>
-              </div>
+{activeTab === 'appearance' && (
+              <AppearanceTab
+                layoutMode={layoutMode}
+                onLayoutModeChange={handleLayoutMode}
+                showReadingPane={showReadingPane}
+                onShowReadingPaneChange={setShowReadingPane}
+                showFoldersSeparately={showFoldersSeparately}
+                onShowFoldersSeparatelyChange={setShowFoldersSeparately}
+                theme={theme}
+                onThemeChange={setTheme}
+                accent={accent}
+                onAccentChange={setAccent}
+                selectedWallpaper={selectedWallpaper}
+                customWallpaperDataUrl={customWallpaperDataUrl}
+                onSelectWallpaper={(id) => {
+                  setSelectedWallpaper(id);
+                  localStorage.setItem('postaci_wallpaper', id);
+                }}
+                onCustomWallpaperPicked={(dataUrl) => {
+                  setCustomWallpaperDataUrl(dataUrl);
+                  localStorage.setItem('postaci_custom_wallpaper', dataUrl);
+                  setSelectedWallpaper('custom');
+                  localStorage.setItem('postaci_wallpaper', 'custom');
+                  window.dispatchEvent(new CustomEvent('postaci:wallpaper', { detail: { id: 'custom', dataUrl } }));
+                }}
+                oledMode={localOled}
+                onOledToggle={handleOledToggle}
+                listDensity={localDensity}
+                onDensityChange={handleDensityChange}
+                snippetLines={localSnippetLines}
+                onSnippetLinesChange={handleSnippetLinesChange}
+                dateFormat={localDateFormat}
+                onDateFormatChange={handleDateFormatChange}
+                showAvatars={localShowAvatars}
+                onShowAvatarsChange={handleShowAvatarsChange}
+              />
             )}
 
             {/* ==================== 3. ÖLÇEKLENDİRME TAB ==================== */}
-            {activeTab === 'scaling' && (
-              <div className="space-y-6">
-                {/* Uygulama Ölçeği */}
-                <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/40 p-4 space-y-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                      {language === 'en' ? 'Application UI Scale' : 'Uygulama Arayüz Ölçeği'}
-                    </h3>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-                      {language === 'en' ? 'Scales the entire app interface — sidebar, toolbars and all panels.' : 'Kenar çubuğu, araç çubuğu ve tüm paneller dahil tüm arayüzü ölçekler.'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <input
-                      type="range"
-                      min={80}
-                      max={140}
-                      step={5}
-                      value={appScale}
-                      onChange={(e) => handleAppScaleChange(Number(e.target.value))}
-                      className="flex-1 h-2 bg-zinc-200 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:bg-zinc-700"
-                    />
-                    <span className="text-sm font-black text-blue-600 dark:text-blue-400 w-12 text-right">
-                      %{appScale}
-                    </span>
-                    {appScale !== 100 && (
-                      <button
-                        onClick={() => handleAppScaleChange(100)}
-                        className="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
-                      >
-                        {language === 'en' ? 'Reset' : 'Sıfırla'}
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex gap-1.5">
-                    {[80, 90, 100, 110, 120, 130, 140].map(v => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => handleAppScaleChange(v)}
-                        className={`flex-1 rounded-lg py-1 text-[10px] font-semibold border transition ${
-                          appScale === v
-                            ? 'border-blue-500 bg-blue-600 text-white'
-                            : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-blue-400'
-                        }`}
-                      >
-                        {v}%
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* E-posta İçerik Ölçeği */}
-                <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/40 p-4 space-y-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                      {language === 'en' ? 'Email Content Scale' : 'E-posta İçeriği Ölçeği'}
-                    </h3>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-                      {language === 'en' ? 'Only affects message body text and HTML content size.' : 'Yalnızca ileti gövdesi metni ve HTML içerik boyutunu etkiler.'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <input
-                      type="range"
-                      min={80}
-                      max={150}
-                      step={5}
-                      value={mailScale}
-                      onChange={(e) => handleMailScaleChange(Number(e.target.value))}
-                      className="flex-1 h-2 bg-zinc-200 rounded-lg appearance-none cursor-pointer accent-purple-600 dark:bg-zinc-700"
-                    />
-                    <span className="text-sm font-black text-purple-600 dark:text-purple-400 w-12 text-right">
-                      %{mailScale}
-                    </span>
-                    {mailScale !== 100 && (
-                      <button
-                        onClick={() => handleMailScaleChange(100)}
-                        className="shrink-0 text-[11px] text-purple-600 dark:text-purple-400 hover:underline"
-                      >
-                        {language === 'en' ? 'Reset' : 'Sıfırla'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Metin Biçimlendirme Modu */}
-                <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/40 p-4 space-y-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                      {language === 'en' ? 'Text Rendering Mode' : 'Metin Biçimlendirme Modu'}
-                    </h3>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-                      {language === 'en' ? 'Change this if text appears blurry during scaling.' : 'Ölçekleme sırasında metin bulanık görünüyorsa bunu değiştirin.'}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    {(['ideal', 'standard'] as const).map(mode => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setTextRenderingMode(mode)}
-                        className={`flex-1 rounded-xl border py-2.5 text-xs font-semibold transition ${
-                          textRenderingMode === mode
-                            ? 'border-blue-500 bg-blue-600 text-white'
-                            : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-blue-400'
-                        }`}
-                      >
-                        {mode === 'ideal'
-                          ? (language === 'en' ? '✨ Ideal (Subpixel Smooth)' : '✨ İdeal (Subpixel Smooth)')
-                          : (language === 'en' ? '⚙ Standard' : '⚙ Standart')}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Canlı Ölçek Özet Kartı */}
-                <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
-                  <h3 className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-3 uppercase tracking-wider">
-                    {language === 'en' ? 'Current Scale Summary' : 'Mevcut Ölçek Özeti'}
-                  </h3>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60 p-3 text-center">
-                      <div className="text-2xl font-black text-blue-600 dark:text-blue-400">%{appScale}</div>
-                      <div className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 mt-0.5">
-                        {language === 'en' ? 'App UI' : 'Uygulama'}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60 p-3 text-center">
-                      <div className="text-2xl font-black text-purple-600 dark:text-purple-400">%{mailScale}</div>
-                      <div className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 mt-0.5">
-                        {language === 'en' ? 'Email Body' : 'E-posta'}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60 p-3 text-center">
-                      <div className="text-xl font-black text-zinc-600 dark:text-zinc-300">{textRenderingMode === 'ideal' ? '✨' : '⚙'}</div>
-                      <div className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 mt-0.5">
-                        {textRenderingMode === 'ideal' ? (language === 'en' ? 'Ideal' : 'İdeal') : (language === 'en' ? 'Standard' : 'Standart')}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* İpuçları */}
-                <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3.5 text-[11px] leading-relaxed text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200">
-                  <p className="font-semibold mb-1.5">💡 {language === 'en' ? 'Scaling Tips' : 'Ölçeklendirme İpuçları'}</p>
-                  <ul className="space-y-1 list-disc list-inside text-[11px] text-blue-800/80 dark:text-blue-300/80">
-                    <li>{language === 'en' ? 'App UI scale affects the entire interface — sidebar, toolbars, panels.' : 'Uygulama ölçeği kenar çubuğu, araç çubuğu ve tüm panelleri etkiler.'}</li>
-                    <li>{language === 'en' ? 'Email scale only affects message body content.' : 'E-posta ölçeği yalnızca ileti gövdesi içeriğini etkiler.'}</li>
-                    <li>{language === 'en' ? 'If text appears blurry, switch text rendering to Standard.' : 'Metin bulanık görünüyorsa metin modunu Standart\'a alın.'}</li>
-                  </ul>
-                </div>
-              </div>
+{activeTab === 'scaling' && (
+              <ScalingTab
+                appScale={appScale}
+                mailScale={mailScale}
+                textRenderingMode={textRenderingMode}
+                onAppScaleChange={handleAppScaleChange}
+                onMailScaleChange={handleMailScaleChange}
+                onTextRenderingModeChange={setTextRenderingMode}
+              />
             )}
 
             {/* ==================== 4. HESAPLAR TAB (DÜZENLEME & SİLME DESTEKLİ) ==================== */}
-            {activeTab === 'accounts' && (
-              <div className="space-y-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                      {language === 'en'
-                        ? `Connected Email Accounts (${accounts.length})`
-                        : `Bağlı E-posta Hesapları (${accounts.length})`}
-                    </h3>
-                    <p className="text-[11px] text-zinc-500">
-                      {language === 'en'
-                        ? 'Manage your accounts, edit server credentials or sender display name.'
-                        : 'Hesaplarınızı yönetin, sunucu veya görünen ad bilgilerini düzenleyin.'}
-                    </p>
-                  </div>
-                  {onOpenAddAccount && !editingAccountId && (
-                    <button
-                      type="button"
-                      onClick={onOpenAddAccount}
-                      className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition flex items-center gap-1.5 active:scale-95 shrink-0"
-                    >
-                      <span className="text-sm leading-none">+</span>
-                      <span>{language === 'en' ? 'Add New Account' : 'Yeni Hesap Ekle'}</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* Düzenleme Modu Aktifse */}
-                {editingAccountId ? (
-                  <div className="rounded-2xl border border-blue-300/80 bg-blue-50/30 p-4 text-xs dark:border-blue-800/80 dark:bg-blue-950/20 space-y-3.5 animate-fadeIn">
-                    <div className="flex items-center justify-between pb-2 border-b border-blue-200/60 dark:border-blue-900/60">
-                      <span className="font-bold text-blue-900 dark:text-blue-200 text-sm">
-                        {language === 'en' ? 'Edit Account Settings' : 'Hesap Ayarlarını Düzenle'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setEditingAccountId(null)}
-                        className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-xs"
-                      >
-                        {language === 'en' ? 'Cancel' : 'Vazgeç'}
-                      </button>
-                    </div>
-
-                    {/* Görünen Ad */}
-                    <div>
-                      <label className="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                        {language === 'en' ? 'Display Name (Sender Name)' : 'Görünen Ad (Gönderici İsmi)'}
-                      </label>
-                      <input
-                        type="text"
-                        value={editDisplayName}
-                        onChange={(e) => setEditDisplayName(e.target.value)}
-                        placeholder={language === 'en' ? 'e.g. John Doe' : 'Örn: Ekrem Eşref Kılınç'}
-                        className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-                      />
-                      <p className="text-[10px] text-zinc-400 mt-0.5">
-                        {language === 'en'
-                          ? 'The name recipients see when they receive your emails.'
-                          : 'Gönderdiğiniz e-postalarda alıcıların göreceği isimdir.'}
-                      </p>
-                    </div>
-
-                    {/* IMAP / SMTP Sunucu Ayarları veya OAuth Bilgisi */}
-                    {isEditingOAuth ? (
-                      <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70">
-                        <div className="rounded-xl border border-blue-200/80 bg-blue-50/50 p-3.5 dark:border-blue-900/50 dark:bg-blue-950/30 flex items-start gap-2.5">
-                          <span className="text-base shrink-0">🔒</span>
-                          <div className="space-y-1 text-xs">
-                            <p className="font-semibold text-blue-900 dark:text-blue-200">
-                              {language === 'en' ? 'OAuth 2.0 Secure Authentication' : 'OAuth 2.0 Güvenli Kimlik Doğrulama'}
-                            </p>
-                            <p className="text-[11px] text-blue-700/90 dark:text-blue-300/90 leading-relaxed">
-                              {language === 'en'
-                                ? 'This account is authenticated securely via Google/Microsoft OAuth 2.0. Server connections and tokens are automatically refreshed in the background.'
-                                : 'Bu hesap Google / Microsoft OAuth 2.0 ile güvenli olarak bağlanmıştır. Sunucu bağlantıları ve güvenlik anahtarları arka planda otomatik yenilenir.'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70 space-y-3">
-                        <p className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
-                          {language === 'en' ? 'Server & Connection Settings' : 'Sunucu & Bağlantı Ayarları'}
-                        </p>
-
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="col-span-2">
-                            <label className="block text-[10px] text-zinc-500 mb-0.5">
-                              {language === 'en' ? 'Incoming Server (IMAP)' : 'Gelen Sunucu (IMAP)'}
-                            </label>
-                            <input
-                              type="text"
-                              value={editImapHost}
-                              onChange={(e) => setEditImapHost(e.target.value)}
-                              placeholder="imap.example.com"
-                              className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] text-zinc-500 mb-0.5">
-                              {language === 'en' ? 'Port' : 'Port'}
-                            </label>
-                            <input
-                              type="number"
-                              value={editImapPort}
-                              onChange={(e) => setEditImapPort(Number(e.target.value))}
-                              className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="col-span-2">
-                            <label className="block text-[10px] text-zinc-500 mb-0.5">
-                              {language === 'en' ? 'Outgoing Server (SMTP)' : 'Giden Sunucu (SMTP)'}
-                            </label>
-                            <input
-                              type="text"
-                              value={editSmtpHost}
-                              onChange={(e) => setEditSmtpHost(e.target.value)}
-                              placeholder="smtp.example.com"
-                              className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] text-zinc-500 mb-0.5">
-                              {language === 'en' ? 'Port' : 'Port'}
-                            </label>
-                            <input
-                              type="number"
-                              value={editSmtpPort}
-                              onChange={(e) => setEditSmtpPort(Number(e.target.value))}
-                              className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                            />
-                          </div>
-                        </div>
-
-                        <label className="flex items-center gap-2 cursor-pointer pt-0.5">
-                          <input
-                            type="checkbox"
-                            checked={editSmtpSecure}
-                            onChange={(e) => setEditSmtpSecure(e.target.checked)}
-                            className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-0"
-                          />
-                          <span className="text-[11px] text-zinc-600 dark:text-zinc-400">
-                            {language === 'en' ? 'Use SMTP Secure Connection (SSL/TLS)' : 'SMTP Güvenli Bağlantı (SSL/TLS) kullan'}
-                          </span>
-                        </label>
-
-                        {/* Şifre Güncelleme (Opsiyonel) */}
-                        <div>
-                          <div className="flex items-center justify-between mb-0.5">
-                            <label className="block text-[10px] text-zinc-500">
-                              {language === 'en'
-                                ? 'Password / App Password (leave blank to keep current)'
-                                : 'Şifre / Uygulama Şifresi (Yalnızca değiştirmek istiyorsanız doldurun)'}
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => setShowEditPassword(!showEditPassword)}
-                              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
-                            >
-                              {showEditPassword ? (language === 'en' ? 'Hide' : 'Gizle') : (language === 'en' ? 'Show' : 'Göster')}
-                            </button>
-                          </div>
-                          <input
-                            type={showEditPassword ? 'text' : 'password'}
-                            value={editPassword}
-                            onChange={(e) => setEditPassword(e.target.value)}
-                            placeholder={language === 'en' ? 'Leave empty to preserve existing password' : 'Mevcut şifreyi korumak için boş bırakın'}
-                            className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Bağlantı Testi */}
-                    <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={handleTestConnection}
-                          disabled={testingConnection || savingAccount}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition active:scale-95 disabled:opacity-50"
-                        >
-                          {testingConnection ? (
-                            <>
-                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent" />
-                              <span>{language === 'en' ? 'Testing...' : 'Test ediliyor...'}</span>
-                            </>
-                          ) : (
-                            <>
-                              <span>🔌</span>
-                              <span>{language === 'en' ? 'Test Connection' : 'Bağlantıyı Test Et'}</span>
-                            </>
-                          )}
-                        </button>
-
-                        {connectionTestResult && (
-                          <div className="flex items-center gap-2 text-[11px] flex-wrap">
-                            <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 font-semibold border ${
-                              connectionTestResult.imap?.ok
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60'
-                                : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800/60'
-                            }`}>
-                              {connectionTestResult.imap?.ok ? '✓ IMAP' : '✕ IMAP'}
-                            </span>
-                            <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 font-semibold border ${
-                              connectionTestResult.smtp?.ok
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60'
-                                : connectionTestResult.smtp === null
-                                ? 'bg-zinc-50 text-zinc-500 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700'
-                                : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800/60'
-                            }`}>
-                              {connectionTestResult.smtp?.ok ? '✓ SMTP' : connectionTestResult.smtp === null ? '– SMTP' : '✕ SMTP'}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Hata Detayları */}
-                      {connectionTestResult && (
-                        <div className="mt-2 space-y-1">
-                          {connectionTestResult.imap && !connectionTestResult.imap.ok && connectionTestResult.imap.error && (
-                            <p className="text-[11px] text-red-600 dark:text-red-400 leading-relaxed">
-                              <span className="font-semibold">IMAP:</span> {connectionTestResult.imap.error}
-                            </p>
-                          )}
-                          {connectionTestResult.smtp && !connectionTestResult.smtp.ok && connectionTestResult.smtp.error && (
-                            <p className="text-[11px] text-red-600 dark:text-red-400 leading-relaxed">
-                              <span className="font-semibold">SMTP:</span> {connectionTestResult.smtp.error}
-                            </p>
-                          )}
-                          {connectionTestResult.smtp?.ok && connectionTestResult.smtp.note && (
-                            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{connectionTestResult.smtp.note}</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Kaydet ve İptal Butonları */}
-                    <div className="pt-2 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={handleSaveAccount}
-                          disabled={savingAccount}
-                          className="rounded-xl bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition active:scale-95 disabled:opacity-50"
-                        >
-                          {savingAccount
-                            ? (language === 'en' ? 'Saving...' : 'Kaydediliyor...')
-                            : (language === 'en' ? 'Save Changes' : 'Değişiklikleri Kaydet')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingAccountId(null)}
-                          className="rounded-xl border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 transition"
-                        >
-                          {language === 'en' ? 'Cancel' : 'İptal'}
-                        </button>
-                      </div>
-
-                      {accountSaveNotice && (
-                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                          {accountSaveNotice}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ) : accounts.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-xs text-zinc-500 dark:border-zinc-750">
-                    {language === 'en' ? 'No connected email accounts yet.' : 'Henüz bağlı bir e-posta hesabı bulunmuyor.'}
-                  </div>
-                ) : (
-                  /* Hesaplar Listesi */
-                  <div className="space-y-2.5 pr-1">
-                    {accounts.map((acc) => {
-                      const isGoogle = acc.provider?.includes('google') || acc.email.includes('gmail');
-                      const isMs =
-                        acc.provider?.includes('microsoft') ||
-                        acc.email.includes('hotmail') ||
-                        acc.email.includes('outlook');
-                      const isEdu = acc.email.includes('.edu');
-
-                      let badge = 'IMAP/SMTP';
-                      let badgeClass =
-                        'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
-                      if (isGoogle) {
-                        badge = 'Gmail OAuth';
-                        badgeClass =
-                          'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300 border-red-200 dark:border-red-800/60';
-                      } else if (isMs) {
-                        badge = 'Outlook OAuth';
-                        badgeClass =
-                          'bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 dark:border-sky-800/60';
-                      } else if (isEdu) {
-                        badge = language === 'en' ? 'Institutional' : 'Kurumsal';
-                        badgeClass =
-                          'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border-purple-200 dark:border-purple-800/60';
-                      }
-
-                      return (
-                        <div
-                          key={acc.id}
-                          className="rounded-xl border border-zinc-200/90 bg-zinc-50/80 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-850/60 hover:shadow-2xs transition"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0 flex-1 pr-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-zinc-900 dark:text-zinc-100 truncate">
-                                {acc.email}
-                              </span>
-                              <span
-                                className={`rounded-md border px-1.5 py-0.2 text-[9px] font-bold shrink-0 ${badgeClass}`}
-                              >
-                                {badge}
-                              </span>
-                            </div>
-
-                            <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-400">
-                              <span className="truncate">
-                                {acc.display_name
-                                  ? `${language === 'en' ? 'Display' : 'Görünen'}: ${acc.display_name}`
-                                  : (language === 'en' ? 'No name specified' : 'İsim belirtilmemiş')}
-                              </span>
-                              <span>•</span>
-                              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                {language === 'en' ? 'Active & Synced' : 'Aktif & Senkronize'}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Düzenle & Kaldır & Tanı Aksiyonları */}
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => handleDiagnose(acc)}
-                              disabled={diagnosingEmail !== null}
-                              className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-750 transition disabled:opacity-50"
-                              title={language === 'en' ? 'Run read-only sync diagnosis' : 'Salt-okunur senkron tanısı çalıştır'}
-                            >
-                              {diagnosingEmail === acc.email ? '…' : (language === 'en' ? 'Diagnose' : 'Tanı')}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleStartEdit(acc)}
-                              className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-750 transition"
-                            >
-                              {language === 'en' ? 'Edit' : 'Düzenle'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteAccount(acc)}
-                              className="rounded-lg border border-red-200 bg-red-50/60 px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/60 transition"
-                              title={language === 'en' ? "Remove account from Postacı" : "Hesabı Postacı'dan kaldır"}
-                            >
-                              {language === 'en' ? 'Remove' : 'Kaldır'}
-                            </button>
-                          </div>
-                          </div>
-                          {/* Tanı sonucu (salt-okunur) */}
-                          {diagnoseResults[acc.email] && (
-                            <div className={`mt-2 rounded-xl border p-2.5 text-[11px] leading-relaxed ${
-                              diagnoseResults[acc.email].ok
-                                ? 'border-emerald-200 bg-emerald-50/60 text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/30 dark:text-emerald-200'
-                                : 'border-red-200 bg-red-50/60 text-red-800 dark:border-red-800/60 dark:bg-red-950/30 dark:text-red-200'
-                            }`}>
-                              <div className="font-bold mb-1">
-                                {diagnoseResults[acc.email].ok
-                                  ? (language === 'en' ? '✓ Connection healthy' : '✓ Bağlantı sağlıklı')
-                                  : (language === 'en' ? '✕ Sync problem found' : '✕ Senkron sorunu bulundu')}
-                              </div>
-                              <ul className="space-y-0.5">
-                                {diagnoseResults[acc.email].steps.map((s) => (
-                                  <li key={s.key} className="break-words">
-                                    <span className="font-semibold">{s.ok ? '✓' : '✕'} {s.key}:</span> {s.detail}
-                                  </li>
-                                ))}
-                              </ul>
-                              {diagnoseResults[acc.email].hint && (
-                                <p className="mt-1 font-medium">💡 {diagnoseResults[acc.email].hint}</p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+{activeTab === 'accounts' && (
+              <AccountsTab
+                accounts={accounts}
+                onOpenAddAccount={onOpenAddAccount}
+                editingAccountId={editingAccountId}
+                onStartEdit={handleStartEdit}
+                onCancelEdit={() => setEditingAccountId(null)}
+                editDisplayName={editDisplayName}
+                onEditDisplayNameChange={setEditDisplayName}
+                editImapHost={editImapHost}
+                onEditImapHostChange={setEditImapHost}
+                editImapPort={editImapPort}
+                onEditImapPortChange={setEditImapPort}
+                editSmtpHost={editSmtpHost}
+                onEditSmtpHostChange={setEditSmtpHost}
+                editSmtpPort={editSmtpPort}
+                onEditSmtpPortChange={setEditSmtpPort}
+                editSmtpSecure={editSmtpSecure}
+                onEditSmtpSecureChange={setEditSmtpSecure}
+                editPassword={editPassword}
+                onEditPasswordChange={setEditPassword}
+                showEditPassword={showEditPassword}
+                onToggleShowEditPassword={() => setShowEditPassword(!showEditPassword)}
+                editingIsOAuth={isEditingOAuth}
+                testingConnection={testingConnection}
+                connectionTestResult={connectionTestResult}
+                onTestConnection={handleTestConnection}
+                savingAccount={savingAccount}
+                accountSaveNotice={accountSaveNotice}
+                onSaveAccount={handleSaveAccount}
+                diagnosingEmail={diagnosingEmail}
+                diagnoseResults={diagnoseResults}
+                onDiagnose={handleDiagnose}
+                onRequestDelete={handleDeleteAccount}
+              />
             )}
 
             {/* ==================== 5. OLUŞTURMA / İMZALAR TAB ==================== */}
-            {activeTab === 'composing' && (
-              <div className="space-y-4">
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                  {language === 'en' ? 'Email Signatures & Composing' : 'E-posta İmzaları ve Oluşturma'}
-                </h3>
-
-                {accounts.length === 0 ? (
-                  <p className="text-xs text-zinc-400 py-4">
-                    {language === 'en'
-                      ? 'You must connect an email account first to configure signatures.'
-                      : 'İmza eklemek için önce bir e-posta hesabı bağlamalısınız.'}
-                  </p>
-                ) : (
-                  <div className="space-y-3.5">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-zinc-500">
-                        {language === 'en' ? 'Select Account' : 'Hesap Seçin'}
-                      </label>
-                      <select
-                        value={selectedEmail}
-                        onChange={(e) => handleSelectAccount(e.target.value)}
-                        className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                      >
-                        {accounts.map((a) => (
-                          <option key={a.id} value={a.email}>
-                            {a.email}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                        <input
-                          type="checkbox"
-                          checked={sigEnabled}
-                          onChange={(e) => setSigEnabled(e.target.checked)}
-                          className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                        />
-                        <span>
-                          {language === 'en'
-                            ? 'Automatically append signature for this account'
-                            : 'Bu hesap için otomatik imza ekle'}
-                        </span>
-                      </label>
-                    </div>
-
-                    {/* İmza Biçimi Seçici (Düz Metin vs Zengin HTML) */}
-                    <div className="flex items-center gap-2 pt-1">
-                      <span className="text-xs font-medium text-zinc-500">
-                        {language === 'en' ? 'Format:' : 'Biçim:'}
-                      </span>
-                      <div className="inline-flex rounded-xl bg-zinc-200/70 p-0.5 dark:bg-zinc-800">
-                        <button
-                          type="button"
-                          onClick={() => setSigIsHtml(false)}
-                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                            !sigIsHtml
-                              ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-xs'
-                              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
-                          }`}
-                        >
-                          {language === 'en' ? 'Plain Text' : 'Düz Metin'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSigIsHtml(true);
-                            if (!sigHtml && sigText) {
-                              const converted = sigText.replace(/\n/g, '<br>');
-                              setSigHtml(converted);
-                              if (sigEditorRef.current) sigEditorRef.current.innerHTML = converted;
-                            }
-                          }}
-                          className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                            sigIsHtml
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
-                          }`}
-                        >
-                          <span>✨</span>
-                          <span>{language === 'en' ? 'Rich HTML & Logo' : 'Zengin HTML & Logo'}</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {!sigIsHtml ? (
-                      <div>
-                        <textarea
-                          rows={5}
-                          disabled={!sigEnabled}
-                          value={sigText}
-                          onChange={(e) => setSigText(e.target.value)}
-                          placeholder={
-                            language === 'en'
-                              ? 'Best regards,\nYour Name\nTitle / Phone'
-                              : 'Saygılarımla,\nAdınız Soyadınız\nUnvan / Telefon'
-                          }
-                          className="w-full rounded-xl border border-zinc-300 p-3 text-xs outline-none focus:border-blue-500 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 font-sans"
-                        />
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {/* Zengin İmza Araç Çubuğu */}
-                        <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-850">
-                          <button
-                            type="button"
-                            onClick={() => execSigCommand('bold')}
-                            disabled={!sigEnabled}
-                            className="w-7 h-7 rounded-lg border border-zinc-300 dark:border-zinc-750 bg-white dark:bg-zinc-800 text-xs font-bold hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer disabled:opacity-40"
-                            title={language === 'en' ? 'Bold' : 'Kalın'}
-                          >
-                            B
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => execSigCommand('italic')}
-                            disabled={!sigEnabled}
-                            className="w-7 h-7 rounded-lg border border-zinc-300 dark:border-zinc-750 bg-white dark:bg-zinc-800 text-xs italic font-serif hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer disabled:opacity-40"
-                            title={language === 'en' ? 'Italic' : 'İtalik'}
-                          >
-                            I
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => execSigCommand('underline')}
-                            disabled={!sigEnabled}
-                            className="w-7 h-7 rounded-lg border border-zinc-300 dark:border-zinc-750 bg-white dark:bg-zinc-800 text-xs underline hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer disabled:opacity-40"
-                            title={language === 'en' ? 'Underline' : 'Altı Çizili'}
-                          >
-                            U
-                          </button>
-
-                          <label
-                            className="w-7 h-7 rounded-lg border border-zinc-300 dark:border-zinc-750 bg-white dark:bg-zinc-800 text-xs flex items-center justify-center hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer disabled:opacity-40 relative"
-                            title={language === 'en' ? 'Text Color' : 'Yazı Rengi'}
-                          >
-                            <span className="font-bold text-xs" style={{ borderBottom: '3px solid #2563eb' }}>A</span>
-                            <input
-                              type="color"
-                              defaultValue="#2563eb"
-                              disabled={!sigEnabled}
-                              onChange={(e) => execSigCommand('foreColor', e.target.value)}
-                              className="w-0 h-0 opacity-0 absolute"
-                            />
-                          </label>
-
-                          <div className="w-px h-5 bg-zinc-300 dark:bg-zinc-700 mx-0.5" />
-
-                          <button
-                            type="button"
-                            onClick={handleInsertSigLink}
-                            disabled={!sigEnabled}
-                            className="px-2 h-7 rounded-lg border border-zinc-300 dark:border-zinc-750 bg-white dark:bg-zinc-800 text-xs flex items-center gap-1 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer disabled:opacity-40"
-                            title={language === 'en' ? 'Insert Link' : 'Bağlantı Ekle'}
-                          >
-                            <span>🔗</span>
-                            <span>{language === 'en' ? 'Link' : 'Link'}</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={handleInsertSigLogo}
-                            disabled={!sigEnabled}
-                            className="px-2.5 h-7 rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/80 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 text-xs font-semibold flex items-center gap-1 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition cursor-pointer disabled:opacity-40"
-                            title={language === 'en' ? 'Insert Logo or Image from disk' : 'Diskten Logo veya Görsel Ekle'}
-                          >
-                            <span>🖼️</span>
-                            <span>{language === 'en' ? 'Logo / Image' : 'Logo / Resim'}</span>
-                          </button>
-
-                          <div className="w-px h-5 bg-zinc-300 dark:bg-zinc-700 mx-0.5" />
-
-                          {/* Hazır Şablonlar */}
-                          <div className="flex items-center gap-1 ml-auto">
-                            <span className="text-[10px] font-medium text-zinc-400">
-                              {language === 'en' ? 'Templates:' : 'Şablon:'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleApplySigTemplate('modern')}
-                              disabled={!sigEnabled}
-                              className="px-2 py-0.5 rounded text-[10px] font-medium border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 transition cursor-pointer disabled:opacity-40"
-                            >
-                              {language === 'en' ? 'Modern' : 'Modern'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleApplySigTemplate('two-column')}
-                              disabled={!sigEnabled}
-                              className="px-2 py-0.5 rounded text-[10px] font-medium border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 transition cursor-pointer disabled:opacity-40"
-                            >
-                              {language === 'en' ? 'Card' : 'Kart'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleApplySigTemplate('simple')}
-                              disabled={!sigEnabled}
-                              className="px-2 py-0.5 rounded text-[10px] font-medium border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 transition cursor-pointer disabled:opacity-40"
-                            >
-                              {language === 'en' ? 'Minimal' : 'Minimal'}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Düzenlenebilir Alan */}
-                        <div
-                          ref={sigEditorRef}
-                          contentEditable={sigEnabled}
-                          onInput={(e) => setSigHtml(e.currentTarget.innerHTML)}
-                          className="w-full min-h-[120px] max-h-[220px] overflow-y-auto rounded-xl border border-zinc-300 p-3 text-xs outline-none focus:border-blue-500 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 bg-white"
-                          style={{ minHeight: '120px' }}
-                        />
-
-                        {/* Canlı Önizleme Kartı */}
-                        <div className="mt-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40">
-                          <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-                            {language === 'en' ? 'Live Email Preview' : 'Canlı E-posta Önizlemesi'}
-                          </div>
-                          <div className="text-xs text-zinc-500 italic mb-2">
-                            ...görüşmek üzere, iyi çalışmalar.
-                          </div>
-                          <div className="pt-2 border-t border-zinc-200 dark:border-zinc-700">
-                            {sigHtml ? (
-                              <div
-                                className="text-xs"
-                                dangerouslySetInnerHTML={{ __html: sigHtml }}
-                              />
-                            ) : (
-                              <span className="text-xs text-zinc-400 italic">
-                                {language === 'en' ? 'No signature content' : 'İmza içeriği girilmedi'}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-3 pt-2">
-                      <button
-                        type="button"
-                        onClick={handleSaveSignature}
-                        className="rounded-xl bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition active:scale-95 cursor-pointer"
-                      >
-                        {language === 'en' ? 'Save Signature' : 'İmzayı Kaydet'}
-                      </button>
-                      {savedNotice && (
-                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                          {language === 'en' ? '✓ Signature saved!' : '✓ İmza kaydedildi!'}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Göndermeyi Geri Alma Süresi (Undo Send) */}
-                <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
-                  <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                    {language === 'en' ? 'Undo Send Window' : 'Göndermeyi Geri Alma Penceresi (Undo Send)'}
-                  </h4>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                    {language === 'en'
-                      ? 'Grace period after sending an email during which delivery can be canceled.'
-                      : 'E-posta gönderdikten sonra gönderimi iptal etmek için verilen bekleme süresidir.'}
-                  </p>
-                  <div className="flex items-center gap-3 pt-1">
-                    <select
-                      value={localUndoDelay}
-                      onChange={(e) => handleUndoDelayChange(Number(e.target.value))}
-                      className="w-48 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                    >
-                      <option value={0}>{language === 'en' ? 'Disabled (Send immediately)' : 'Devre Dışı (Anında Gönder)'}</option>
-                      <option value={5}>{language === 'en' ? '5 Seconds (Standard)' : '5 Saniye (Standart)'}</option>
-                      <option value={10}>{language === 'en' ? '10 Seconds' : '10 Saniye'}</option>
-                      <option value={20}>{language === 'en' ? '20 Seconds' : '20 Saniye'}</option>
-                      <option value={30}>{language === 'en' ? '30 Seconds (Maximum)' : '30 Saniye (Maksimum)'}</option>
-                    </select>
-                    <span className="text-xs text-zinc-400">
-                      {localUndoDelay === 0
-                        ? (language === 'en' ? 'Emails are sent immediately without delay' : 'İletiler beklemeden derhal iletilir')
-                        : (language === 'en'
-                            ? `Undo button remains active for ${localUndoDelay} seconds`
-                            : `${localUndoDelay} saniye boyunca geri al düğmesi aktif kalır`)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Hızlı Yanıt Şablonları (Quick Snippets) */}
-                <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                        <SnippetIcon size={14} className="text-blue-600 dark:text-blue-400" />
-                        <span>{language === 'en' ? 'Quick Snippets (Canned Responses)' : 'Hızlı Yanıt Şablonları (Hazır Metinler)'}</span>
-                      </h4>
-                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                        {language === 'en'
-                          ? 'Insert pre-saved responses with one click from the compose toolbar.'
-                          : 'E-posta yazarken araç çubuğundaki şablonlar simgesinden tek tıkla eklenecek hazır yanıtlar.'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Yeni Şablon Ekleme Formu */}
-                  <form onSubmit={handleAddSnippet} className="rounded-xl border border-zinc-200/90 bg-zinc-50/60 p-3 space-y-2.5 dark:border-zinc-800 dark:bg-zinc-850/40">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
-                        {language === 'en' ? 'Add New Snippet' : 'Yeni Şablon Ekle'}
-                      </span>
-                      {snippetNotice && (
-                        <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                          {snippetNotice}
-                        </span>
-                      )}
-                    </div>
-                    <input
-                      type="text"
-                      placeholder={language === 'en' ? 'Snippet Title (e.g. Invoice Request, Approval)' : 'Şablon Başlığı (Örn: Fatura Talebi, Onay)'}
-                      value={snippetTitle}
-                      onChange={(e) => setSnippetTitle(e.target.value)}
-                      className="w-full rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                    />
-                    <textarea
-                      rows={3}
-                      placeholder={language === 'en' ? 'Snippet body content...' : 'Şablon metni içeriği...'}
-                      value={snippetBody}
-                      onChange={(e) => setSnippetBody(e.target.value)}
-                      className="w-full rounded-lg border border-zinc-300 bg-white p-2.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
-                    />
-                    <div className="flex justify-end">
-                      <button
-                        type="submit"
-                        disabled={!snippetTitle.trim() || !snippetBody.trim()}
-                        className="rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-blue-700 disabled:opacity-40 transition cursor-pointer"
-                      >
-                        {language === 'en' ? '+ Save Snippet' : '+ Şablonu Kaydet'}
-                      </button>
-                    </div>
-                  </form>
-
-                  {/* Kayıtlı Şablonlar Listesi */}
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {quickSnippets.length === 0 ? (
-                      <p className="text-xs text-zinc-400 italic py-2">
-                        {language === 'en' ? 'No saved snippets yet.' : 'Henüz kayıtlı bir şablon bulunmuyor.'}
-                      </p>
-                    ) : (
-                      quickSnippets.map((s) => (
-                        <div
-                          key={s.id}
-                          className="flex items-start justify-between rounded-xl border border-zinc-200/80 bg-white p-2.5 text-xs dark:border-zinc-800 dark:bg-zinc-800/80 hover:border-zinc-300 transition"
-                        >
-                          <div className="min-w-0 flex-1 pr-2">
-                            <span className="font-bold text-zinc-900 dark:text-zinc-100 block truncate">
-                              {s.title}
-                            </span>
-                            <span className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2 mt-0.5 whitespace-pre-wrap">
-                              {s.body}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteSnippet(s.id)}
-                            className="p-1 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition shrink-0 cursor-pointer"
-                            title={language === 'en' ? 'Delete Snippet' : 'Şablonu Sil'}
-                          >
-                            <TrashIcon size={14} />
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
+{activeTab === 'composing' && (
+              <ComposingTab
+                accounts={accounts}
+                selectedEmail={selectedEmail}
+                onSelectAccount={handleSelectAccount}
+                sigEnabled={sigEnabled}
+                onSigEnabledChange={setSigEnabled}
+                sigIsHtml={sigIsHtml}
+                onSigIsHtmlChange={setSigIsHtml}
+                sigText={sigText}
+                onSigTextChange={setSigText}
+                sigHtml={sigHtml}
+                onSigHtmlChange={setSigHtml}
+                onSaveSignature={handleSaveSignature}
+                savedNotice={savedNotice}
+                undoDelay={localUndoDelay}
+                onUndoDelayChange={handleUndoDelayChange}
+                quickSnippets={quickSnippets}
+                snippetTitle={snippetTitle}
+                onSnippetTitleChange={setSnippetTitle}
+                snippetBody={snippetBody}
+                onSnippetBodyChange={setSnippetBody}
+                snippetNotice={snippetNotice}
+                onAddSnippet={handleAddSnippet}
+                onDeleteSnippet={handleDeleteSnippet}
+              />
             )}
 
             {/* ==================== 6. GELİŞMİŞ TAB ==================== */}
-            {activeTab === 'advanced' && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                    {language === 'en' ? 'Advanced Settings & Privacy' : 'Gelişmiş Ayarlar ve Gizlilik'}
-                  </h3>
-                  <p className="text-[11px] text-zinc-500">
-                    {language === 'en'
-                      ? 'Read timing, remote image privacy shield, and local database maintenance.'
-                      : 'Okuma zamanlaması, harici görsel gizlilik kalkanı ve yerel veritabanı yönetimi.'}
-                  </p>
-                </div>
-
-                {/* Okundu Olarak İşaretleme Zamanlaması */}
-                <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3.5 dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
-                  <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                    {language === 'en' ? 'Mark as Read Timing' : 'Okundu Olarak İşaretleme Zamanlaması'}
-                  </h4>
-                  <p className="text-[11px] text-zinc-500">
-                    {language === 'en'
-                      ? 'Determine when an email is automatically marked as read upon selection.'
-                      : 'Bir ileti seçildiğinde ne zaman okundu olarak işaretleneceğini belirleyin.'}
-                  </p>
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    {[
-                      {
-                        id: 'instant',
-                        label: language === 'en' ? 'Instant' : 'Anında',
-                        desc: language === 'en' ? 'As soon as email is clicked' : 'İleti tıklandığı anda',
-                      },
-                      {
-                        id: 'delay_3s',
-                        label: language === 'en' ? 'After 3 Seconds' : '3 Saniye Sonra',
-                        desc: language === 'en' ? 'When viewing for 3 seconds' : 'İletide 3 sn kalındığında',
-                      },
-                      {
-                        id: 'delay_5s',
-                        label: language === 'en' ? 'After 5 Seconds' : '5 Saniye Sonra',
-                        desc: language === 'en' ? 'When viewing for 5 seconds' : 'İletide 5 sn kalındığında',
-                      },
-                      {
-                        id: 'manual',
-                        label: language === 'en' ? 'Manual' : 'Manuel',
-                        desc: language === 'en' ? 'Only when button is pressed' : 'Sadece düğmeye basıldığında',
-                      },
-                    ].map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => handleMarkReadTimingChange(m.id as MarkReadTiming)}
-                        className={`p-2 rounded-xl border text-left transition cursor-pointer ${
-                          localMarkReadTiming === m.id
-                            ? 'border-blue-600 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-950/40 ring-1 ring-blue-500'
-                            : 'border-zinc-200 dark:border-zinc-750 hover:bg-white dark:hover:bg-zinc-800'
-                        }`}
-                      >
-                        <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{m.label}</div>
-                        <div className="text-[10px] text-zinc-400 mt-0.5">{m.desc}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Harici Görsel Gizlilik Kalkanı */}
-                <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3.5 dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={localBlockRemote}
-                      onChange={(e) => handleBlockRemoteChange(e.target.checked)}
-                      className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-0 cursor-pointer"
-                    />
-                    <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                      {language === 'en'
-                        ? 'Automatically Block Remote Images & Tracking Pixels'
-                        : 'Harici Görselleri ve İzleme Piksellerini Otomatik Engelle'}
-                    </span>
-                  </label>
-                  <p className="text-[11px] text-zinc-500 pl-6.5 leading-relaxed">
-                    {language === 'en'
-                      ? 'Blocks external web images by default. Prevents senders from tracking your IP address, location, or open time. You can allow images per email anytime.'
-                      : 'E-postalardaki harici web bağlantılı görselleri varsayılan olarak engeller. Bu sayede gönderenlerin IP adresinizi, konumunuzu veya e-postayı açtığınız saati izlemesini önler. İstediğinizde ileti bölmesinden görsellere izin verebilirsiniz.'}
-                  </p>
-                </div>
-
-                {/* SQLite Durumu + RAM + Boyut */}
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">
-                      {language === 'en' ? 'Local SQLite Status:' : 'Yerel SQLite Durumu:'}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={loadSystemInfo}
-                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                    >
-                      {language === 'en' ? 'Refresh' : 'Yenile'}
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <div className="bg-white dark:bg-zinc-800 p-2 rounded-lg border border-zinc-200/80 dark:border-zinc-700">
-                      <p className="text-lg font-bold text-blue-600">{dbStats?.accounts ?? accounts.length}</p>
-                      <p className="text-[10px] text-zinc-400">{language === 'en' ? 'Accounts' : 'Hesap'}</p>
-                    </div>
-                    <div className="bg-white dark:bg-zinc-800 p-2 rounded-lg border border-zinc-200/80 dark:border-zinc-700">
-                      <p className="text-lg font-bold text-emerald-600">{dbStats?.folders ?? '-'}</p>
-                      <p className="text-[10px] text-zinc-400">{language === 'en' ? 'Folders' : 'Klasör'}</p>
-                    </div>
-                    <div className="bg-white dark:bg-zinc-800 p-2 rounded-lg border border-zinc-200/80 dark:border-zinc-700">
-                      <p className="text-lg font-bold text-purple-600">{dbStats?.messages ?? '-'}</p>
-                      <p className="text-[10px] text-zinc-400">{language === 'en' ? 'Cached Emails' : 'Kayıtlı İleti'}</p>
-                    </div>
-                  </div>
-
-                  {/* DB Boyutu */}
-                  {systemInfo && (
-                    <div className="flex items-center justify-between rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700 px-3 py-2">
-                      <span className="text-zinc-500">{language === 'en' ? 'Database File Size' : 'DB Dosya Boyutu'}</span>
-                      <span className="font-bold text-zinc-800 dark:text-zinc-200">
-                        {systemInfo.db.sizeMB < 1
-                          ? `${Math.round(systemInfo.db.sizeBytes / 1024)} KB`
-                          : `${systemInfo.db.sizeMB} MB`}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* RAM Kullanımı */}
-                {systemInfo && (
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
-                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">
-                      {language === 'en' ? 'Memory Usage (Main Process):' : 'Bellek Kullanımı (Ana Süreç):'}
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
-                        <span className="text-zinc-500">{language === 'en' ? 'RSS (Total)' : 'RSS (Toplam)'}</span>
-                        <span className="font-bold text-orange-600 dark:text-orange-400">{systemInfo.ram.rssMB} MB</span>
-                      </div>
-                      <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
-                        <span className="text-zinc-500">{language === 'en' ? 'Heap Used' : 'Heap Kullanılan'}</span>
-                        <span className="font-bold text-blue-600 dark:text-blue-400">{systemInfo.ram.heapUsedMB} MB</span>
-                      </div>
-                      <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
-                        <span className="text-zinc-500">{language === 'en' ? 'Heap Total' : 'Heap Toplam'}</span>
-                        <span className="font-bold text-zinc-700 dark:text-zinc-300">{systemInfo.ram.heapTotalMB} MB</span>
-                      </div>
-                      <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 p-2 flex justify-between items-center">
-                        <span className="text-zinc-500">{language === 'en' ? 'External' : 'Harici'}</span>
-                        <span className="font-bold text-zinc-600 dark:text-zinc-400">{systemInfo.ram.externalMB} MB</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="pt-1 flex items-center gap-3 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={handleVacuum}
-                    disabled={vacuumStatus === 'running'}
-                    className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
-                  >
-                    {vacuumStatus === 'running' ? (
-                      <>
-                        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent" />
-                        <span>{language === 'en' ? 'Optimizing...' : 'Optimize ediliyor...'}</span>
-                      </>
-                    ) : vacuumStatus === 'done' ? (
-                      <span className="text-emerald-600 dark:text-emerald-400">{language === 'en' ? '✓ Optimized!' : '✓ Optimize edildi!'}</span>
-                    ) : vacuumStatus === 'error' ? (
-                      <span className="text-red-600">{language === 'en' ? '✕ Error occurred' : '✕ Hata oluştu'}</span>
-                    ) : (
-                      <span>{language === 'en' ? 'Optimize Database (VACUUM)' : 'Veritabanını Optimize Et (VACUUM)'}</span>
-                    )}
-                  </button>
-                  {onOpenShortcutsHelp && (
-                    <button
-                      type="button"
-                      onClick={onOpenShortcutsHelp}
-                      className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
-                    >
-                      {language === 'en' ? 'Keyboard Shortcuts Map' : 'Klavye Kısayolları Haritası'}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => window.postaci?.logs?.openFolder().catch(() => {})}
-                    className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
-                  >
-                    {language === 'en' ? 'Open Log Folder' : 'Log Klasörünü Aç'}
-                  </button>
-                </div>
-              </div>
+{activeTab === 'advanced' && (
+              <AdvancedTab
+                markReadTiming={localMarkReadTiming}
+                onMarkReadTimingChange={handleMarkReadTimingChange}
+                blockRemoteImages={localBlockRemote}
+                onBlockRemoteImagesChange={handleBlockRemoteChange}
+                dbStats={dbStats}
+                accountCountFallback={accounts.length}
+                systemInfo={systemInfo}
+                onRefreshSystemInfo={loadSystemInfo}
+                vacuumStatus={vacuumStatus}
+                onVacuum={handleVacuum}
+                onOpenShortcutsHelp={onOpenShortcutsHelp}
+                onOpenLogFolder={() => window.postaci?.logs?.openFolder().catch(() => {})}
+              />
             )}
 
             {/* ==================== 7. POSTACI HAKKINDA TAB ==================== */}
-            {activeTab === 'about' && (
-              <div className="space-y-3.5 text-left">
-                {/* Premium Başlık ve Logo Kartı */}
-                <div className="relative overflow-hidden flex items-center gap-4 p-3.5 rounded-2xl bg-gradient-to-br from-blue-600/10 via-indigo-500/5 to-purple-600/10 border border-blue-500/20 shadow-xs dark:from-blue-950/40 dark:via-indigo-950/20 dark:to-purple-950/30 dark:border-blue-800/40">
-                  <div className="relative shrink-0 flex items-center justify-center">
-                    {!logoLoadError ? (
-                      <img
-                        src={appIcon}
-                        alt="Postacı Logo"
-                        className="h-16 w-16 rounded-2xl shadow-md border border-white/60 dark:border-zinc-700/60 object-contain p-1 bg-white dark:bg-zinc-800"
-                        onError={() => setLogoLoadError(true)}
-                      />
-                    ) : (
-                      <PostaciLogo size="xl" variant="squircle" showBadge={false} />
-                    )}
-                    <span
-                      className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-xs"
-                      title={language === 'en' ? 'Stable & Secure Version' : 'Stabil ve Güvenli Sürüm'}
-                    >
-                      ✓
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2.5">
-                      <h3 className="text-xl font-bold text-zinc-950 dark:text-zinc-50 tracking-tight">
-                        Postacı
-                      </h3>
-                      <span className="inline-flex items-center rounded-full bg-blue-600 px-2.5 py-0.5 text-xs font-mono font-bold text-white shadow-2xs">
-                        v{currentVersion}
-                      </span>
-                    </div>
-                    <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1 leading-relaxed">
-                      {language === 'en'
-                        ? 'Lightning-fast, secure, modern and sleek desktop email client.'
-                        : 'Yıldırım hızında, güvenli, modern ve şık masaüstü e-posta istemcisi.'}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
-                      <span className="inline-flex items-center gap-1">
-                        <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                        Windows x64
-                      </span>
-                      <span>•</span>
-                      <span>{language === 'en' ? 'Local SQLite' : 'Yerel SQLite'}</span>
-                      <span>•</span>
-                      <span>{language === 'en' ? 'Hardware-Protected DPAPI' : 'Donanım Korumalı DPAPI'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Güncelleme Durum ve Denetleyici Kartı */}
-                <div className="rounded-2xl border border-zinc-200/90 bg-white p-3.5 shadow-2xs dark:border-zinc-800 dark:bg-zinc-850/60">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                        <span>{language === 'en' ? 'Software Updates' : 'Yazılım Güncellemeleri'}</span>
-                      </h4>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                        {updateCheckStatus === 'available' && latestReleaseInfo?.version
-                          ? (language === 'en' ? `New version available: v${latestReleaseInfo.version}` : `Yeni sürüm mevcut: v${latestReleaseInfo.version}`)
-                          : updateCheckStatus === 'latest'
-                          ? (language === 'en'
-                              ? `You are running the latest version (v${currentVersion}).`
-                              : `Tebrikler, en güncel sürümü kullanıyorsunuz (v${currentVersion}).`)
-                          : (language === 'en' ? 'Check official GitHub releases.' : 'Resmi GitHub sürümlerini kontrol edin.')}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={handleCheckUpdate}
-                        disabled={updateCheckStatus === 'checking'}
-                        className="rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition active:scale-95 disabled:opacity-50 inline-flex items-center gap-1.5"
-                      >
-                        {updateCheckStatus === 'checking' ? (
-                          <>
-                            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            <span>{language === 'en' ? 'Checking...' : 'Denetleniyor...'}</span>
-                          </>
-                        ) : (
-                          <span>{language === 'en' ? 'Check for Updates' : 'Güncellemeleri Denetle'}</span>
-                        )}
-                      </button>
-                      {updaterStatus.state === 'downloaded' ? (
-                        <button
-                          type="button"
-                          onClick={handleUpdaterRestart}
-                          className="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition active:scale-95 inline-flex items-center gap-1"
-                        >
-                          <span>{language === 'en' ? 'Restart & Install' : 'Yeniden Başlat ve Kur'}</span>
-                        </button>
-                      ) : updaterStatus.state === 'downloading' ? (
-                        <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                          {language === 'en' ? `Downloading %{updaterStatus.percent}` : `İndiriliyor %{updaterStatus.percent}`}
-                        </span>
-                      ) : (
-                        updateCheckStatus === 'available' && latestReleaseInfo?.url && (
-                          <button
-                            type="button"
-                            onClick={() => openUrl(latestReleaseInfo.url!)}
-                            className="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition active:scale-95 inline-flex items-center gap-1"
-                          >
-                            <span>{language === 'en' ? `Download v${latestReleaseInfo.version}` : `v${latestReleaseInfo.version} İndir`}</span>
-                            <span>↗</span>
-                          </button>
-                        )
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* GitHub Proje Kartı */}
-                <div className="rounded-2xl border border-zinc-200/90 bg-white p-3.5 shadow-2xs dark:border-zinc-800 dark:bg-zinc-850/60">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-xs">
-                        <svg className="h-5 w-5 fill-current" viewBox="0 0 24 24" aria-hidden="true">
-                          <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                          <span>eekilinc / Postaci</span>
-                          <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
-                            {language === 'en' ? 'Open Source' : 'Açık Kaynak'}
-                          </span>
-                        </h4>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                          {language === 'en'
-                            ? 'Official GitHub repository, source code, and contribution guidelines.'
-                            : 'Resmi GitHub deposu, kaynak kodlar ve katkı yönergeleri.'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* GitHub Hızlı Butonlar */}
-                  <div className="mt-3.5 flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                    <button
-                      type="button"
-                      onClick={() => openUrl('https://github.com/eekilinc/Postaci')}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-zinc-800 transition dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 active:scale-95 cursor-pointer"
-                    >
-                      <span>{language === 'en' ? 'View on GitHub' : "GitHub'da Görüntüle"}</span>
-                      <span className="text-xs">↗</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openUrl('https://github.com/eekilinc/Postaci/releases')}
-                      className="inline-flex items-center gap-1 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition active:scale-95 cursor-pointer"
-                    >
-                      <span>{language === 'en' ? 'Releases' : 'Sürümler (Releases)'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openUrl('https://github.com/eekilinc/Postaci/issues')}
-                      className="inline-flex items-center gap-1 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition active:scale-95 cursor-pointer"
-                    >
-                      <span>{language === 'en' ? 'Report Bug / Request' : 'Hata / İstek Bildir'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Mimari ve Güvenlik Avantajları */}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-850/40">
-                    <p className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                      <span>⚡</span> <span>{language === 'en' ? 'Offline & Local SQLite' : 'Çevrimdışı & Yerel SQLite'}</span>
-                    </p>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
-                      {language === 'en'
-                        ? 'Search your inbox with zero latency even without an active internet connection.'
-                        : 'İnternet bağlantınız kopsa bile gelen kutunuzda sıfır gecikmeyle anında arama yapabilirsiniz.'}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-850/40">
-                    <p className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                      <span>🔒</span> <span>{language === 'en' ? 'Hardware Encryption' : 'Donanım Şifreleme'}</span>
-                    </p>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
-                      {language === 'en'
-                        ? 'Passwords and OAuth credentials are saved locally encrypted via Windows DPAPI.'
-                        : 'Hesap şifreleriniz ve OAuth tokenlarınız Windows DPAPI ile yerel olarak şifrelenir.'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Sistem Versiyonları */}
-                {systemInfo && (
-                  <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-850/40 space-y-2">
-                    <p className="font-semibold text-zinc-700 dark:text-zinc-300">
-                      {language === 'en' ? 'Runtime Environment Versions:' : 'Çalışma Ortamı Versiyonları:'}
-                    </p>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {[
-                        { label: 'Electron', value: systemInfo.versions.electron },
-                        { label: 'Node.js', value: systemInfo.versions.node },
-                        { label: 'Chromium', value: systemInfo.versions.chrome },
-                        { label: 'V8', value: systemInfo.versions.v8 },
-                      ].map(({ label, value }) => (
-                        <div key={label} className="flex items-center justify-between bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700 px-2.5 py-1.5">
-                          <span className="text-zinc-500">{label}</span>
-                          <span className="font-mono font-semibold text-[11px] text-zinc-700 dark:text-zinc-300">{value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Geliştirici & Lisans */}
-                <div className="rounded-xl bg-zinc-50/60 dark:bg-zinc-850/30 p-3 text-xs border border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between">
-                  <div>
-                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                      {language === 'en' ? 'Developer: ' : 'Geliştirici: '}
-                    </span>
-                    <span className="text-zinc-600 dark:text-zinc-400">Ekrem Eşref Kılınç</span>
-                    <span className="mx-1 text-zinc-400">•</span>
-                    <span className="text-zinc-500">{language === 'en' ? 'MIT License' : 'MIT Lisansı'}</span>
-                  </div>
-                  <a
-                    href="mailto:ekilinc@mehmetakif.edu.tr"
-                    className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
-                  >
-                    {language === 'en' ? 'Contact' : 'İletişim'}
-                  </a>
-                </div>
-
-              </div>
+{activeTab === 'about' && (
+              <AboutTab
+                currentVersion={currentVersion}
+                updateCheckStatus={updateCheckStatus}
+                updaterStatus={updaterStatus}
+                latestReleaseInfo={latestReleaseInfo}
+                onCheckUpdate={handleCheckUpdate}
+                onRestartToUpdate={handleUpdaterRestart}
+                openUrl={openUrl}
+                systemInfo={systemInfo}
+              />
             )}
           </div>
         </div>
