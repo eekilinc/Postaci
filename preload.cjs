@@ -17,7 +17,10 @@ if (!appVersion) {
     if (pkg && pkg.version) appVersion = pkg.version;
   } catch {}
 }
-if (!appVersion) appVersion = '1.0.37';
+// Son çare: gerçek bir sürüm numarası YAZMA. Buraya sabit sürüm koymak
+// "uygulama eski sürümde" gibi yanlış bir teşhis üretir. Bilinmeyen sürümü
+// açıkça belirt, SettingsModal bunu "bilinmiyor" olarak gösterir.
+if (!appVersion) appVersion = '0.0.0-unknown';
 
 contextBridge.exposeInMainWorld('postaci', {
   version: appVersion,
