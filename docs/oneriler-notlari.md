@@ -46,6 +46,31 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 
 ## Tamamlananlar (2026-10-11)
 
+- [x] **Spam v1.0.63 sonrası da sürüyordu — kullanıcı verisiyle ikinci teşhis
+  (215 → 220 test).** Kullanıcı v1.0.64'te raporladı: "log klasöründe hata yok,
+  hâlâ aynı şeyi yapıyor." Yapılandırılmış sorularla toplanan veri: v1.0.64 ✓,
+  log düğmesi çalışıyor ✓, spam Eşitle **"kutunda 0, çekilen 0"** diyor,
+  hesap kurumsal/okul. Bu kombinasyon tek dalı işaret eder: syncFolder'ın
+  mailboxOpen HATA dalı — "özel klasör (spam) sessizce atla, yerel verileri
+  koru" davranışı {total:0,synced:0} dönüyor; gerçekte kutu boş DEĞİL,
+  **AÇILAMADI**. Üç sonuç: (1) uyarı "kutunda 0" yalanı söylüyordu,
+  (2) main.log'a hiçbir şey düşmüyordu — electron-log v5 ana süreç konsolunu
+  OTOMATİK YAKALAMIYOR, mail.cjs'teki tüm [sync] satırları yalnız terminale
+  gidiyordu ("logda hata yok" bunun yüzünden anlamsızdı), (3) yerel bayat
+  satır silinmedığı için listede 1 hayalet ileti açılmıyordu.
+  Düzeltmeler:
+  1. mail.cjs: açılma hata dalı artık skipped:true + openError + folderMissing
+     taşır; klasör sunucuda YOKSA (not-found desenleri) yerel bayat satırlar
+     temizlenir (sunucu gerçeğin kaynağı); diğer açılma hatalarında (izin/
+     geçici) yerel veriler korunur — orijinal tasarım. Uyarı anahtar
+     tanıları logger.log üzerinden main.log'a da yazılır.
+  2. formatSyncNotice: skipped+openError geldiğinde "klasör açılamadı:
+     <sebep>" der — "kutunda 0" yalanı yok. Kullanıcı-klasör-değiştirme
+     atlama akışı (openError'suz skipped) eski metnini korur.
+  3. Teşhis notu: kullanıcı bir sonraki Eşitle'de GERÇEK sunucu hata metnini
+     (ve artık anlamlı main.log'u) görecek — kalıcı çözüm için gereken veri.
+
+
 - [x] **"Log Klasörünü Aç" düğmesi v1.0.52'den beri sessizce kırıktı (kullanıcı
   belirtisi: Ayarlar → Gelişmiş'te tıklanınca açılmıyor).** Kök neden: handler
   main.cjs'ten (kök dizin) electron/ipc.cjs'e taşınırken gövdedeki GECİKMELİ

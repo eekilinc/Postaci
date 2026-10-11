@@ -39,6 +39,7 @@ function fakeImap(opts: {
   unseen?: number;
   uidsOnServer: number[];            // kutuda bulunan UID'ler
   envelopes?: Record<number, { subject?: string }>; // UID -> zarf
+  openError?: string | null;          // mailboxOpen bu hatayı atar (null: başarı)
 }) {
   const uidSet = new Set(opts.uidsOnServer);
   const searchByUid = (query: string): number[] => {
@@ -62,7 +63,12 @@ function fakeImap(opts: {
     return uidSet.has(single) ? [single] : [];
   };
   const client = {
-    mailboxOpen: async () => ({ exists: opts.exists, uidNext: opts.uidNext }),
+    mailboxOpen: async () => {
+      if (opts.openError) {
+        throw Object.assign(new Error(opts.openError), { responseText: opts.openError });
+      }
+      return { exists: opts.exists, uidNext: opts.uidNext };
+    },
     status: async () => ({ messages: opts.exists, unseen: opts.unseen ?? 0, recent: 0 }),
     search: async (q: { uid: string }) => searchByUid(q.uid),
     fetch: async function* (range: string) {
@@ -181,5 +187,40 @@ describe('syncFolder — UIDVALIDITY sıfırlanması (spam klasörü yeniden yar
     // koruma: hiçbir bayat satır silinmedi
     expect(uids).toContain('100');
     expect(uids).toContain('200');
+  });
+
+  // ── Klasör SUNUCUDA AÇILAMADIĞINDA sessizlik değil gerçek ─────────────────
+  // Kullanıcı vakası (v1.0.63 sonrası da süren): Spam'e Eşitle "kutunda 0,
+  // çekilen 0" diyordu ama kutu gerçekte açılamıyordu — gerçeği ne uyarıda ne
+  // main.log'da yoktu; yerel bayat satır listede hayalet olarak kalıyordu.
+  it('klasör sunucuda YOKSA: sonuç skipped+openError taşır VE bayat satırlar temizlenir', async () => {
+    seedStaleRow('4500');
+    const client = fakeImap({ exists: 0, uidNext: 1, uidsOnServer: [], openError: 'Unknown Mailbox: Spam' });
+
+    const res = (await syncFolder({
+      provider: 'imap', email: EMAIL, folderPath: FOLDER, db: db.getDb(), limit: 50, client,
+    } as never)) as { skipped?: boolean; openError?: string; folderMissing?: boolean };
+
+    // Gerçek açıkça döner — "kutunda 0" yalanı yok
+    expect(res.skipped).toBe(true);
+    expect(res.folderMissing).toBe(true);
+    expect(res.openError).toContain('Unknown Mailbox');
+    // Sunucudaki gerçek: klasör yok → yerel hayalet satır temizlenir
+    expect(uidsInFolder()).toEqual([]);
+  });
+
+  it('klasör açılamadı ama YOK DEĞİLSE (izin/geçici): yerel veriler KORUNUR, hata yine görünür', async () => {
+    seedStaleRow('4500');
+    const client = fakeImap({ exists: 1, uidNext: 2, uidsOnServer: [1], openError: 'PERMISSION denied on folder' });
+
+    const res = (await syncFolder({
+      provider: 'imap', email: EMAIL, folderPath: FOLDER, db: db.getDb(), limit: 50, client,
+    } as never)) as { skipped?: boolean; openError?: string; folderMissing?: boolean };
+
+    expect(res.skipped).toBe(true);
+    expect(res.folderMissing).toBe(false);
+    expect(res.openError).toContain('PERMISSION');
+    // Geçici/izin hatası: yerel veriler silinmez (orijinal tasarım korundu)
+    expect(uidsInFolder()).toContain('4500');
   });
 });

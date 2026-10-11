@@ -42,9 +42,22 @@ export function formatSyncNotice(
     synced: number;
     failed?: number;
     firstError?: string | null;
+    /** klasör sunucuda AÇILAMADI — normal "boş kutu" değil (mail.cjs) */
+    skipped?: boolean;
+    openError?: string;
+    /** klasör sunucuda bulunamadı; yerel bayat kayıtlar temizlendi */
+    folderMissing?: boolean;
   },
 ): string {
   const where = folderPath ? ` ${folderPath}` : '';
+  // Klasör açılamadı: "kutunda 0" demek YALAN olurdu — sunucuya bakamadık bile.
+  if (r.skipped && r.openError) {
+    const reason = r.openError.slice(0, 180);
+    if (r.folderMissing) {
+      return `${where ? where.trim() + ' klasörü' : 'Klasör'} sunucuda bulunamadı (${reason}). Yerel bayat kayıtlar temizlendi; klasör listesi birkaç saniye içinde tazelenecek.`;
+    }
+    return `${where ? where.trim() + ' klasörü' : 'Klasör'} sunucuda açılamadı: ${reason}. Yerel veriler korundu, tekrar deneyin.`;
+  }
   let s = `Eşitlendi${where}: kutuda ${r.total}, çekilen ${r.synced}`;
   if (r.failed) {
     s += `, hatalı ${r.failed}`;

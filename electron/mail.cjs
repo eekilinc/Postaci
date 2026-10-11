@@ -4,6 +4,11 @@ const nodemailer = require('nodemailer');
 const { simpleParser } = require('mailparser');
 const { loadConfig } = require('./auth.cjs');
 
+// Senkron teşhis satırları main.log'a da yazılır: electron-log v5 ana süreç
+// konsolunu OTOMATİK YAKALAMAZ — console.log yalnız terminale gider, dosyaya
+// değil. logger.log çağrı anındaki getter'ı okur; init sırasından bağımsızdır.
+const logger = require('./logger.cjs');
+
 const IMAP = {
   google: { host: 'imap.gmail.com', port: 993 },
   microsoft: { host: 'outlook.office365.com', port: 993 },
@@ -456,9 +461,33 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
       const fpLower = folderPath.toLowerCase();
       const isNotFound = /doesn't exist|nonexistent|unknown mailbox|not exist|bulunamadı|no such mailbox|invalid mailbox/i.test(errText);
       const isSpecialFolder = /draft|taslak|trash|çöp|cop|bin|junk|spam|deleted/i.test(fpLower) || fpLower.includes('[gmail]');
+      // 2026-10-11: bu dal eskiden SESSİZCE {total:0,synced:0} döndürüyordu ve
+      // kullanıcı "kutunda 0, çekilen 0" görüyordu — klasörün sunucuda AÇILAMADIĞI
+      // gerçeği hem uyarıda hem main.log'da kayboluyordu. Spam/çöp klasörleri
+      // sunucu tarafından yeniden adlandırılınca/silince yerel bayat satır
+      // listede hayalet olarak kalıyordu ("1 e-posta görünüyor, açınca boş").
+      // Artık:
+      //  - sonuç skipped:true + openError taşır (uyarı gerçeği söyler),
+      //  - klasör sunucuda YOKsa (isNotFound) yerel bayat satırlar temizlenir
+      //    (sunucu gerçeğin kaynağıdır; klasör listesi tazeliğinde klasör
+      //    satırı fetchFoldersFromImap temizler),
+      //  - diğer açılma hatalarında (izin/geçici) yerel veriler korunur.
       if (isNotFound || isSpecialFolder) {
-        console.warn(`[sync] Klasör '${folderPath}' sunucuda bulunamadı veya açılamadı (${mbErr?.responseText || respStr || mbErr?.message}), yerel veriler korunuyor.`);
-        return { total: 0, synced: 0, failed: 0, newMessages: [] };
+        const openError = String(mbErr?.responseText || respStr || mbErr?.message || 'bilinmeyen hata').slice(0, 300);
+        logger.log.warn(`[sync] ${email} klasör '${folderPath}' sunucuda açılamadı (${openError})${isNotFound ? ' — klasör sunucuda bulunamadı, yerel bayat kayıtlar temizlendi' : ' — yerel veriler korunuyor'}.`);
+        if (isNotFound) {
+          try {
+            db.prepare(
+              `DELETE FROM messages WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE`,
+            ).run(email, folderPath);
+            db.prepare(
+              `DELETE FROM attachments WHERE account_id=(SELECT id FROM accounts WHERE email=? COLLATE NOCASE) AND folder_path=? COLLATE NOCASE`,
+            ).run(email, folderPath);
+          } catch (cleanErr) {
+            logger.log.warn(`[sync] ${email} '${folderPath}' bayat kayıt temizliği başarısız:`, cleanErr?.message || cleanErr);
+          }
+        }
+        return { total: 0, synced: 0, failed: 0, newMessages: [], skipped: true, openError, folderMissing: isNotFound };
       }
       throw mbErr;
     }

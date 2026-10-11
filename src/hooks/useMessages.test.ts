@@ -109,4 +109,38 @@ describe('formatSyncNotice', () => {
     // Sunucu mesajı 180 karaktere kırpılır
     expect(s).not.toContain('x'.repeat(300));
   });
+
+  // Kullanıcı vakası: spam klasörü açılamadığında "kutunda 0, çekilen 0"
+  // demek yalan olurdu — sunucuya bakılamadı bile. Uyarı gerçeği söyler.
+  it('klasör açılamadıysa uyarı bunu açıkça söyler (yok değil)', () => {
+    const s = formatSyncNotice('Spam', {
+      total: 0,
+      synced: 0,
+      skipped: true,
+      openError: 'PERMISSION denied on folder',
+      folderMissing: false,
+    });
+    expect(s).toContain('açılamadı');
+    expect(s).toContain('PERMISSION denied');
+    expect(s).toContain('korundu');
+    expect(s).not.toContain('kutunda 0');
+  });
+
+  it('klasör sunucuda yoksa temizlik bilgisini verir', () => {
+    const s = formatSyncNotice('Spam', {
+      total: 0,
+      synced: 0,
+      skipped: true,
+      openError: 'Unknown Mailbox: Spam',
+      folderMissing: true,
+    });
+    expect(s).toContain('bulunamadı');
+    expect(s).toContain('temizlendi');
+  });
+
+  it('klasör değişikliğinden kaynaklanan sessiz atlama eski metni verir', () => {
+    const s = formatSyncNotice('INBOX', { total: 0, synced: 0, skipped: true });
+    // openError yok → kullanıcı-klasör-değiştird atlama akışı: normal metin
+    expect(s).toContain('kutuda 0');
+  });
 });
