@@ -195,7 +195,12 @@ export function organizeAndDeduplicateFolders(
       if (isGoogleAccount && c.path.startsWith('[Gmail]/')) score += 40;
 
       // 3. İçinde okunmamış ileti olan klasöre öncelik ver (boş alias yerine dolu olanı seç)
-      if ((c.unread_count || 0) > 0) score += 15;
+      // 2026-10-12: bu bonus (+15) isim bonusunun (+30) altında kalıyordu; boş
+      // "Spam" klasörü, asıl iletiyi tutan "Junk E-mail"i yeniyordu. Kullanıcı
+      // vakası: "rozet 1 diyor, klasörü açıyorum, 0" — iletiyi tutan klasör
+      // tekilleştirme tarafından gizleniyordu. İçerik isimden ve bayraktan
+      // ÜSTÜNDÜR: iletiyi tutmayan klasörü öne çıkarmak e-postayı görünmez yapar.
+      if ((c.unread_count || 0) > 0) score += 100;
 
       // 4. Standart sunucu adlandırma tercihleri
       if (role === 'drafts') {
@@ -220,12 +225,13 @@ export function organizeAndDeduplicateFolders(
     const winner = scored[0].folder;
     const info = ROLE_INFO[role];
 
-    // Tekilleştirilen klasörlerin toplam okunmamış sayısını birleştir
-    const totalUnread = candidates.reduce((sum, c) => sum + (c.unread_count || 0), 0);
-
+    // 2026-10-12: rozet eskiden TÜM adayların okunmamış TOPLAMINI gösteriyordu;
+    // tıklama ise yalnız kazananın yolunu açtığı için "rozet 5 ama klasörde 3"
+    // yanılsaması (ve kullanıcı vakasında "rozet 1, klasör boş") oluşuyordu.
+    // Artık rozet kazananın KENDİ sayısıdır — tıkladığında göreceğin gerçek.
     systemFolders.push({
       ...winner,
-      unread_count: totalUnread,
+      unread_count: winner.unread_count || 0,
       displayName: getRoleName(role, lang),
       icon: info.icon,
       role,

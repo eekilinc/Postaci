@@ -77,4 +77,72 @@ describe('organizeAndDeduplicateFolders', () => {
     expect(roles).toContain('drafts');
     expect(roles).toContain('junk');
   });
+
+  // ── KULLANICI VAKASI (v1.0.65 sonrası teşhis): "rozet 1 diyor, klasörü
+  // açıyorum, eşleşiyor ve 0" ─────────────────────────────────────────────
+  // Kurumsal sunucular aynı role iki klasör döndürebilir (ör. boş "Spam" +
+  // asıl iletiyi tutan "Junk E-mail"). Eski puanlamada isim bonusu (+30)
+  // okunmamış-içerik bonusundan (+15) büyük olduğundan BOŞ klasör kazanıyordu;
+  // rozet ise TOPLAMI gösteriyordu. Sonuç: rozet 1, tıklama boş klasörü açıyor,
+  // asıl iletiyi tutan klasör nav'da görünmez — ileti kayıp.
+  it('iki junk klasöründe İÇERİĞİ OLAN kazanır (boş isim-favorisi değil)', () => {
+    const out = organizeAndDeduplicateFolders(
+      [
+        f('INBOX'),
+        { path: 'Spam', name: 'Spam', flags: [], unread_count: 0 },
+        { path: 'Junk E-mail', name: 'Junk E-mail', flags: [], unread_count: 1 },
+      ] as Folder[],
+      'INBOX',
+      false,
+      'tr',
+    );
+    const junk = out.systemFolders.find((x) => x.role === 'junk');
+    expect(junk?.path).toBe('Junk E-mail');
+    expect(junk?.unread_count).toBe(1);
+  });
+
+  it('bayraklı ama BOŞ junk yerine bayraksız ama DOLU junk kazanır', () => {
+    const out = organizeAndDeduplicateFolders(
+      [
+        f('INBOX'),
+        { path: 'Spam', name: 'Spam', flags: ['\\Junk'], unread_count: 0 },
+        { path: 'Junk E-mail', name: 'Junk E-mail', flags: [], unread_count: 1 },
+      ] as Folder[],
+      'INBOX',
+      false,
+      'tr',
+    );
+    const junk = out.systemFolders.find((x) => x.role === 'junk');
+    // \Junk bayrağı güçlü bir sinyaldir ama İÇERİK ondan da üstündür:
+    // iletiyi tutmayan klasörü öne çıkarmak e-postayı görünmez yapar.
+    expect(junk?.path).toBe('Junk E-mail');
+  });
+
+  it('rozet kazananın KENDİ sayısını gösterir, adayların toplamını değil', () => {
+    const out = organizeAndDeduplicateFolders(
+      [
+        f('INBOX'),
+        { path: 'Spam', name: 'Spam', flags: [], unread_count: 3 },
+        { path: 'Junk E-mail', name: 'Junk E-mail', flags: [], unread_count: 2 },
+      ] as Folder[],
+      'INBOX',
+      false,
+      'tr',
+    );
+    const junk = out.systemFolders.find((x) => x.role === 'junk');
+    expect(junk?.path).toBe('Spam'); // isim bonusu + içerik bonusuyla kazanır
+    // Rozet 5 (toplam) DEĞİL, 3: tıklanınca açılan klasörün gerçeği.
+    // Toplam göstermek "rozet 5 ama klasörde 3" yanılsaması yaratıyordu.
+    expect(junk?.unread_count).toBe(3);
+  });
+
+  it('tek junk klasöründe rozet aynen korunur (regresyon)', () => {
+    const out = organizeAndDeduplicateFolders(
+      [f('INBOX'), { path: 'Spam', name: 'Spam', flags: ['\\Junk'], unread_count: 7 } as Folder],
+      'INBOX',
+      false,
+      'tr',
+    );
+    expect(out.systemFolders.find((x) => x.role === 'junk')?.unread_count).toBe(7);
+  });
 });

@@ -44,7 +44,29 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 - [x] **useMessages → Query** — `src/hooks/useMessages.ts` API birebir korunarak taşındı: liste/sayı hedef anahtarlı önbellekte, `setMessages` çift formlu (iyimser UI aynen), sayfa derinliği korunarak tazeleme, reqId sayaçları yerine anahtar izolasyonu + hedef aynası. Biome'un gerçek bulgusu (`currentTarget` memo) düzeltildi; `!` kullanımları proje standardı olduğu için korundu.
 - [ ] Harici (kurulum gerektirmez): Hoppscotch/HTTPie, ripgrep/fd/bat/zoxide/btop.
 
-## Tamamlananlar (2026-10-11)
+## Tamamlananlar (2026-10-12)
+
+- [x] **Spam rozeti 1 / klasör boş gerçeği KÖKTEN çözüldü (220 → 224 test).**
+  v1.0.65'te kullanıcı raporu: "hata yok, rozet 1 diyor, klasörü açıyorum,
+  eşleşiyor ve 0." Hata mesajının OLMAMASI tek dalı ele verdi: mailboxOpen
+  BAŞARIYLI, sunucu o klasörü gerçekten BOŞ görüyor. Dolayısıyla rozet-1
+  TIKLANAN KLASÖRDEN DEĞİL BAŞKA YERDEN geliyordu. Kök neden
+  `organizeAndDeduplicateFolders` (src/utils/folders.ts):
+  1. **Puanlama:** isim bonusu (+30, adı 'spam' olan) okunmamış-içerik
+     bonusundan (+15) BÜYÜKTÜ — boş "Spam" klasörü, asıl iletiyi tutan
+     "Junk E-mail"i yeniyordu.
+  2. **Rozet:** adayların okunmamış TOPLAMI gösteriliyordu ama tıklama
+     yalnız KAZANANIN yolunu açıyordu → "rozet 1, klasör boş" ve asıl
+     iletiyi tutan klasör nav'da GİZLİYDİ.
+  Düzeltme: (1) içerik bonusu +100 — isimden ve \Junk bayrağından üstün;
+  iletiyi tutmayan klasör kazanamaz. (2) rozet kazananın KENDİ sayısı —
+  tıkladığında göreceğin gerçek. Kırmızı→yeşil: 3 yeni senaryo testi önce
+  mevcut davranışta kırmızı, düzeltmeyle yeşil (boş-isimli vs dolu, bayraklı-
+  boş vs bayraksız-dolu, rozet toplamı değil kendisi) + 1 regresyon kilidi.
+  Kullanıcı sonuçları: iletiyi tutan klasör kazanır → rozet 1 → tıkla →
+  "kutuda 1, çekilen 1" → ileti görünür; veya sayı bayatsa tıklanan klasörün
+  senkronu (v1.0.63 budama + v1.0.64/65 yüzeye çıkarma) temizler → rozet 0.
+
 
 - [x] **Spam v1.0.63 sonrası da sürüyordu — kullanıcı verisiyle ikinci teşhis
   (215 → 220 test).** Kullanıcı v1.0.64'te raporladı: "log klasöründe hata yok,
