@@ -927,7 +927,7 @@ export function SettingsModal({
                 vacuumStatus={vacuumStatus}
                 onVacuum={handleVacuum}
                 onOpenShortcutsHelp={onOpenShortcutsHelp}
-                onOpenLogFolder={() => window.postaci?.logs?.openFolder().catch(() => {})}
+                onOpenLogFolder={async () => window.postaci?.logs?.openFolder()}
               />
             )}
 

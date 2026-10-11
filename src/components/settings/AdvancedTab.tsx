@@ -4,6 +4,7 @@
 // yerel SQLite/RAM istatistikleri ve bakım düğmeleri. Ayar DEĞİŞTİRMEZ —
 // değerler ve callback'ler props olarak gelir; böylece ana modal'ın state'lerinden
 // bağımsız ve tek başına test edilebilir.
+import { useState } from 'react';
 import { useTranslation } from '../../i18n';
 import type { MarkReadTiming } from '../../types';
 
@@ -28,7 +29,7 @@ export interface AdvancedTabProps {
   vacuumStatus: string | null;
   onVacuum: () => void;
   onOpenShortcutsHelp?: () => void;
-  onOpenLogFolder: () => void;
+  onOpenLogFolder: () => Promise<{ ok: boolean; error?: string | null } | undefined>;
 }
 
 export function AdvancedTab({
@@ -46,6 +47,22 @@ export function AdvancedTab({
   onOpenLogFolder,
 }: AdvancedTabProps) {
   const { language } = useTranslation();
+  // "Log Klasörünü Aç" hatası burada, düğmenin yanında görünür. Eskiden hata
+  // sessizce yutuluyordu — main süreçdeki kırık require yolu bu yüzden
+  // v1.0.52'den beri fark edilmeden yaşadı.
+  const [logFolderError, setLogFolderError] = useState<string | null>(null);
+
+  const openLogFolder = async () => {
+    setLogFolderError(null);
+    try {
+      const r = await onOpenLogFolder();
+      if (r && !r.ok) {
+        setLogFolderError(r.error || (language === 'en' ? 'Unknown error' : 'Bilinmeyen hata'));
+      }
+    } catch (e) {
+      setLogFolderError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -232,11 +249,17 @@ export function AdvancedTab({
         )}
         <button
           type="button"
-          onClick={onOpenLogFolder}
+          onClick={openLogFolder}
           className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
         >
           {language === 'en' ? 'Open Log Folder' : 'Log Klasörünü Aç'}
         </button>
+        {logFolderError && (
+          <span className="text-[11px] font-semibold text-red-600 dark:text-red-400 break-all">
+            {language === 'en' ? 'Could not open: ' : 'Açılamadı: '}
+            {logFolderError}
+          </span>
+        )}
       </div>
     </div>
   );

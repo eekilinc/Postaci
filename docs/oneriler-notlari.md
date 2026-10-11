@@ -46,6 +46,27 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 
 ## Tamamlananlar (2026-10-11)
 
+- [x] **"Log Klasörünü Aç" düğmesi v1.0.52'den beri sessizce kırıktı (kullanıcı
+  belirtisi: Ayarlar → Gelişmiş'te tıklanınca açılmıyor).** Kök neden: handler
+  main.cjs'ten (kök dizin) electron/ipc.cjs'e taşınırken gövdedeki GECİKMELİ
+  `require('./electron/logger.cjs')` yolu düzeltilmemişti — electron/ altında
+  `electron/electron/...` olarak çözümleniyor, MODULE_NOT_FOUND handler'ın
+  try/catch'i tarafından yutuluyor ve `{ok:false}` sessizce dönüyordu.
+  v1.0.61'deki alan bölmesi kodu birebir taşıdı; kırıklık aynen korundu.
+  Düzeltmeler:
+  1. logs-ipc.cjs: yol üst düzey `require('../logger.cjs')` olarak düzeltildi.
+  2. **Yeni ağ katmanı (ipc-static.test.ts):** her IPC modülündeki her GÖRELİ
+     require yolu require.resolve ile doğrulanır — yorum satırlarındaki örnek
+     require'lar hariç. Bu hata sınıfı önce KIRMIZI görüldü (canlı hatayı
+     yakaladı), düzeltmeyle yeşile döndü. Duman testi bu sınıfı yakalayamazdı:
+     hata handler içinde sarılıyor, ReferenceError üretmiyor.
+  3. **Sessiz başarısızlık görünür yapıldı:** AdvancedTab artık log klasörü
+     hatasını düğmenin yanında kırmızı metinle gösterir (eskiden renderer
+     `{ok:false}`'u `.catch(() => {})` ile yutuyordu — 10 sürüm boyunca
+     kimsenin fark etmemesinin nedeni).
+  Test: 201 → 215.
+
+
 - [x] **Spam klasörü bayat kayıt hatası (kullanıcı belirtisi: "Gmail dışı
   hesapta Spam'de 1 e-posta görünüyor, açınca boş, eşitlesem de
   düzelmiyor") — 197 → 201 test.** Kök neden: `syncFolder`'ın İLK SENKRON

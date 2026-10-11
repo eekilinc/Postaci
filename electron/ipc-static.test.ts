@@ -83,4 +83,33 @@ describe('IPC modülleri — yardımcı import/kullanım tutarlılığı', () =>
     }
     expect(missing, `${mod}: ${missing.join(', ')}`).toEqual([]);
   });
+
+  // ── Göreli require yolları çözümlenebilir olmalı ─────────────────────────────
+  // NEDEN: handler gövdesindeki GECİKMELİ require'lar dosya taşındığında yanlış
+  // göreli yola düşebilir; handler bunu try/catch ile yuttuğu için sessizce
+  // {ok:false}/null döner. Vaka: logs:open-folder — kod main.cjs'ten
+  // electron/ipc.cjs'e taşınırken require('./electron/logger.cjs') yolu
+  // düzeltilmemişti; düğme v1.0.52'den beri sessizce hiçbir şey yapmıyordu.
+  // Duman testi bunu yakalayamaz (hata sarılır); yol denetimi deterministiktir.
+  const pathCheckFiles = [join(HERE, 'ipc-helpers.cjs'), ...modulePaths];
+  it.each(pathCheckFiles.map((p) => [p]))('%s: göreli require yolları mevcut dosyalara gitmeli', (mod) => {
+    const file = mod as string;
+    const src = readFileSync(file, 'utf8');
+    // Yorum satırlarında geçen ÖRNEK require'lar (düzenleme notları) hariç tutulur
+    const noComments = src
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+    const req = createRequire(file);
+    const broken: string[] = [];
+    for (const m of noComments.matchAll(/require\('(\.[^']*)'\)/g)) {
+      const target = m[1];
+      try {
+        req.resolve(target);
+      } catch {
+        broken.push(target);
+      }
+    }
+    expect(broken, `${file}: çözümlenemeyen require yolları: ${broken.join(', ')}`).toEqual([]);
+  });
 });
