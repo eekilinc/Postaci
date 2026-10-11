@@ -432,8 +432,10 @@ function detectHasAttachment(structure) {
   return false;
 }
 
-async function syncFolder({ provider, email, accessToken, password, imapHost, imapPort, folderPath = 'INBOX', db, limit = 50, beforeUid = null, skipUid = null, skipPrune = false }) {
-  return withClient({ provider, email, accessToken, password, imapHost, imapPort }, async (client) => {
+async function syncFolder({ provider, email, accessToken, password, imapHost, imapPort, folderPath = 'INBOX', db, limit = 50, beforeUid = null, skipUid = null, skipPrune = false, client: providedClient = null }) {
+  // client DI: birim testleri sahte IMAP istemcisi enjekte eder; üretimde undefined
+  // kalır ve gerçek bağlantı withClient ile açılır.
+  const run = async (client) => {
     const tStart = Date.now();
     const phaseMs = {};
     const mark = (k) => { phaseMs[k] = Date.now() - tStart; };
@@ -664,7 +666,14 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
           }
           mark('fetch');
           console.log(`[sync] ${email} [${folderPath}]: İlk eşitleme doğrudan FETCH ile tamamlandı (kutuda=${total}, çekilen=${synced}, ${Date.now() - tStart}ms)`);
-          return { total, synced, failed: 0, newMessages: [] };
+          // ERKEN DÖNÜŞ YOK (2026-10-11 düzeltmesi): eskiden burada `return`
+          // ediliyordu ve budama bloğuna HİÇ ulaşılmıyordu. Spam/çöp gibi
+          // sunucu tarafından yeniden yaratılan (UIDVALIDITY sıfırlanan)
+          // klasörlerde bu, ESKİ nesil bayat satırların sonsuza dek listede
+          // kalmasına yol açıyordu: "1 e-posta görünüyor ama açınca boş,
+          // eşitlesem de düzelmiyor" — bayat UID ile gövde isteniyor, sunucuda
+          // ileti yok. Artık budamaya düşülür; budama, sunucuda bulunmayan
+          // bayat satırları temizler; final özet aşağıda döner (aynı alanlar).
         } catch (fetchSeqErr) {
           console.warn(`[sync] ${email} [${folderPath}] seq ile doğrudan çekme yapılamadı (${fetchSeqErr?.message}), UID yoluna dönülüyor...`);
           try {
@@ -840,7 +849,9 @@ async function syncFolder({ provider, email, accessToken, password, imapHost, im
     mark('fetch');
     console.log(`[sync] ${email} [${folderPath}]: kutuda=${total} hedef=${target.length} çekilen=${synced} yeni=${newMessages.length} bayrak=${flagsTouched} hatalı=${failed} süre=${Date.now() - tStart}ms${firstError ? ` ilkHata=${firstError}` : ''}`);
     return { total, synced, failed, firstError, newMessages };
-  });
+  };
+  if (providedClient) return run(providedClient);
+  return withClient({ provider, email, accessToken, password, imapHost, imapPort }, run);
 }
 
 // skipUid DİKKAT: `deletedUidCache` koruması bu yolda da aktarılmalı.

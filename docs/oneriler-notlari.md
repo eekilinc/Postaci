@@ -46,6 +46,24 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 
 ## Tamamlananlar (2026-10-11)
 
+- [x] **Spam klasörü bayat kayıt hatası (kullanıcı belirtisi: "Gmail dışı
+  hesapta Spam'de 1 e-posta görünüyor, açınca boş, eşitlesem de
+  düzelmiyor") — 197 → 201 test.** Kök neden: `syncFolder`'ın İLK SENKRON
+  hızlı yolu iletileri çekip ERKEN DÖNER, budama (prune) bloğuna HİÇ
+  ulaşmaz. Spam/çöp klasörleri sunucular tarafından otomatik temizlenip
+  YENİDEN YARATILIR (UIDVALIDITY sıfırlanır); yerelde ESKİ nesil UID'li
+  satırlar kalır. Belirti üçlemesi birebir: (1) bayat satır listede görünür,
+  (2) açılınca ölü UID ile gövde istenir → "boş", (3) Eşitle → hızlı yol
+  erken döner → bayat satır BUDANMAZ → düzelmez.
+  Düzeltme: erken dönüş kaldırıldı, akış budamaya düşer. Güvence:
+  `mail-syncfolder.test.ts` (4 test) — sahte IMAP istemcisi + gerçek SQLite,
+  UIDVALIDITY sıfırlanma senaryosu önce KIRMIZI görüldü
+  (beklenen ['1'], dönen ['1','4500']), düzeltmeyle yeşil. syncFolder'a
+  `client` DI parametresi eklendi (üretimde undefined; withClient yolu aynı).
+  Aynı dosya veri kaybı korumasını da kilitler (sunucu anomalisinde satırlar
+  silinmez).
+
+
 - [x] **Kalan eksikler kapatıldı (194 → 197 test):**
   1. **mail-ipc.cjs işlevsel alt gruplara bölündü** (1180 satır → 4 modül):
      `mail-sync-ipc` (234, 8 handler), `mail-read-ipc` (169, 12),
