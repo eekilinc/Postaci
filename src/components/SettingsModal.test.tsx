@@ -505,6 +505,24 @@ describe('SettingsModal — sekme yüzeyi', () => {
     ).toBeGreaterThan(0);
   });
 
+  // Parola alanı sertleştirmesi: "Göster" modunda type=text olur; yazım
+  // denetimi açık kalırsa sağ tık -> sözlüğe ekle ile parola kelimesi
+  // Chromium'ın düz metin sözlüğüne yazılabilir.
+  it('parola alanında yazım denetimi ve otomatik doldurma kapalıdır', () => {
+    const acc = { id: 7, provider: 'imap', email: 'x@y.com', display_name: null };
+    renderModal({ accounts: [acc] as never });
+    act(() => {
+      screen.getAllByText(TR_LABELS.accounts)[0].click();
+    });
+    act(() => {
+      screen.getAllByRole('button', { name: 'Düzenle' })[0].click();
+    });
+    const pass = screen.getByPlaceholderText(/Mevcut şifreyi korumak için/) as HTMLInputElement;
+    // jsdom bazı özellik yansımalarını desteklemez; attribute bazında bak.
+    expect(pass.getAttribute('spellcheck')).toBe('false');
+    expect(pass.getAttribute('autocomplete')).toBe('off');
+  });
+
   // ComposingTab ayrıldı: imza editörü artık bu bileşende (contentEditable ref).
   it('oluşturma sekmesi hesap yoksa uyarı gösterir', () => {
     renderModal({ accounts: [] });

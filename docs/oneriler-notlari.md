@@ -46,6 +46,56 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 
 ## Tamamlananlar (2026-10-11)
 
+- [x] **`electron/ipc.cjs` alan bazlı modüllere bölündü (ÖNCEKİ DENEME BAŞARISIZDI, bu kez tamamlandı).**
+  1985 satırlık monolit → 31 satırlık yükleyici + `ipc-helpers.cjs` (439) +
+  9 alan modülü (`electron/ipc/`): db, logs, accounts(+auth), mail, contacts,
+  app, notifications, shell, dialog. mail-ipc 1180 satır (39 handler) —
+  bir sonraki adım istenirse o da alt gruplara ayrılabilir.
+
+  **Önceki deneme neden başarısız olmuştu:** otomatik araç handler blokları
+  arasındaki YARDIMCI fonksiyonları yanlış gruba atıyordu → 66 yerine 171
+  handler, iki kez kayıt. Bu kez iki adımlı ve üç katmanlı güvenlikle:
+
+  1. **Yardımcılar önce ayrıldı** (`ipc-helpers.cjs`) — handler'lara tek
+     dokunuşla, duman testi aracılığıyla doğrulandı.
+  2. **Her modülün require listesi GÖVDEDEN OTOMATİK ÜRETİLDİ** — elle
+     yazılan import listesi hatası ortadan kalktı (kullanılan ⊆ import).
+  3. **Üç katmanlı güvenlik ağı (hepsi CI'da kalıcı):**
+     - `ipc.test.ts` sözleşme: 66 kanal kaydı + preload.cjs birebir eşleşme
+     - `ipc.test.ts` duman: 66 handler'ı "makul dünya" stub'larıyla ÇAĞIRIR;
+       eksik import → ReferenceError. DERS: handler gövdelerindeki catch
+       blokları ReferenceError'u SARAR — `instanceof` yetmez, mesaj metni
+       bazında aranır. Ayrıca çıplak `try {} catch {}` hatayı TAMAMEN yutar
+       (runtime ağın sınırı budur).
+     - `ipc-static.test.ts` (YENİ): her modülde kullanılan-yardımcı ⊆
+       import-edilen, deterministik — catch-yutan bloklardaki isimleri bile
+       yakalar. Negatif kontrollerle kanıtlandı (kopar → kırmızı, geri koy →
+       yeşil).
+  **composeTemplate dersi:** envanterde gözden kaçan bu yardımcı (yanıt/ileri
+  şablon ortak gövdesi) bölme sonrası duman testinde anında yakalandı — ağ
+  gerçek bir eksik buldu. mail-ipc'e modül kapsamında eklendi.
+  **Dumanın sınırlılığı notu:** `_folderListFetchedAt`/`FOLDER_LIST_REFRESH_MS`
+  bare-catch içinde yaşadığı için runtime ağı bunları göremez; statik test
+  kapsar. İkisi birlikte tam kapsama.
+
+- [x] **Parola alanları sertleştirildi** — AddAccountModal + AccountsTab:
+  `spellCheck={false}` + `autoComplete="off"` ("Göster" modunda type=text
+  olunca sağ tık sözlüğe-ekle ile parola kelimesi Chromium sözlük dosyasına
+  yazılabiliyordu). SettingsModal testinde attribute bazında sabitlendi.
+
+- [x] **İmza önizlemesi DOMPurify'den geçiyor** — ComposingTab
+  `dangerouslySetInnerHTML` ham sigHtml render ediyordu; hazır şablonlar
+  display_name'i KAÇIŞSIZ gömüyordu. `escapeHtml` + `sanitizeSignatureHtml`
+  (sanitizeEmail.ts) eklendi; 6 yeni test.
+
+- [x] **Odak tuzağı (a11y)** — `useFocusTrap` hook'u: Tab/Shift+Tab modal
+  dışına kaçmaz, açılışta ilk odaklanabilir öğeye geçer, kapanınca tetikleyiciye
+  döner. 7 modalda uygulandı (Settings, Compose, Contacts, AddAccount,
+  CommandPalette, ShortcutsHelp, AttachmentPreview). 5 test.
+
+Test sayısı: 175 → **194**.
+
+
 - [x] **Gizlilik: CSS izleme pikseli sızıntısı kapatıldı (143 → 170 test).**
   "Harici görselleri engelle" kalkanı yalnız `<img src=…>` yakalıyordu;
   `style="background:url(https://…)"` gömülü izleyiciler sanitizasyondan

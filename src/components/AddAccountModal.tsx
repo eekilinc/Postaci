@@ -1,5 +1,6 @@
 // src/components/AddAccountModal.tsx — hesap ekleme modal penceresi
-import { useState } from 'react';
+import { useState , useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { AccentKey } from '../types';
 import { ACCENTS } from '../constants';
 import { cleanIpcError } from '../utils/errors';
@@ -36,6 +37,13 @@ export function AddAccountModal({
   setNotice,
 }: AddAccountModalProps) {
   const A = ACCENTS[accent];
+
+  // Erişilebilirlik: Tab modal dışına kaçamaz, kapanınca odak geri döner
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useFocusTrap(rootRef, true);
+
 
   const [addMode, setAddMode] = useState<'oauth' | 'manual'>('oauth');
   const [busy, setBusy] = useState<string | null>(null);
@@ -135,7 +143,8 @@ export function AddAccountModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs animate-fadeIn select-none p-4"
+            ref={rootRef}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs animate-fadeIn select-none p-4"
       onClick={onClose}
     >
       <div
@@ -242,6 +251,11 @@ export function AddAccountModal({
               onChange={(e) => setMPass(e.target.value)}
               type="password"
               placeholder="Şifre / uygulama şifresi"
+              // Parola alanı: yazım denetimi KAPALI olmalı — sağ tık "sözlüğe
+              // ekle" ile parola kelimesi Chromium'ın düz metin sözlük dosyasına
+              // yazılabilir; otomatik doldurma da gereksiz açık verir.
+              spellCheck={false}
+              autoComplete="off"
               className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
             />
             <button

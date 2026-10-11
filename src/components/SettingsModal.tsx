@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo , useRef } from 'react';
 import type { AccentKey, Account, DateFormatPreference, ListDensity, MarkReadTiming, QuickSnippet, SnippetLines, ThemeKey } from '../types';
 import type { LayoutMode } from './LayoutSwitcher';
 import { getAccountSignature, saveAccountSignature } from '../utils/signatures';
 import { playNotificationSound } from '../utils/sound';
 import { useTranslation } from '../i18n';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 import { CloseIcon } from './icons';
 import { PostaciLogo } from './PostaciLogo';
@@ -75,6 +76,10 @@ export function SettingsModal({
   const { language } = useTranslation();
   // setLayoutMode props'ta opsiyonel olabilir; çağıran her yerde tanımlı.
   const handleLayoutMode = onLayoutModeChange || setLayoutMode || (() => {});
+  // Erişilebilirlik: Tab modal dışına kaçamaz, kapanınca odak geri döner
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(rootRef, true);
+
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [updateCheckStatus, setUpdateCheckStatus] = useState<string | null>(null);
   const updaterStatus = useUpdaterStatus();
@@ -649,7 +654,8 @@ export function SettingsModal({
 
   return (
     <div
-      role="dialog"
+            ref={rootRef}
+            role="dialog"
       aria-modal="true"
       aria-label={language === 'en' ? 'Settings' : 'Ayarlar'}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs animate-fadeIn select-none p-4"

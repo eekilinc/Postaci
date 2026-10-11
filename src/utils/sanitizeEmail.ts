@@ -87,3 +87,27 @@ export function sanitizeEmailHtml(
   sanitized = stripRemoteInputSrc(sanitized);
   return sanitized;
 }
+
+/**
+ * İmza önizlemesi gibi KULLANICI içeriği için hafif sanitizasyon.
+ * Uzak görsel engelleme YOK: imzalar meşru olarak uzak logo barındırabilir;
+ * burada amaç yalnız script/olay enjeksiyonuna karşı savunma derinliği.
+ */
+export function sanitizeSignatureHtml(html: string): string {
+  if (!html) return '';
+  return DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+}
+
+/**
+ * HTML içine metin gömerken kaçışlama — hazır imza şablonları hesap
+ * adını/e-postasını doğrudan HTML'e dokur; kaçışsız gömmek display_name
+ * içindeki işaretleme etiketleriyle enjeksiyona kapı açar.
+ */
+export function escapeHtml(value: string): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

@@ -14,9 +14,12 @@
 // `require.cache` üzerinden stub enjekte ediyoruz — CJS'in gerçekten göreceği yol.
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
+const IPC_DIR = join(dirname(fileURLToPath(import.meta.url)), 'ipc');
 
 // ── Electron stub ────────────────────────────────────────────────────────────
 const handlers = new Map<string, (...args: unknown[]) => unknown>();
@@ -54,8 +57,177 @@ function injectStub(absPath: string, exports: unknown) {
 
 injectStub(require.resolve('electron'), electronStub);
 
-// Ağ/DB katmanları: bu test yalnızca KAYIT yüzeyini doğrular, handler
-// gövdeleri çalıştırılmaz. Tüm dışa aktarımlar no-op olur.
+// ── "Makul dünya" stub'ları ─────────────────────────────────────────────────
+// Handler'lar yalnızca doğru TİPTE veri döndüğünde derin kod yollarına girer.
+// Eğer stub her şey için undefined döndürürse, handler doğrulama bariyerinde
+// ("Hesap bulunamadı") durur ve gövdesindeki eksik import YAKALANMAZ — duman
+// testi false confidence verirdi. Bu yüzden hesap, kimlik, DB ve IMAP istemcisi
+// gerçekçi nesneler döndürür; handler gövdesi sonuna kadar yürür.
+const fakeDb = {
+  prepare: () => ({
+    get: () => ({}),
+    all: () => [],
+    run: () => ({ changes: 0 }),
+  }),
+  exec: () => undefined,
+  pragma: () => undefined,
+};
+const fakeAccount = {
+  id: 1,
+  provider: 'imap',
+  email: 'a@x.com',
+  display_name: 'Test',
+  auth_type: 'password',
+  password_enc: 'eA==',
+  imap_host: 'h',
+  imap_port: 993,
+  smtp_host: 's',
+  smtp_port: 465,
+};
+const fakeCreds = {
+  accessToken: 'tok',
+  password: 'pass',
+  imapHost: 'h',
+  imapPort: 993,
+  smtpHost: 's',
+  smtpPort: 465,
+  smtpSecure: true,
+};
+const fakeClient = new Proxy(
+  {
+    mailboxOpen: async () => ({ exists: 0 }),
+    mailboxClose: async () => undefined,
+    search: async () => [],
+    status: async () => ({ messages: 0, unseen: 0 }),
+    listTree: async () => ({ folders: [] }),
+    list: async () => [],
+    messageDelete: async () => undefined,
+    messageFlagsAdd: async () => true,
+    run: async () => undefined,
+  },
+  { get: (t, k) => (k in t ? t[k] : async () => undefined) },
+);
+const stubFor = (name: string): Record<string, unknown> => {
+  switch (name) {
+    case './db.cjs':
+      return {
+        getDb: () => fakeDb,
+        getStats: () => ({ accounts: 1, folders: 1, messages: 1 }),
+        getDbPath: () => 'C:/x.db',
+        vacuumDb: () => true,
+        listAccounts: () => [fakeAccount],
+        getAccountById: () => fakeAccount,
+        getAccountByEmail: () => fakeAccount,
+        updateAccount: () => true,
+        deleteAccount: () => true,
+        updateTokens: () => true,
+        addAccount: () => 1,
+        listMessages: () => [],
+        countFolderMessages: () => ({ total: 0, unread: 0 }),
+        listUnifiedMessages: () => [],
+        countUnifiedMessages: () => ({ total: 0, unread: 0 }),
+        searchUnifiedMessages: () => [],
+        searchMessages: () => [],
+        getThreadMessages: () => [],
+        getMessageMeta: () => ({}),
+        getMessageBody: () => null, // onbellek bos: handler fetch+persistBody yoluna insin
+        saveMessageBody: () => undefined,
+        listAttachments: () => [],
+        saveAttachments: () => undefined,
+        markReadDb: () => true,
+        markUnreadDb: () => true,
+        toggleStarDb: () => 1,
+        batchMarkReadDb: () => true,
+        batchToggleStarDb: () => true,
+        searchContacts: () => [],
+        listContacts: () => [],
+        upsertContact: () => ({}),
+        deleteContact: () => true,
+        saveSentMessage: () => 'local-1',
+        saveDraftMessage: () => 'draft-1',
+        getSetting: () => ({}),
+        setSetting: () => undefined,
+        getAllUnreadCounts: () => ({ byAccount: {}, byFolder: {}, unified: 0 }),
+      };
+    case './mail.cjs':
+      return {
+        emailFromIdToken: () => ({ email: 'a@x.com' }),
+        fetchProfileEmail: async () => 'a@x.com',
+        syncInbox: async () => ({ total: 0, synced: 0, newMessages: [] }),
+        syncFolder: async () => ({ total: 0, synced: 0, newMessages: [] }),
+        fetchBody: async () => ({ html: '<p>x</p>', text: 'x', attachments: [] }),
+        fetchAttachment: async () => ({ filename: 'a.txt', contentType: 'text/plain', dataBase64: 'QQ==' }),
+        markSeen: async () => true,
+        markUnseen: async () => true,
+        createTransporter: () => ({ sendMail: async () => ({ messageId: 'ok' }), verify: async () => true }),
+        buildRaw: () => 'raw',
+        sendRaw: async () => true,
+        appendToSent: async () => true,
+        verifyImap: async () => ({ ok: true }),
+        listFolders: async () => [],
+        moveToTrash: async () => ({ success: true, dest: 'Trash', destUid: '9' }),
+        batchMoveToTrash: async () => true,
+        batchMarkSeen: async () => true,
+        batchToggleFlag: async () => true,
+        moveToFolder: async () => true,
+        batchMoveToFolder: async () => true,
+        withClient: (_c: unknown, fn: (c: unknown) => unknown) => fn(fakeClient),
+        imapErrDetail: (e: unknown) => (e as Error)?.message || String(e),
+        invalidateClient: () => undefined,
+        isAuthFailed: () => false,
+      };
+    case './token-auth.cjs':
+      return {
+        enc: (s: string) => Buffer.from(s).toString('base64'),
+        dec: (b: string) => Buffer.from(b, 'base64').toString('utf8'),
+        freshCredentials: async () => fakeCreds,
+        withAuthRetry: (_a: unknown, fn: (c: unknown) => unknown) => fn(fakeCreds),
+        _tokenRefreshPromises: new Map(),
+      };
+    case './imap-queue.cjs':
+      return {
+        markDeleted: () => undefined,
+        isDeleted: () => false,
+        clearDeleted: () => undefined,
+        _lastSyncTime: new Map(),
+        _imapQueues: new Map(),
+        _lastImapOpTime: new Map(),
+        _activeFolderPerAccount: new Map(),
+        imapLock: (_e: string, fn: () => unknown) => Promise.resolve(fn()),
+        SYNC_CONCURRENCY: 2,
+        syncOneInboxWithTimeout: async () => ({ total: 0, synced: 0 }),
+        isTimeoutError: () => false,
+        runWithConcurrency: async (_items: unknown[]) => [],
+      };
+    case './auth.cjs':
+      return { startOAuthFlow: async () => ({ access_token: 'a', refresh_token: 'r', id_token: 'i' }) };
+    case './providers.cjs':
+      return { detectSettings: async () => ({ imap: { host: 'h', port: 993, secure: true }, smtp: { host: 's', port: 465, secure: true }, source: 'guess', note: '' }) };
+    case './compose.cjs':
+      return {
+        splitAddresses: (s: string) => (s || '').split(/[;,]/).map((x) => x.trim()).filter(Boolean),
+        buildReply: () => ({ to: '', cc: '', subject: '', text: '', html: '', inReplyTo: undefined, references: undefined }),
+        buildReplyAll: () => ({ to: '', cc: '', subject: '', text: '', html: '', inReplyTo: undefined, references: undefined }),
+        buildForward: () => ({ to: '', cc: '', subject: '', text: '', html: '', inReplyTo: undefined, references: undefined }),
+      };
+    case './db-drizzle.cjs':
+      return { adjustFolderUnread: () => undefined };
+    case './notifications.cjs':
+      return {
+        notifyNewMessages: () => undefined,
+        showDesktopNotification: () => undefined,
+        flushAllPendingToasts: () => undefined,
+        DEFAULT_NOTIFICATION_SETTINGS: {},
+      };
+    case './background-sync.cjs':
+      return { updateBackgroundSyncSchedule: () => undefined };
+    case './shell-integration.cjs':
+      return { syncStartupSettings: () => undefined };
+    default:
+      return new Proxy({}, { get: () => vi.fn() });
+  }
+};
+
 for (const rel of [
   './db.cjs',
   './mail.cjs',
@@ -69,7 +241,7 @@ for (const rel of [
   './background-sync.cjs',
   './shell-integration.cjs',
 ]) {
-  injectStub(require.resolve(rel), new Proxy({}, { get: () => vi.fn() }));
+  injectStub(require.resolve(rel), stubFor(rel));
 }
 
 const { registerIpc } = require('./ipc.cjs') as {
@@ -127,8 +299,8 @@ describe('preload köprüsü ile sözleşme', () => {
       [...src.matchAll(/ipcRenderer\.(?:invoke|sendSync)\(\s*'([^']+)'/g)].map((m) => m[1])
     );
     expect(invoked.size, 'preload invoke kanal sayisi beklenenden az').toBeGreaterThan(50);
-    // Kanallar tek dosyada değil: ipc.cjs + updater kendi modülünde.
-    const MAIN_FILES = ['./ipc.cjs', './updater.cjs'];
+    // Kanallar ipc/ altındaki alan modüllerinde; updater kendi modülünde.
+    const MAIN_FILES = [...readdirSync(IPC_DIR).map((f) => `./ipc/${f}`), './updater.cjs'];
     const all = MAIN_FILES.map((f) => readFileSync(require.resolve(f), 'utf8')).join('\n');
     const missing = [...invoked].filter((ch) => !all.includes(`'${ch}'`)).sort();
     // Eksik kanal = preload bir sey cagirIYOR ama main'de handler yok
@@ -142,7 +314,7 @@ describe('preload köprüsü ile sözleşme', () => {
     );
     expect(listened.size, 'push kanali bulunamadi').toBeGreaterThan(0);
 
-    const all = ['./ipc.cjs', './notifications.cjs', './updater.cjs', './background-sync.cjs']
+    const all = [...readdirSync(IPC_DIR).map((f) => `./ipc/${f}`), './notifications.cjs', './updater.cjs', './background-sync.cjs']
       .map((f) => readFileSync(require.resolve(f), 'utf8'))
       .join('\n');
     const orphan = [...listened].filter((ch) => !all.includes(`'${ch}'`)).sort();
@@ -188,4 +360,36 @@ describe('shell:open-external şema doğrulaması', () => {
     call('https://example.com');
     expect(openExternal).toHaveBeenCalledWith('https://example.com');
   });
+});
+
+// ── Duman: tum handler'lar cagrilabilir olmali (bölme güvenliği) ──────────────
+// ipc.cjs alan bazli modüllere bölündüğünde yanlış modüle düşen bir yardımcı
+// fonksiyon, yalnızca İLGİLİ handler çağrıldığında ReferenceError üretir.
+// Kanal sayısı testi bunu yakalayamaz (kayıt yine 66 olur). Bu duman, her
+// handler'ı stub bağımlılıklarla bir kez ÇAĞIRIR ve yalnız ReferenceError'u
+// hata sayar — stub'lar yüzünden çıkan TypeError'lar beklenendir.
+describe('registerIpc — handler dumanı (bölme güvenliği)', () => {
+  it('hiçbir handler ReferenceError üretmez', async () => {
+    const failures: string[] = [];
+    for (const [ch, fn] of handlers) {
+      try {
+        // Zincir takılmaları önle: stub'lar senkron döner ama yine de sınırla
+        const r = Promise.race([
+          Promise.resolve(fn({}, 'a@x.com', 'INBOX', ['123'], 1, {})),
+          new Promise((res) => setTimeout(() => res('timeout-guard'), 500)),
+        ]);
+        await r;
+      } catch (e) {
+        // DİKKAT: handler gövdelerindeki catch blokları ReferenceError'u
+        // yakalayıp friendlySyncError ile SARAR — surfaced hata artık Error
+        // olur, instanceof yakalayamaz. Sarmalanan mesaj metni hâlâ
+        // "ReferenceError: X is not defined" içerir; mesaj bazında aranır.
+        const msg = String((e as Error)?.message || e);
+        if (e instanceof ReferenceError || /ReferenceError|is not defined/.test(msg)) {
+          failures.push(`${ch}: ${msg}`);
+        }
+      }
+    }
+    expect(failures, `ReferenceError üreten handler'lar:\n${failures.join('\n')}`).toEqual([]);
+  }, 20000);
 });

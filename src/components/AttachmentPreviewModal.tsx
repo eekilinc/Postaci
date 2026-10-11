@@ -1,5 +1,6 @@
 // src/components/AttachmentPreviewModal.tsx — ek dosya önizleme modalı (resim, PDF, metin)
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import {
   FileImageIcon,
   FilePdfIcon,
@@ -24,6 +25,8 @@ export function AttachmentPreviewModal({
   onClose,
   onSave,
 }: AttachmentPreviewModalProps) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(rootRef, true);
   const isImage = contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
   const isPdf = contentType.includes('pdf') || /\.pdf$/i.test(filename);
   const isText = contentType.startsWith('text/') || /\.(txt|json|md|csv|log)$/i.test(filename);
@@ -39,7 +42,8 @@ export function AttachmentPreviewModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fadeIn select-none"
+            ref={rootRef}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fadeIn select-none"
       onClick={onClose}
     >
       <div

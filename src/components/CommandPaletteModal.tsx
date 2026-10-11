@@ -25,6 +25,7 @@ import {
   CompactLayoutIcon,
 } from './icons';
 import { useTranslation } from '../i18n';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface CommandItem {
   id: string;
@@ -74,6 +75,10 @@ export function CommandPaletteModal({
   onSelectLayoutMode,
 }: CommandPaletteModalProps) {
   const { t, language } = useTranslation();
+  // Erişilebilirlik: Tab modal dışına kaçamaz, kapanınca odak geri döner
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(rootRef, true);
+
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -342,7 +347,8 @@ export function CommandPaletteModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/60 backdrop-blur-xs transition-opacity duration-150"
+            ref={rootRef}
+            className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/60 backdrop-blur-xs transition-opacity duration-150"
       onClick={handleClose}
     >
       <div

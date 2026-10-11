@@ -4,6 +4,7 @@ import { ACCENTS } from '../constants';
 import { getAccountSignature } from '../utils/signatures';
 import { PostaciLogo } from './PostaciLogo';
 import { useTranslation } from '../i18n';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import {
   CloseIcon,
   AttachmentIcon,
@@ -81,6 +82,10 @@ export function ComposeModal({
 }: ComposeModalProps) {
   const { t } = useTranslation();
   const A = ACCENTS[accent];
+  // Erişilebilirlik: Tab modal dışına kaçamaz, kapanınca odak geri döner
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(rootRef, true);
+
   const [editorMode, setEditorMode] = useState<'rich' | 'plain'>('rich');
   const editorRef = useRef<HTMLDivElement>(null);
   const isInternalUpdate = useRef(false);
@@ -492,7 +497,8 @@ export function ComposeModal({
 
       {/* 2. Ana Compose Modalı (Küçültüldüğünde DOM'dan silinmez, gizlenir — böylece editör içeriği asla kaybolmaz) */}
       <div
-        className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 ${
+                ref={rootRef}
+                className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 ${
           isMinimized ? 'hidden pointer-events-none' : ''
         }`}
         style={isMinimized ? { display: 'none' } : undefined}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import type { ContactItem } from '../types';
 import { useTranslation } from '../i18n';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { SearchIcon, SendIcon, TrashIcon } from './icons';
 
 interface ContactsModalProps {
@@ -44,6 +45,10 @@ function getInitials(name?: string | null, email?: string): string {
 
 export function ContactsModal({ onClose, onComposeTo }: ContactsModalProps) {
   const { language } = useTranslation();
+  // Erişilebilirlik: Tab modal dışına kaçamaz, kapanınca odak geri döner
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(rootRef, true);
+
   const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -213,7 +218,8 @@ export function ContactsModal({ onClose, onComposeTo }: ContactsModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+            ref={rootRef}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

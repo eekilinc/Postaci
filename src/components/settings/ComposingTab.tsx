@@ -10,6 +10,7 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from '../../i18n';
 import { SnippetIcon, TrashIcon } from '../icons';
+import { escapeHtml, sanitizeSignatureHtml } from '../../utils/sanitizeEmail';
 import type { QuickSnippet } from '../../types';
 
 export interface ComposingTabProps {
@@ -85,13 +86,17 @@ export function ComposingTab({
   };
 
   const applyTemplateToEditor = (templateType: 'modern' | 'two-column' | 'simple') => {
+    // display_name OAuth profilinden bile gelebilir; HTML'i dogrudan
+    // sablonun icine gommek enjeksiyona kapi acar — once kacis.
+    const name = escapeHtml(accountName);
+    const mail = escapeHtml(selectedEmail);
     let templateHtml = '';
     if (templateType === 'modern') {
-      templateHtml = `<div style="font-family: Arial, sans-serif; font-size: 13px; color: #333; line-height: 1.5; border-left: 3px solid #2563eb; padding-left: 12px; margin-top: 8px;"><div style="font-weight: bold; font-size: 14px; color: #1e293b;">${accountName}</div><div style="color: #64748b; font-size: 12px;">Unvan / Departman</div><div style="margin-top: 4px; color: #475569; font-size: 12px;">📧 <a href="mailto:${selectedEmail}" style="color: #2563eb; text-decoration: none;">${selectedEmail}</a> &nbsp;|&nbsp; 🌐 <a href="https://example.com" style="color: #2563eb; text-decoration: none;">example.com</a></div></div>`;
+      templateHtml = `<div style="font-family: Arial, sans-serif; font-size: 13px; color: #333; line-height: 1.5; border-left: 3px solid #2563eb; padding-left: 12px; margin-top: 8px;"><div style="font-weight: bold; font-size: 14px; color: #1e293b;">${name}</div><div style="color: #64748b; font-size: 12px;">Unvan / Departman</div><div style="margin-top: 4px; color: #475569; font-size: 12px;">📧 <a href="mailto:${mail}" style="color: #2563eb; text-decoration: none;">${mail}</a> &nbsp;|&nbsp; 🌐 <a href="https://example.com" style="color: #2563eb; text-decoration: none;">example.com</a></div></div>`;
     } else if (templateType === 'two-column') {
-      templateHtml = `<table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; font-size: 13px; color: #333; margin-top: 8px;"><tr><td style="padding-right: 14px; border-right: 2px solid #cbd5e1; vertical-align: middle;"><div style="width: 44px; height: 44px; border-radius: 8px; background: #2563eb; color: #fff; font-weight: bold; font-size: 18px; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 44px;">${accountName.slice(0, 2).toUpperCase()}</div></td><td style="padding-left: 14px; vertical-align: middle; line-height: 1.4;"><strong style="color: #0f172a; font-size: 14px;">${accountName}</strong><br/><span style="color: #64748b; font-size: 12px;">Şirket / Kuruluş</span><br/><span style="font-size: 11px; color: #2563eb;">${selectedEmail}</span></td></tr></table>`;
+      templateHtml = `<table cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; font-size: 13px; color: #333; margin-top: 8px;"><tr><td style="padding-right: 14px; border-right: 2px solid #cbd5e1; vertical-align: middle;"><div style="width: 44px; height: 44px; border-radius: 8px; background: #2563eb; color: #fff; font-weight: bold; font-size: 18px; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 44px;">${escapeHtml(accountName.slice(0, 2).toUpperCase())}</div></td><td style="padding-left: 14px; vertical-align: middle; line-height: 1.4;"><strong style="color: #0f172a; font-size: 14px;">${name}</strong><br/><span style="color: #64748b; font-size: 12px;">Şirket / Kuruluş</span><br/><span style="font-size: 11px; color: #2563eb;">${mail}</span></td></tr></table>`;
     } else {
-      templateHtml = `<div style="font-family: Arial, sans-serif; font-size: 13px; color: #4b5563; line-height: 1.4; margin-top: 8px;">Saygılarımla / Best regards,<br/><strong style="color: #111827;">${accountName}</strong><br/><span style="font-size: 12px; color: #6b7280;">Tel: +90 (5XX) XXX XX XX</span></div>`;
+      templateHtml = `<div style="font-family: Arial, sans-serif; font-size: 13px; color: #4b5563; line-height: 1.4; margin-top: 8px;">Saygılarımla / Best regards,<br/><strong style="color: #111827;">${name}</strong><br/><span style="font-size: 12px; color: #6b7280;">Tel: +90 (5XX) XXX XX XX</span></div>`;
     }
     onSigHtmlChange(templateHtml);
     if (sigEditorRef.current) sigEditorRef.current.innerHTML = templateHtml;
@@ -361,7 +366,9 @@ export function ComposingTab({
                   {sigHtml ? (
                     <div
                       className="text-xs"
-                      dangerouslySetInnerHTML={{ __html: sigHtml }}
+                      // Önizleme DOMPurify'den geçer: sigHtml localStorage'dan
+                      // geri yüklenebilir; şablon kaçışına ek savunma derinliği.
+                      dangerouslySetInnerHTML={{ __html: sanitizeSignatureHtml(sigHtml) }}
                     />
                   ) : (
                     <span className="text-xs text-zinc-400 italic">

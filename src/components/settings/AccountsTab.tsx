@@ -265,6 +265,10 @@ export function AccountsTab({
                   value={editPassword}
                   onChange={(e) => onEditPasswordChange(e.target.value)}
                   placeholder={language === 'en' ? 'Leave empty to preserve existing password' : 'Mevcut şifreyi korumak için boş bırakın'}
+                  // "Göster" modunda type=text olur; yazım denetimi açık kalırsa
+                  // sağ tık -> sözlüğe ekle ile parola düz metin sözlüğe düşebilir.
+                  spellCheck={false}
+                  autoComplete="off"
                   className="w-full rounded-xl border border-zinc-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-800"
                 />
               </div>

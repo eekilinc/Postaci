@@ -12,7 +12,7 @@
 // (data: gömülü imza görselleri, göreli URL'ler, örnek metinler) bozmadığını
 // sabitler. Düzeltmeden önce 2-4 numaralı vektörler KIRMIZI idi.
 import { describe, expect, it } from 'vitest';
-import { sanitizeEmailHtml } from './sanitizeEmail';
+import { sanitizeEmailHtml, sanitizeSignatureHtml, escapeHtml } from './sanitizeEmail';
 
 const blocked = (html: string) => sanitizeEmailHtml(html, { allowRemoteImages: false });
 const allowed = (html: string) => sanitizeEmailHtml(html, { allowRemoteImages: true });
@@ -112,5 +112,39 @@ describe('taşma temizliği (regresyon)', () => {
 
   it('<nobr> span olur', () => {
     expect(blocked('<nobr>uzun</nobr>')).toContain('<span>uzun</span>');
+  });
+});
+
+describe('sanitizeSignatureHtml — imza önizlemesi', () => {
+  it('script ve olay enjeksiyonunu düşürür', () => {
+    const out = sanitizeSignatureHtml('<p>imza</p><script>alert(1)</script><p onclick="x()">a</p>');
+    expect(out).not.toContain('<script');
+    expect(out).not.toContain('onclick');
+    expect(out).toContain('imza');
+  });
+
+  it('uzak logo görseli meşru olduğu için yerinde kalır', () => {
+    expect(sanitizeSignatureHtml('<img src="https://sirket.example/logo.png">')).toContain('logo.png');
+  });
+});
+
+describe('escapeHtml — şablon interpolasyonu', () => {
+  it('HTML isaretlemesini metne cevirir', () => {
+    expect(escapeHtml('<img src=x onerror=alert(1)>')).toBe(
+      '&lt;img src=x onerror=alert(1)&gt;',
+    );
+  });
+
+  it('cift tirnak & olarak kacar', () => {
+    expect(escapeHtml('a"b')).toBe('a&quot;b');
+  });
+
+  it('tırnak ve amp; güvenli', () => {
+    expect(escapeHtml(`a"b'c&d`)).toBe('a&quot;b&#39;c&amp;d');
+  });
+
+  it('null/undefined boş dizgiye düşer', () => {
+    expect(escapeHtml(null as unknown as string)).toBe('');
+    expect(escapeHtml(undefined as unknown as string)).toBe('');
   });
 });

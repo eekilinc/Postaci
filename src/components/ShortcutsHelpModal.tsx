@@ -1,7 +1,9 @@
 // src/components/ShortcutsHelpModal.tsx — Kapsamlı Klavye Kısayolları Rehberi
+import { useRef } from 'react';
 import { PostaciLogo } from './PostaciLogo';
 import { CloseIcon } from './icons';
 import { useTranslation } from '../i18n';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface ShortcutsHelpModalProps {
   isOpen: boolean;
@@ -10,6 +12,9 @@ interface ShortcutsHelpModalProps {
 
 export function ShortcutsHelpModal({ isOpen, onClose }: ShortcutsHelpModalProps) {
   const { t, language } = useTranslation();
+  // Hook kuralı: erken dönüşten ÖNCE çağrılmalı; ref yalnız açıkken dolar.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(rootRef, isOpen);
   if (!isOpen) return null;
 
   const orText = t('shortcuts.or');
@@ -61,7 +66,8 @@ export function ShortcutsHelpModal({ isOpen, onClose }: ShortcutsHelpModalProps)
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-150 p-4"
+            ref={rootRef}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-150 p-4"
       onClick={onClose}
     >
       <div
