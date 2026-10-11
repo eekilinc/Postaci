@@ -143,7 +143,7 @@ export function AboutTab({
               </button>
             ) : updaterStatus.state === 'downloading' ? (
               <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                {language === 'en' ? `Downloading %{updaterStatus.percent}` : `İndiriliyor %{updaterStatus.percent}`}
+                {language === 'en' ? `Downloading ${updaterStatus.percent}%` : `İndiriliyor ${updaterStatus.percent}%`}
               </span>
             ) : (
               updateCheckStatus === 'available' && latestReleaseInfo?.url && (

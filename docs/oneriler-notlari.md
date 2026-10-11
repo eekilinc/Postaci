@@ -46,6 +46,32 @@ Tauri hariç, sırayla uygulanacak liste. `[x]` = bitti, `[>]` = yapım aşamas�
 
 ## Tamamlananlar (2026-10-11)
 
+- [x] **Kalan eksikler kapatıldı (194 → 197 test):**
+  1. **mail-ipc.cjs işlevsel alt gruplara bölündü** (1180 satır → 4 modül):
+     `mail-sync-ipc` (234, 8 handler), `mail-read-ipc` (169, 12),
+     `mail-write-ipc` (104, 6 + composeTemplate), `mail-mutate-ipc` (723, 13).
+     Aynı makinayla: require'lar gövdeden otomatik üretildi; ağ yine gerçek
+     eksik yakaladı (alt bölme script'i node:path/fs'yi dış liste dışı tutmuştu
+     ve composeTemplate gövdesi require taramasına girmemişti → duman +
+     statik test kırmızı verdi, onarım geçişi yazıldı, yeşil).
+  2. **AboutTab indirme yüzdesi hatası düzeltildi** — updater indirme satırı
+     şablon dizgisinde `${...}` yerine `%{...}` yazılmıştı: kullanıcı "İndiriliyor
+     %{updaterStatus.percent}" METNİNİ görüyordu. UpdateBanner'daki benzer
+     desen JSX'te doğruydu (`%` literal + ifade).
+  3. **CSP daraltıldı** — `img-src` listesinden `http:` çıkarıldı (şifresiz
+     http görsel isteği artık tarayıcı düzeyinde engelli; https/data/blob
+     kalıyor).
+  4. **Simge-düğme erişilebilirlik denetimi YAPILDI, sonuç: 0 sorun.** Önceki
+     analizdeki "bazı simge-düğmelerde aria-label eksik" izlenimi yanlıştı —
+     otomatik tarama (yalnız-simge + erişilebilir ad yok) 29 yanlış pozitif
+     verdi, kural sıkılaştırılınca gerçek sayı 0 çıktı. Kod tabanı temiz.
+- [x] **`document.execCommand` erteleme kararı (bilinçli)** — imza editörünün
+  tek kullanım noktası `ComposingTab.execSigCommand` içinde İZOLE; Chromium
+  tarafından deprecate ama işlevsel. Selection/Range tabanlı yeniden yazım
+  yüksek regresyon riski + bugün sıfır kullanıcı değeri taşır. Yer değiştirme
+  noktası tek fonksiyon olduğundan ileride ucuz.
+
+
 - [x] **`electron/ipc.cjs` alan bazlı modüllere bölündü (ÖNCEKİ DENEME BAŞARISIZDI, bu kez tamamlandı).**
   1985 satırlık monolit → 31 satırlık yükleyici + `ipc-helpers.cjs` (439) +
   9 alan modülü (`electron/ipc/`): db, logs, accounts(+auth), mail, contacts,

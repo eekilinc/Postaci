@@ -12,7 +12,10 @@ const MODULES = [
   './ipc/db-ipc.cjs',
   './ipc/dialog-ipc.cjs',
   './ipc/logs-ipc.cjs',
-  './ipc/mail-ipc.cjs',
+  './ipc/mail-sync-ipc.cjs',
+  './ipc/mail-read-ipc.cjs',
+  './ipc/mail-write-ipc.cjs',
+  './ipc/mail-mutate-ipc.cjs',
   './ipc/notifications-ipc.cjs',
   './ipc/shell-ipc.cjs',
 ];
